@@ -11,4 +11,6 @@ rust-version.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 bitflags.workspace = true
+tracing.workspace = true

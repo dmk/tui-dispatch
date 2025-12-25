@@ -2,7 +2,7 @@
 
 use ratatui::{layout::Rect, Frame};
 
-use crate::event::{Event, EventType};
+use crate::event::{EventKind, EventType};
 use crate::Action;
 
 /// A pure UI component that renders based on props and emits actions
@@ -14,6 +14,12 @@ use crate::Action;
 ///
 /// Internal UI state (scroll position, selection highlight) can be stored in `&mut self`,
 /// but data mutations must go through actions.
+///
+/// # Focus and Context
+///
+/// Components receive `EventKind` (the raw event) rather than the full `Event` with context.
+/// Focus information and other context should be passed through `Props`. This keeps components
+/// decoupled from the specific ComponentId type used by the application.
 pub trait Component {
     /// Data required to render the component (read-only)
     type Props<'a>;
@@ -28,12 +34,11 @@ pub trait Component {
 
     /// Handle an event and return actions to dispatch
     ///
-    /// The event includes context about focus, mouse position, etc.
-    /// Components should check `event.context.focused_component` or
-    /// `event.context.is_focused(id)` before handling non-global events.
+    /// Components receive the raw `EventKind` (key press, mouse event, etc.).
+    /// Focus state and other context should be passed through `Props`.
     fn handle_event(
         &mut self,
-        event: &Event,
+        event: &EventKind,
         props: Self::Props<'_>,
     ) -> Vec<impl Action>;
 

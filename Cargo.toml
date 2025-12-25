@@ -21,5 +21,13 @@ tui-dispatch-macros = { path = "tui-dispatch-macros" }
 # External deps
 ratatui = "0.29"
 crossterm = "0.28"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-util = "0.7"
 bitflags = "2"
+tracing = "0.1"
+
+# Proc macro deps
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+darling = "0.20"

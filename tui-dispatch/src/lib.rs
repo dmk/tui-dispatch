@@ -8,34 +8,47 @@
 //! use tui_dispatch::prelude::*;
 //!
 //! #[derive(Action, Clone, Debug)]
-//! enum Action {
+//! enum MyAction {
 //!     NextItem,
 //!     PrevItem,
 //! }
 //!
-//! struct ItemList;
-//!
-//! impl Component for ItemList {
-//!     type Props<'a> = (&'a [String], usize);
-//!
-//!     fn handle_event(&mut self, event: &Event, _props: Self::Props<'_>) -> Vec<Action> {
-//!         // ...
-//!         vec![]
-//!     }
-//!
-//!     fn render(&mut self, f: &mut Frame, area: Rect, props: Self::Props<'_>) {
-//!         // ...
-//!     }
+//! #[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+//! enum MyComponentId {
+//!     List,
+//!     Detail,
 //! }
 //! ```
 
+// Re-export everything from core
 pub use tui_dispatch_core::*;
-pub use tui_dispatch_macros::Action;
 
+// Re-export derive macros
+pub use tui_dispatch_macros::{Action, BindingContext, ComponentId};
+
+/// Prelude for convenient imports
 pub mod prelude {
+    // Traits
+    pub use tui_dispatch_core::{Action, BindingContext, Component, ComponentId};
+
+    // Event system
     pub use tui_dispatch_core::{
-        Action, Component, Event, EventContext, EventKind, EventType,
-        Color, Frame, Line, Modifier, Rect, Span, Style, Text,
+        Event, EventBus, EventContext, EventKind, EventType, NumericComponentId,
+        RawEvent, process_raw_event, spawn_event_poller,
     };
-    pub use tui_dispatch_macros::Action;
+
+    // Keybindings
+    pub use tui_dispatch_core::{Keybindings, format_key_for_display, parse_key_string};
+
+    // Store
+    pub use tui_dispatch_core::{
+        ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware,
+        Reducer, Store, StoreWithMiddleware,
+    };
+
+    // Derive macros
+    pub use tui_dispatch_macros::{Action, BindingContext, ComponentId};
+
+    // Ratatui re-exports
+    pub use tui_dispatch_core::{Color, Frame, Line, Modifier, Rect, Span, Style, Text};
 }
