@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "tui-dispatch",
+    "tui-dispatch-core",
+    "tui-dispatch-macros",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/stviva/tui-dispatch"
+rust-version = "1.85"
+
+[workspace.dependencies]
+tui-dispatch = { path = "tui-dispatch" }
+tui-dispatch-core = { path = "tui-dispatch-core" }
+tui-dispatch-macros = { path = "tui-dispatch-macros" }
+
+# External deps
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+bitflags = "2"
