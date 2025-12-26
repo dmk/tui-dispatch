@@ -1,0 +1,30 @@
+[package]
+name = "weather-example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Weather TUI example demonstrating tui-dispatch patterns"
+
+[lib]
+name = "weather_example"
+path = "src/lib.rs"
+
+[[bin]]
+name = "weather"
+path = "src/main.rs"
+
+[dependencies]
+tui-dispatch.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+reqwest.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+urlencoding = "2"
+
+[dev-dependencies]
+# For snapshot testing (optional)
+# insta = "1"

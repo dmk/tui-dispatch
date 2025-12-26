@@ -7,6 +7,12 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+# Enable time control utilities for testing debounced actions
+# Requires tokio with test-util feature
+testing-time = ["tokio/test-util"]
+
 [dependencies]
 ratatui.workspace = true
 crossterm.workspace = true

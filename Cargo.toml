@@ -4,6 +4,7 @@ members = [
     "tui-dispatch",
     "tui-dispatch-core",
     "tui-dispatch-macros",
+    "examples/weather",
 ]
 
 [workspace.package]
@@ -27,6 +28,10 @@ bitflags = "2"
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# HTTP/CLI deps (for examples)
+reqwest = { version = "0.12", features = ["json"] }
+clap = { version = "4", features = ["derive"] }
 
 # Proc macro deps
 proc-macro2 = "1"

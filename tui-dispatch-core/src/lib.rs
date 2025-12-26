@@ -71,6 +71,16 @@ pub use ratatui::{
     text::{Line, Span, Text},
 };
 
+// Testing exports
+pub use testing::{
+    ActionAssertions, ActionAssertionsEq, RenderHarness, TestHarness,
+    alt_key, buffer_to_string, buffer_to_string_plain, buffer_rect_to_string_plain,
+    char_key, ctrl_key, into_event, key, key_event, key_events, keys,
+};
+
+#[cfg(feature = "testing-time")]
+pub use testing::{advance_time, pause_time, resume_time};
+
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::action::{Action, ActionCategory};
