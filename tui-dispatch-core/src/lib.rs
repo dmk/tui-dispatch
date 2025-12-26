@@ -44,17 +44,18 @@ pub mod component;
 pub mod event;
 pub mod keybindings;
 pub mod store;
+pub mod testing;
 
 // Core trait exports
-pub use action::Action;
+pub use action::{Action, ActionCategory};
 pub use component::Component;
 
 // Event system exports
-pub use bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
+pub use bus::{EventBus, RawEvent, process_raw_event, spawn_event_poller};
 pub use event::{ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId};
 
 // Keybindings exports
-pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, Keybindings};
+pub use keybindings::{BindingContext, Keybindings, format_key_for_display, parse_key_string};
 
 // Store exports
 pub use store::{
@@ -64,20 +65,22 @@ pub use store::{
 
 // Re-export ratatui types for convenience
 pub use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    Frame,
 };
 
 /// Prelude module for convenient imports
 pub mod prelude {
-    pub use crate::action::Action;
-    pub use crate::bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
+    pub use crate::action::{Action, ActionCategory};
+    pub use crate::bus::{EventBus, RawEvent, process_raw_event, spawn_event_poller};
     pub use crate::component::Component;
-    pub use crate::event::{ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId};
+    pub use crate::event::{
+        ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId,
+    };
     pub use crate::keybindings::{
-        format_key_for_display, parse_key_string, BindingContext, Keybindings,
+        BindingContext, Keybindings, format_key_for_display, parse_key_string,
     };
     pub use crate::store::{
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
@@ -86,9 +89,9 @@ pub mod prelude {
 
     // Re-export ratatui types
     pub use ratatui::{
+        Frame,
         layout::Rect,
         style::{Color, Modifier, Style},
         text::{Line, Span, Text},
-        Frame,
     };
 }

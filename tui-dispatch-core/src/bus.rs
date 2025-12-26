@@ -1,7 +1,7 @@
 //! Event bus for dispatching events to subscribed components
 
-use crate::event::{ComponentId, Event, EventContext, EventKind, EventType};
 use crate::Action;
+use crate::event::{ComponentId, Event, EventContext, EventKind, EventType};
 use crossterm::event::{self, KeyModifiers, MouseEventKind};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -259,7 +259,10 @@ mod tests {
         let mut bus: EventBus<TestAction, NumericComponentId> = EventBus::new(tx);
 
         let component = NumericComponentId(1);
-        bus.subscribe_many(component, &[EventType::Key, EventType::Mouse, EventType::Scroll]);
+        bus.subscribe_many(
+            component,
+            &[EventType::Key, EventType::Mouse, EventType::Scroll],
+        );
 
         bus.unsubscribe_all(component);
 

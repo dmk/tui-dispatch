@@ -1,9 +1,9 @@
 //! Component trait for pure UI elements
 
-use ratatui::{layout::Rect, Frame};
+use ratatui::{Frame, layout::Rect};
 
-use crate::event::{EventKind, EventType};
 use crate::Action;
+use crate::event::{EventKind, EventType};
 
 /// A pure UI component that renders based on props and emits actions
 ///
@@ -36,11 +36,7 @@ pub trait Component {
     ///
     /// Components receive the raw `EventKind` (key press, mouse event, etc.).
     /// Focus state and other context should be passed through `Props`.
-    fn handle_event(
-        &mut self,
-        event: &EventKind,
-        props: Self::Props<'_>,
-    ) -> Vec<impl Action>;
+    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<impl Action>;
 
     /// Render the component to the frame
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>);

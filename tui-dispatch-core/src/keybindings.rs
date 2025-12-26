@@ -1,6 +1,7 @@
 //! Keybindings system with context-aware key parsing and lookup
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -43,6 +44,52 @@ pub struct Keybindings<C: BindingContext> {
 impl<C: BindingContext> Default for Keybindings<C> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<C: BindingContext> Serialize for Keybindings<C> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        // Count total entries: global + all contexts
+        let mut map = serializer.serialize_map(Some(1 + self.contexts.len()))?;
+
+        // Serialize global bindings
+        map.serialize_entry("global", &self.global)?;
+
+        // Serialize context-specific bindings using context names
+        for (context, bindings) in &self.contexts {
+            map.serialize_entry(context.name(), bindings)?;
+        }
+
+        map.end()
+    }
+}
+
+impl<'de, C: BindingContext> Deserialize<'de> for Keybindings<C> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Deserialize as a map of string -> bindings
+        let raw: HashMap<String, HashMap<String, Vec<String>>> =
+            HashMap::deserialize(deserializer)?;
+
+        let mut keybindings = Keybindings::new();
+
+        for (context_name, bindings) in raw {
+            if context_name == "global" {
+                keybindings.global = bindings;
+            } else if let Some(context) = C::from_name(&context_name) {
+                keybindings.contexts.insert(context, bindings);
+            }
+            // Silently ignore unknown contexts (allows forward compatibility)
+        }
+
+        Ok(keybindings)
     }
 }
 
@@ -396,11 +443,7 @@ mod tests {
     fn test_get_command() {
         let mut bindings: Keybindings<TestContext> = Keybindings::new();
         bindings.add_global("quit", vec!["q".to_string()]);
-        bindings.add(
-            TestContext::Search,
-            "clear",
-            vec!["esc".to_string()],
-        );
+        bindings.add(TestContext::Search, "clear", vec!["esc".to_string()]);
 
         let key_q = KeyEvent {
             code: KeyCode::Char('q'),

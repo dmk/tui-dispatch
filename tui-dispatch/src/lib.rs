@@ -29,12 +29,12 @@ pub use tui_dispatch_macros::{Action, BindingContext, ComponentId};
 /// Prelude for convenient imports
 pub mod prelude {
     // Traits
-    pub use tui_dispatch_core::{Action, BindingContext, Component, ComponentId};
+    pub use tui_dispatch_core::{Action, ActionCategory, BindingContext, Component, ComponentId};
 
     // Event system
     pub use tui_dispatch_core::{
-        Event, EventBus, EventContext, EventKind, EventType, NumericComponentId,
-        RawEvent, process_raw_event, spawn_event_poller,
+        Event, EventBus, EventContext, EventKind, EventType, NumericComponentId, RawEvent,
+        process_raw_event, spawn_event_poller,
     };
 
     // Keybindings
@@ -42,8 +42,8 @@ pub mod prelude {
 
     // Store
     pub use tui_dispatch_core::{
-        ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware,
-        Reducer, Store, StoreWithMiddleware,
+        ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
+        StoreWithMiddleware,
     };
 
     // Derive macros
