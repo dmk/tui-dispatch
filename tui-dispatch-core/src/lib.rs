@@ -41,6 +41,7 @@
 pub mod action;
 pub mod bus;
 pub mod component;
+pub mod debug;
 pub mod event;
 pub mod keybindings;
 pub mod store;

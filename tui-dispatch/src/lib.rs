@@ -46,6 +46,11 @@ pub mod prelude {
         StoreWithMiddleware,
     };
 
+    // Debug
+    pub use tui_dispatch_core::debug::{
+        ActionLoggerConfig, ActionLoggerMiddleware, DebugFreeze, DebugOverlay, DebugTableBuilder,
+    };
+
     // Derive macros
     pub use tui_dispatch_macros::{Action, BindingContext, ComponentId};
 

@@ -5,6 +5,7 @@ members = [
     "tui-dispatch-core",
     "tui-dispatch-macros",
     "examples/weather",
+    "examples/markdown-preview",
 ]
 
 [workspace.package]

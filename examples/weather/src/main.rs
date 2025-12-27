@@ -158,7 +158,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             terminal.draw(|frame| {
                 let props = WeatherDisplayProps {
                     state: store.state(),
-                    is_focused: true, // Single component, always focused
+                    is_focused: true,
                 };
                 weather_display.render(frame, frame.area(), props);
             })?;

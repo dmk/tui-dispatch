@@ -1,0 +1,20 @@
+[package]
+name = "markdown-preview"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Markdown preview TUI demonstrating debug features"
+
+[[bin]]
+name = "mdpreview"
+path = "src/main.rs"
+
+[dependencies]
+tui-dispatch.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+clap.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+pulldown-cmark = "0.12"
+base64 = "0.22"
