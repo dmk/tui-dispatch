@@ -3,20 +3,20 @@
 //! Provides a wrapper that handles debug UI rendering with sensible defaults.
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::{Block, Borders, Clear};
-use ratatui::Frame;
 use std::marker::PhantomData;
 
+use super::DebugFreeze;
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
 use super::config::{DebugConfig, StatusItem};
 use super::state::DebugState;
 use super::table::{DebugOverlay, DebugTableBuilder, DebugTableOverlay};
-use super::widgets::{dim_buffer, paint_snapshot, BannerItem, DebugBanner, DebugTableWidget};
-use super::DebugFreeze;
-use crate::keybindings::{format_key_for_display, BindingContext};
+use super::widgets::{BannerItem, DebugBanner, DebugTableWidget, dim_buffer, paint_snapshot};
+use crate::keybindings::{BindingContext, format_key_for_display};
 
 /// High-level debug layer with sensible defaults
 ///
@@ -418,8 +418,12 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
 
     fn render_modal(&self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
         // Calculate modal size (80% width, 60% height, with min/max)
-        let modal_width = (app_area.width * 80 / 100).clamp(30, 120).min(app_area.width);
-        let modal_height = (app_area.height * 60 / 100).clamp(8, 40).min(app_area.height);
+        let modal_width = (app_area.width * 80 / 100)
+            .clamp(30, 120)
+            .min(app_area.width);
+        let modal_height = (app_area.height * 60 / 100)
+            .clamp(8, 40)
+            .min(app_area.height);
 
         // Center the modal
         let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;

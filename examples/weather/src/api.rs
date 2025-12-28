@@ -54,14 +54,9 @@ pub async fn geocode_city(city: &str) -> Result<Location, GeocodingError> {
         urlencoding::encode(city)
     );
 
-    let response = reqwest::get(&url)
-        .await
-        .map_err(GeocodingError::Request)?;
+    let response = reqwest::get(&url).await.map_err(GeocodingError::Request)?;
 
-    let data: GeocodingResponse = response
-        .json()
-        .await
-        .map_err(GeocodingError::Request)?;
+    let data: GeocodingResponse = response.json().await.map_err(GeocodingError::Request)?;
 
     data.results
         .and_then(|results| results.into_iter().next())
@@ -145,7 +140,7 @@ fn weather_description(code: u8) -> String {
         66 | 67 => "Freezing rain",
         71 | 73 | 75 => "Snow",
         77 => "Snow grains",
-        80 | 81 | 82 => "Rain showers",
+        80..=82 => "Rain showers",
         85 | 86 => "Snow showers",
         95 => "Thunderstorm",
         96 | 99 => "Thunderstorm with hail",

@@ -184,7 +184,7 @@ impl<A: Debug> ActionAssertions<A> for Vec<A> {
 
     fn assert_any_matches<F: Fn(&A) -> bool>(&self, f: F) {
         assert!(
-            self.iter().any(|a| f(a)),
+            self.iter().any(&f),
             "Expected any action to match predicate, but none did: {:?}",
             self
         );
@@ -303,7 +303,7 @@ impl<A: Debug> ActionAssertions<A> for [A] {
 
     fn assert_any_matches<F: Fn(&A) -> bool>(&self, f: F) {
         assert!(
-            self.iter().any(|a| f(a)),
+            self.iter().any(&f),
             "Expected any action to match predicate, but none did: {:?}",
             self
         );
@@ -987,9 +987,9 @@ macro_rules! assert_state_matches {
 // Render Harness
 // ============================================================================
 
+use ratatui::Terminal;
 use ratatui::backend::{Backend, TestBackend};
 use ratatui::buffer::Buffer;
-use ratatui::Terminal;
 
 /// Test harness for capturing rendered output.
 ///
@@ -1064,9 +1064,7 @@ impl RenderHarness {
 
     /// Resize the terminal.
     pub fn resize(&mut self, width: u16, height: u16) {
-        self.terminal
-            .backend_mut()
-            .resize(width, height);
+        self.terminal.backend_mut().resize(width, height);
     }
 }
 

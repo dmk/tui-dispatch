@@ -119,16 +119,16 @@ pub use layer::{DebugLayer, DebugLayerBuilder};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging
-pub use action_logger::{glob_match, ActionLoggerConfig, ActionLoggerMiddleware};
+pub use action_logger::{ActionLoggerConfig, ActionLoggerMiddleware, glob_match};
 
 // Low-level API
 pub use cell::{
-    format_color_compact, format_modifier_compact, inspect_cell, point_in_rect, CellPreview,
+    CellPreview, format_color_compact, format_modifier_compact, inspect_cell, point_in_rect,
 };
 pub use table::{DebugOverlay, DebugTableBuilder, DebugTableOverlay, DebugTableRow};
 pub use widgets::{
-    buffer_to_text, dim_buffer, paint_snapshot, BannerItem, CellPreviewWidget, DebugBanner,
-    DebugTableStyle, DebugTableWidget,
+    BannerItem, CellPreviewWidget, DebugBanner, DebugTableStyle, DebugTableWidget, buffer_to_text,
+    dim_buffer, paint_snapshot,
 };
 
 use ratatui::buffer::Buffer;

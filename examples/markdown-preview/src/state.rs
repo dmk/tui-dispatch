@@ -106,28 +106,33 @@ impl AppState {
                             };
                             Style::default().fg(color).add_modifier(Modifier::BOLD)
                         }
-                        Tag::Strong => {
-                            style_stack.last().unwrap_or(&Style::default())
-                                .add_modifier(Modifier::BOLD)
-                        }
-                        Tag::Emphasis => {
-                            style_stack.last().unwrap_or(&Style::default())
-                                .add_modifier(Modifier::ITALIC)
-                        }
+                        Tag::Strong => style_stack
+                            .last()
+                            .unwrap_or(&Style::default())
+                            .add_modifier(Modifier::BOLD),
+                        Tag::Emphasis => style_stack
+                            .last()
+                            .unwrap_or(&Style::default())
+                            .add_modifier(Modifier::ITALIC),
                         Tag::CodeBlock(_) => {
                             stats.code_block_count += 1;
                             in_code_block = true;
-                            Style::default().fg(Color::Rgb(180, 180, 180)).bg(Color::Rgb(40, 40, 50))
+                            Style::default()
+                                .fg(Color::Rgb(180, 180, 180))
+                                .bg(Color::Rgb(40, 40, 50))
                         }
                         Tag::Link { .. } => {
                             stats.link_count += 1;
-                            Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED)
+                            Style::default()
+                                .fg(Color::Blue)
+                                .add_modifier(Modifier::UNDERLINED)
                         }
                         Tag::List(_) => Style::default(),
                         Tag::Item => {
                             stats.list_item_count += 1;
                             // Add bullet point
-                            current_spans.push(Span::styled("  - ", Style::default().fg(Color::DarkGray)));
+                            current_spans
+                                .push(Span::styled("  - ", Style::default().fg(Color::DarkGray)));
                             Style::default()
                         }
                         Tag::Paragraph => {
@@ -221,7 +226,8 @@ impl AppState {
     /// Scroll by delta lines
     pub fn scroll(&mut self, delta: i16) {
         if delta > 0 {
-            self.scroll_offset = self.scroll_offset
+            self.scroll_offset = self
+                .scroll_offset
                 .saturating_add(delta as usize)
                 .min(self.max_scroll());
         } else {

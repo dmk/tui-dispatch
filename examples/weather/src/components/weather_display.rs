@@ -7,13 +7,13 @@
 //! - Focus handled via props, not event context
 
 use crossterm::event::KeyCode;
+use ratatui::prelude::{Frame, Rect};
 use ratatui::{
     layout::{Alignment, Constraint, Flex, Layout},
     style::{Color, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
-use ratatui::prelude::{Frame, Rect};
 use tui_dispatch::EventKind;
 
 use crate::action::Action;
@@ -32,7 +32,11 @@ pub struct WeatherDisplay;
 
 impl WeatherDisplay {
     /// Handle an event and return actions to dispatch
-    pub fn handle_event(&mut self, event: &EventKind, props: WeatherDisplayProps<'_>) -> Vec<Action> {
+    pub fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: WeatherDisplayProps<'_>,
+    ) -> Vec<Action> {
         if !props.is_focused {
             return vec![];
         }
@@ -78,13 +82,13 @@ impl WeatherDisplay {
             Line::from(vec![
                 Span::styled("📍 ", Style::default()),
                 Span::styled(&location.name, Style::default().fg(Color::White).bold()),
-            ]).centered(),
-            Line::from(vec![
-                Span::styled(
-                    format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]).centered(),
+            ])
+            .centered(),
+            Line::from(vec![Span::styled(
+                format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
+                Style::default().fg(Color::DarkGray),
+            )])
+            .centered(),
         ];
         let header = Paragraph::new(location_text);
         frame.render_widget(header, chunks[0]);
@@ -110,7 +114,8 @@ impl WeatherDisplay {
             Span::styled(" units  ", Style::default().fg(Color::DarkGray)),
             Span::styled("q", Style::default().fg(Color::Cyan).bold()),
             Span::styled(" quit ", Style::default().fg(Color::DarkGray)),
-        ]).centered();
+        ])
+        .centered();
         frame.render_widget(Paragraph::new(help), chunks[3]);
     }
 }
@@ -127,8 +132,12 @@ fn render_loading(frame: &mut Frame, area: Rect, tick: u32) {
         Line::from(""),
         Line::from(vec![
             Span::styled(spinner, Style::default().fg(Color::Cyan)),
-            Span::styled(format!(" Fetching weather{:<3}", dots), Style::default().fg(Color::Gray)),
-        ]).centered(),
+            Span::styled(
+                format!(" Fetching weather{:<3}", dots),
+                Style::default().fg(Color::Gray),
+            ),
+        ])
+        .centered(),
     ]);
 
     frame.render_widget(Paragraph::new(loading), area);
@@ -137,23 +146,26 @@ fn render_loading(frame: &mut Frame, area: Rect, tick: u32) {
 fn render_error(frame: &mut Frame, area: Rect, error: &str) {
     let error_art = vec![
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  ⚠️  ", Style::default()),
-        ]).centered(),
+        Line::from(vec![Span::styled("  ⚠️  ", Style::default())]).centered(),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Error", Style::default().fg(Color::Red).bold()),
-        ]).centered(),
+        Line::from(vec![Span::styled(
+            "Error",
+            Style::default().fg(Color::Red).bold(),
+        )])
+        .centered(),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(error, Style::default().fg(Color::Rgb(200, 100, 100))),
-        ]).centered(),
+        Line::from(vec![Span::styled(
+            error,
+            Style::default().fg(Color::Rgb(200, 100, 100)),
+        )])
+        .centered(),
         Line::from(""),
         Line::from(vec![
             Span::styled("Press ", Style::default().fg(Color::DarkGray)),
             Span::styled("r", Style::default().fg(Color::Cyan).bold()),
             Span::styled(" to retry", Style::default().fg(Color::DarkGray)),
-        ]).centered(),
+        ])
+        .centered(),
     ];
 
     frame.render_widget(Paragraph::new(error_art), area);
@@ -168,13 +180,19 @@ fn render_empty(frame: &mut Frame, area: Rect) {
             Span::styled("Press ", Style::default().fg(Color::DarkGray)),
             Span::styled("r", Style::default().fg(Color::Cyan).bold()),
             Span::styled(" to fetch weather", Style::default().fg(Color::DarkGray)),
-        ]).centered(),
+        ])
+        .centered(),
     ]);
 
     frame.render_widget(Paragraph::new(empty), area);
 }
 
-fn render_weather(frame: &mut Frame, area: Rect, weather: &crate::state::WeatherData, state: &AppState) {
+fn render_weather(
+    frame: &mut Frame,
+    area: Rect,
+    weather: &crate::state::WeatherData,
+    state: &AppState,
+) {
     // Split into art area and info area
     let chunks = Layout::horizontal([
         Constraint::Min(30),    // Weather art
@@ -195,13 +213,15 @@ fn render_weather(frame: &mut Frame, area: Rect, weather: &crate::state::Weather
     let info = Text::from(vec![
         Line::from(""),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(&temp, Style::default().fg(temp_color).bold()),
-        ]),
+        Line::from(vec![Span::styled(
+            &temp,
+            Style::default().fg(temp_color).bold(),
+        )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(&weather.description, Style::default().fg(Color::Gray)),
-        ]),
+        Line::from(vec![Span::styled(
+            &weather.description,
+            Style::default().fg(Color::Gray),
+        )]),
     ]);
 
     frame.render_widget(Paragraph::new(info).alignment(Alignment::Left), chunks[1]);
@@ -210,9 +230,9 @@ fn render_weather(frame: &mut Frame, area: Rect, weather: &crate::state::Weather
 /// Get temperature-based color
 fn temp_to_color(celsius: f32) -> Color {
     match celsius as i32 {
-        ..=-10 => Color::Rgb(150, 200, 255), // Very cold - light blue
-        -9..=0 => Color::Rgb(100, 180, 255), // Cold - blue
-        1..=10 => Color::Rgb(100, 220, 200), // Cool - cyan
+        ..=-10 => Color::Rgb(150, 200, 255),  // Very cold - light blue
+        -9..=0 => Color::Rgb(100, 180, 255),  // Cold - blue
+        1..=10 => Color::Rgb(100, 220, 200),  // Cool - cyan
         11..=20 => Color::Rgb(150, 230, 150), // Mild - green
         21..=30 => Color::Rgb(255, 220, 100), // Warm - yellow
         31..=40 => Color::Rgb(255, 150, 80),  // Hot - orange
@@ -228,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_handle_event_refresh() {
-        let mut component = WeatherDisplay::default();
+        let mut component = WeatherDisplay;
         let state = AppState::default();
         let props = WeatherDisplayProps {
             state: &state,
@@ -242,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_handle_event_quit() {
-        let mut component = WeatherDisplay::default();
+        let mut component = WeatherDisplay;
         let state = AppState::default();
         let props = WeatherDisplayProps {
             state: &state,
@@ -255,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_handle_event_unfocused_ignores() {
-        let mut component = WeatherDisplay::default();
+        let mut component = WeatherDisplay;
         let state = AppState::default();
         let props = WeatherDisplayProps {
             state: &state,
@@ -269,10 +289,12 @@ mod tests {
     #[test]
     fn test_render_loading() {
         let mut render = RenderHarness::new(60, 24);
-        let mut component = WeatherDisplay::default();
+        let mut component = WeatherDisplay;
 
-        let mut state = AppState::default();
-        state.is_loading = true;
+        let state = AppState {
+            is_loading: true,
+            ..Default::default()
+        };
 
         let output = render.render_to_string_plain(|frame| {
             let props = WeatherDisplayProps {
@@ -288,14 +310,16 @@ mod tests {
     #[test]
     fn test_render_weather() {
         let mut render = RenderHarness::new(60, 24);
-        let mut component = WeatherDisplay::default();
+        let mut component = WeatherDisplay;
 
-        let mut state = AppState::default();
-        state.weather = Some(WeatherData {
-            temperature: 22.5,
-            weather_code: 0,
-            description: "Clear sky".into(),
-        });
+        let state = AppState {
+            weather: Some(WeatherData {
+                temperature: 22.5,
+                weather_code: 0,
+                description: "Clear sky".into(),
+            }),
+            ..Default::default()
+        };
 
         let output = render.render_to_string_plain(|frame| {
             let props = WeatherDisplayProps {

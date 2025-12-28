@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span, Text};
 // Sprite data - embedded at compile time
 // ============================================================================
 
-mod sprites {
+mod sprite_data {
     pub mod sun {
         pub const SMALL: &str = include_str!("../sprites/sun/small.txt");
         pub const MEDIUM: &str = include_str!("../sprites/sun/medium.txt");
@@ -143,44 +143,44 @@ pub fn weather_sprite(code: u8, terminal_size: (u16, u16)) -> (Text<'static>, Co
 pub fn get_sprite(condition: WeatherCondition, size: SpriteSize) -> (Text<'static>, Color) {
     let sprite_str = match condition {
         WeatherCondition::ClearSky => match size {
-            SpriteSize::Small => sprites::sun::SMALL,
-            SpriteSize::Medium => sprites::sun::MEDIUM,
-            SpriteSize::Large => sprites::sun::LARGE,
+            SpriteSize::Small => sprite_data::sun::SMALL,
+            SpriteSize::Medium => sprite_data::sun::MEDIUM,
+            SpriteSize::Large => sprite_data::sun::LARGE,
         },
         WeatherCondition::PartlyCloudy => match size {
-            SpriteSize::Small => sprites::partly_cloudy::SMALL,
-            SpriteSize::Medium => sprites::partly_cloudy::MEDIUM,
-            SpriteSize::Large => sprites::partly_cloudy::LARGE,
+            SpriteSize::Small => sprite_data::partly_cloudy::SMALL,
+            SpriteSize::Medium => sprite_data::partly_cloudy::MEDIUM,
+            SpriteSize::Large => sprite_data::partly_cloudy::LARGE,
         },
         WeatherCondition::Cloudy | WeatherCondition::Unknown => match size {
-            SpriteSize::Small => sprites::cloudy::SMALL,
-            SpriteSize::Medium => sprites::cloudy::MEDIUM,
-            SpriteSize::Large => sprites::cloudy::LARGE,
+            SpriteSize::Small => sprite_data::cloudy::SMALL,
+            SpriteSize::Medium => sprite_data::cloudy::MEDIUM,
+            SpriteSize::Large => sprite_data::cloudy::LARGE,
         },
         WeatherCondition::Fog => match size {
-            SpriteSize::Small => sprites::fog::SMALL,
-            SpriteSize::Medium => sprites::fog::MEDIUM,
-            SpriteSize::Large => sprites::fog::LARGE,
+            SpriteSize::Small => sprite_data::fog::SMALL,
+            SpriteSize::Medium => sprite_data::fog::MEDIUM,
+            SpriteSize::Large => sprite_data::fog::LARGE,
         },
         WeatherCondition::Drizzle => match size {
-            SpriteSize::Small => sprites::drizzle::SMALL,
-            SpriteSize::Medium => sprites::drizzle::MEDIUM,
-            SpriteSize::Large => sprites::drizzle::LARGE,
+            SpriteSize::Small => sprite_data::drizzle::SMALL,
+            SpriteSize::Medium => sprite_data::drizzle::MEDIUM,
+            SpriteSize::Large => sprite_data::drizzle::LARGE,
         },
         WeatherCondition::Rain => match size {
-            SpriteSize::Small => sprites::rain::SMALL,
-            SpriteSize::Medium => sprites::rain::MEDIUM,
-            SpriteSize::Large => sprites::rain::LARGE,
+            SpriteSize::Small => sprite_data::rain::SMALL,
+            SpriteSize::Medium => sprite_data::rain::MEDIUM,
+            SpriteSize::Large => sprite_data::rain::LARGE,
         },
         WeatherCondition::Snow => match size {
-            SpriteSize::Small => sprites::snow::SMALL,
-            SpriteSize::Medium => sprites::snow::MEDIUM,
-            SpriteSize::Large => sprites::snow::LARGE,
+            SpriteSize::Small => sprite_data::snow::SMALL,
+            SpriteSize::Medium => sprite_data::snow::MEDIUM,
+            SpriteSize::Large => sprite_data::snow::LARGE,
         },
         WeatherCondition::Thunderstorm => match size {
-            SpriteSize::Small => sprites::thunderstorm::SMALL,
-            SpriteSize::Medium => sprites::thunderstorm::MEDIUM,
-            SpriteSize::Large => sprites::thunderstorm::LARGE,
+            SpriteSize::Small => sprite_data::thunderstorm::SMALL,
+            SpriteSize::Medium => sprite_data::thunderstorm::MEDIUM,
+            SpriteSize::Large => sprite_data::thunderstorm::LARGE,
         },
     };
 
@@ -225,12 +225,18 @@ mod tests {
     #[test]
     fn test_weather_condition_from_code() {
         assert_eq!(WeatherCondition::from_code(0), WeatherCondition::ClearSky);
-        assert_eq!(WeatherCondition::from_code(1), WeatherCondition::PartlyCloudy);
+        assert_eq!(
+            WeatherCondition::from_code(1),
+            WeatherCondition::PartlyCloudy
+        );
         assert_eq!(WeatherCondition::from_code(3), WeatherCondition::Cloudy);
         assert_eq!(WeatherCondition::from_code(45), WeatherCondition::Fog);
         assert_eq!(WeatherCondition::from_code(61), WeatherCondition::Rain);
         assert_eq!(WeatherCondition::from_code(71), WeatherCondition::Snow);
-        assert_eq!(WeatherCondition::from_code(95), WeatherCondition::Thunderstorm);
+        assert_eq!(
+            WeatherCondition::from_code(95),
+            WeatherCondition::Thunderstorm
+        );
         assert_eq!(WeatherCondition::from_code(100), WeatherCondition::Unknown);
     }
 
@@ -255,7 +261,12 @@ mod tests {
         ] {
             for size in [SpriteSize::Small, SpriteSize::Medium, SpriteSize::Large] {
                 let (text, _) = get_sprite(condition, size);
-                assert!(!text.lines.is_empty(), "Sprite {:?}/{:?} should not be empty", condition, size);
+                assert!(
+                    !text.lines.is_empty(),
+                    "Sprite {:?}/{:?} should not be empty",
+                    condition,
+                    size
+                );
             }
         }
     }

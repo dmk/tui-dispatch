@@ -169,9 +169,11 @@ mod tests {
 
     impl DebugState for TestState {
         fn debug_sections(&self) -> Vec<DebugSection> {
-            vec![DebugSection::new("Test")
-                .entry("name", &self.name)
-                .entry("count", self.count.to_string())]
+            vec![
+                DebugSection::new("Test")
+                    .entry("name", &self.name)
+                    .entry("count", self.count.to_string()),
+            ]
         }
     }
 
@@ -229,6 +231,7 @@ mod tests {
     #[test]
     fn test_debug_wrapper() {
         #[derive(Debug)]
+        #[allow(dead_code)]
         struct PlainStruct {
             x: i32,
         }

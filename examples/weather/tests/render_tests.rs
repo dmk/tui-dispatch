@@ -15,11 +15,13 @@ use weather_example::{
 fn test_render_loading_state() {
     // PATTERN: RenderHarness for visual testing
     let mut render = RenderHarness::new(60, 24);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
-    let mut state = AppState::default();
-    state.is_loading = true;
-    state.tick_count = 0;
+    let state = AppState {
+        is_loading: true,
+        tick_count: 0,
+        ..Default::default()
+    };
 
     let output = render.render_to_string_plain(|frame| {
         let props = WeatherDisplayProps {
@@ -30,20 +32,25 @@ fn test_render_loading_state() {
     });
 
     // Should show loading indicator
-    assert!(output.contains("Fetching weather"), "Should show loading text");
+    assert!(
+        output.contains("Fetching weather"),
+        "Should show loading text"
+    );
 }
 
 #[test]
 fn test_render_clear_weather() {
     let mut render = RenderHarness::new(50, 20);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
-    let mut state = AppState::default();
-    state.weather = Some(WeatherData {
-        temperature: 22.5,
-        weather_code: 0, // Clear sky
-        description: "Clear sky".into(),
-    });
+    let state = AppState {
+        weather: Some(WeatherData {
+            temperature: 22.5,
+            weather_code: 0, // Clear sky
+            description: "Clear sky".into(),
+        }),
+        ..Default::default()
+    };
 
     let output = render.render_to_string_plain(|frame| {
         let props = WeatherDisplayProps {
@@ -61,10 +68,12 @@ fn test_render_clear_weather() {
 #[test]
 fn test_render_error_state() {
     let mut render = RenderHarness::new(50, 20);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
-    let mut state = AppState::default();
-    state.error = Some("Network error".into());
+    let state = AppState {
+        error: Some("Network error".into()),
+        ..Default::default()
+    };
 
     let output = render.render_to_string_plain(|frame| {
         let props = WeatherDisplayProps {
@@ -75,22 +84,27 @@ fn test_render_error_state() {
     });
 
     assert!(output.contains("Error"), "Should show error label");
-    assert!(output.contains("Network error"), "Should show error message");
+    assert!(
+        output.contains("Network error"),
+        "Should show error message"
+    );
     assert!(output.contains("retry"), "Should show retry hint");
 }
 
 #[test]
 fn test_render_fahrenheit() {
     let mut render = RenderHarness::new(50, 20);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
-    let mut state = AppState::default();
-    state.weather = Some(WeatherData {
-        temperature: 0.0, // 0°C = 32°F
-        weather_code: 0,
-        description: "Clear".into(),
-    });
-    state.unit = TempUnit::Fahrenheit;
+    let state = AppState {
+        weather: Some(WeatherData {
+            temperature: 0.0, // 0°C = 32°F
+            weather_code: 0,
+            description: "Clear".into(),
+        }),
+        unit: TempUnit::Fahrenheit,
+        ..Default::default()
+    };
 
     let output = render.render_to_string_plain(|frame| {
         let props = WeatherDisplayProps {
@@ -106,7 +120,7 @@ fn test_render_fahrenheit() {
 #[test]
 fn test_render_custom_location() {
     let mut render = RenderHarness::new(50, 20);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
     let custom = Location {
         name: "My Beach House".into(),
@@ -132,7 +146,7 @@ fn test_render_custom_location() {
 #[test]
 fn test_render_help_bar() {
     let mut render = RenderHarness::new(80, 24);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
     let state = AppState::default();
 
@@ -153,7 +167,7 @@ fn test_render_help_bar() {
 #[test]
 fn test_render_initial_state() {
     let mut render = RenderHarness::new(50, 20);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
     let state = AppState::default();
 
@@ -175,14 +189,16 @@ fn test_render_initial_state() {
 #[test]
 fn test_render_rain_weather() {
     let mut render = RenderHarness::new(50, 20);
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
-    let mut state = AppState::default();
-    state.weather = Some(WeatherData {
-        temperature: 15.0,
-        weather_code: 61, // Rain
-        description: "Rain".into(),
-    });
+    let state = AppState {
+        weather: Some(WeatherData {
+            temperature: 15.0,
+            weather_code: 61, // Rain
+            description: "Rain".into(),
+        }),
+        ..Default::default()
+    };
 
     let output = render.render_to_string_plain(|frame| {
         let props = WeatherDisplayProps {

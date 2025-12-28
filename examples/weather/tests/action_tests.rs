@@ -7,7 +7,7 @@
 //! - Use fluent assertions for readable tests
 
 use tui_dispatch::testing::*;
-use tui_dispatch::{assert_emitted, assert_not_emitted, NumericComponentId, Store};
+use tui_dispatch::{NumericComponentId, Store, assert_emitted, assert_not_emitted};
 use weather_example::{
     action::Action,
     components::{WeatherDisplay, WeatherDisplayProps},
@@ -64,7 +64,7 @@ fn test_reducer_toggle_units() {
 fn test_component_keyboard_events() {
     // PATTERN: TestHarness for component testing
     let mut harness = TestHarness::<AppState, Action>::default();
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
     // PATTERN: send_keys helper - parse key strings, call handler
     // NumericComponentId is a simple built-in ComponentId type
@@ -84,7 +84,7 @@ fn test_component_keyboard_events() {
 #[test]
 fn test_component_ignores_when_unfocused() {
     let mut harness = TestHarness::<AppState, Action>::default();
-    let mut component = WeatherDisplay::default();
+    let mut component = WeatherDisplay;
 
     // When not focused, events should be ignored
     let actions = harness.send_keys::<NumericComponentId, _>("r q u", |state, event| {

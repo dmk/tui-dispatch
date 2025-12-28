@@ -217,6 +217,7 @@ mod tests {
     use crate::event::NumericComponentId;
 
     #[derive(Clone, Debug)]
+    #[allow(dead_code)]
     enum TestAction {
         Test,
     }

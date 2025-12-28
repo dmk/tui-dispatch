@@ -74,9 +74,9 @@ pub use ratatui::{
 
 // Testing exports
 pub use testing::{
-    ActionAssertions, ActionAssertionsEq, RenderHarness, TestHarness,
-    alt_key, buffer_to_string, buffer_to_string_plain, buffer_rect_to_string_plain,
-    char_key, ctrl_key, into_event, key, key_event, key_events, keys,
+    ActionAssertions, ActionAssertionsEq, RenderHarness, TestHarness, alt_key,
+    buffer_rect_to_string_plain, buffer_to_string, buffer_to_string_plain, char_key, ctrl_key,
+    into_event, key, key_event, key_events, keys,
 };
 
 #[cfg(feature = "testing-time")]

@@ -16,27 +16,30 @@ use std::time::Duration;
 use base64::Engine;
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers, MouseButton, MouseEventKind},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
+    },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
-    Terminal,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tui_dispatch::{
+    EventKind, RawEvent, Store,
     debug::{
         DebugAction, DebugConfig, DebugLayer, DebugSection, DebugSideEffect, DebugState,
         DebugTableBuilder, inspect_cell,
     },
     keybindings::{BindingContext, Keybindings},
-    process_raw_event, spawn_event_poller, EventKind, RawEvent, Store,
+    process_raw_event, spawn_event_poller,
 };
 
 use crate::action::Action;
@@ -100,7 +103,14 @@ impl DebugState for AppState {
                 .entry("terminal_height", self.terminal_height.to_string()),
             DebugSection::new("Search")
                 .entry("active", self.search.active.to_string())
-                .entry("query", if self.search.query.is_empty() { "(none)" } else { &self.search.query })
+                .entry(
+                    "query",
+                    if self.search.query.is_empty() {
+                        "(none)"
+                    } else {
+                        &self.search.query
+                    },
+                )
                 .entry("matches", self.search.matches.len().to_string())
                 .entry("current", self.search.current_match.to_string()),
         ]
@@ -154,7 +164,11 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     // Debug layer with keybindings
     let mut keybindings = Keybindings::new();
-    keybindings.add(Context::Debug, "debug.toggle", vec!["F12".into(), "Esc".into()]);
+    keybindings.add(
+        Context::Debug,
+        "debug.toggle",
+        vec!["F12".into(), "Esc".into()],
+    );
     keybindings.add(Context::Debug, "debug.state", vec!["s".into(), "S".into()]);
     keybindings.add(Context::Debug, "debug.copy", vec!["y".into(), "Y".into()]);
     keybindings.add(Context::Debug, "debug.mouse", vec!["i".into(), "I".into()]);
@@ -208,19 +222,19 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
                             DebugEventResult::Mouse(x, y) => {
                                 // Cell inspection on mouse click
-                                if let Some(ref snapshot) = debug.freeze().snapshot {
-                                    if let Some(cell) = inspect_cell(snapshot, x, y) {
-                                        let overlay = DebugTableBuilder::new()
-                                            .section("Cell Info")
-                                            .entry("position", format!("({}, {})", x, y))
-                                            .entry("symbol", format!("'{}'", cell.symbol))
-                                            .entry("fg", format!("{:?}", cell.fg))
-                                            .entry("bg", format!("{:?}", cell.bg))
-                                            .entry("modifier", format!("{:?}", cell.modifier))
-                                            .cell_preview(cell)
-                                            .finish_inspect("Cell Inspector");
-                                        debug.freeze_mut().set_overlay(overlay);
-                                    }
+                                if let Some(ref snapshot) = debug.freeze().snapshot
+                                    && let Some(cell) = inspect_cell(snapshot, x, y)
+                                {
+                                    let overlay = DebugTableBuilder::new()
+                                        .section("Cell Info")
+                                        .entry("position", format!("({}, {})", x, y))
+                                        .entry("symbol", format!("'{}'", cell.symbol))
+                                        .entry("fg", format!("{:?}", cell.fg))
+                                        .entry("bg", format!("{:?}", cell.bg))
+                                        .entry("modifier", format!("{:?}", cell.modifier))
+                                        .cell_preview(cell)
+                                        .finish_inspect("Cell Inspector");
+                                    debug.freeze_mut().set_overlay(overlay);
                                 }
                             }
                         }
@@ -231,12 +245,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
 
                 // Check for F12 to enter debug mode
-                if let EventKind::Key(key) = &event_kind {
-                    if key.code == KeyCode::F(12) {
-                        debug.handle_action(DebugAction::Toggle);
-                        should_render = true;
-                        continue;
-                    }
+                if let EventKind::Key(key) = &event_kind
+                    && key.code == KeyCode::F(12)
+                {
+                    debug.handle_action(DebugAction::Toggle);
+                    should_render = true;
+                    continue;
                 }
 
                 // Normal event handling
@@ -287,10 +301,10 @@ fn handle_debug_event(
             action.map(DebugEventResult::Action)
         }
         EventKind::Mouse(mouse) => {
-            if debug.freeze().mouse_capture_enabled {
-                if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
-                    return Some(DebugEventResult::Mouse(mouse.column, mouse.row));
-                }
+            if debug.freeze().mouse_capture_enabled
+                && let MouseEventKind::Down(MouseButton::Left) = mouse.kind
+            {
+                return Some(DebugEventResult::Mouse(mouse.column, mouse.row));
             }
             None
         }
@@ -378,7 +392,12 @@ fn render_app(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
     // Title bar
     let title = Line::from(vec![
         Span::styled(" ", Style::default()),
-        Span::styled(&state.file_path, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            &state.file_path,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" ", Style::default()),
     ]);
     frame.render_widget(
@@ -413,7 +432,8 @@ fn render_content(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
             let line_idx = start + i;
             // Highlight search matches
             if !state.search.query.is_empty() && state.search.matches.contains(&line_idx) {
-                let is_current = state.search.matches.get(state.search.current_match) == Some(&line_idx);
+                let is_current =
+                    state.search.matches.get(state.search.current_match) == Some(&line_idx);
                 let bg = if is_current {
                     Color::Rgb(80, 80, 40)
                 } else {
@@ -422,12 +442,7 @@ fn render_content(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
                 Line::from(
                     line.spans
                         .iter()
-                        .map(|s| {
-                            Span::styled(
-                                s.content.clone(),
-                                s.style.bg(bg),
-                            )
-                        })
+                        .map(|s| Span::styled(s.content.clone(), s.style.bg(bg)))
                         .collect::<Vec<_>>(),
                 )
             } else {
@@ -446,9 +461,19 @@ fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
     if state.search.active {
         // Search input mode
         let search_line = Line::from(vec![
-            Span::styled(" /", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " /",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(&state.search.query, Style::default().fg(Color::White)),
-            Span::styled("_", Style::default().fg(Color::Gray).add_modifier(Modifier::SLOW_BLINK)),
+            Span::styled(
+                "_",
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::SLOW_BLINK),
+            ),
         ]);
         frame.render_widget(Paragraph::new(search_line).style(style), area);
     } else {

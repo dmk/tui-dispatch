@@ -27,9 +27,7 @@ impl Default for DebugStyle {
             title_style: Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
-            key_style: Style::default()
-                .fg(Color::Rgb(20, 20, 30))
-                .bg(Color::Cyan),
+            key_style: Style::default().fg(Color::Rgb(20, 20, 30)).bg(Color::Cyan),
             label_style: Style::default().fg(Color::Rgb(150, 150, 160)),
             value_style: Style::default().fg(Color::White),
             dim_factor: 0.7,
@@ -165,9 +163,8 @@ mod tests {
 
     #[test]
     fn test_config_with_status_provider() {
-        let config = DebugConfig::new(Keybindings::new(), TestContext::Debug).with_status_provider(
-            || vec![StatusItem::new("test", "value")],
-        );
+        let config = DebugConfig::new(Keybindings::new(), TestContext::Debug)
+            .with_status_provider(|| vec![StatusItem::new("test", "value")]);
 
         let items = config.status_items();
         assert_eq!(items.len(), 1);

@@ -36,12 +36,12 @@ use clap::Parser;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tui_dispatch::{process_raw_event, spawn_event_poller, EventKind, RawEvent, Store};
+use tui_dispatch::{EventKind, RawEvent, Store, process_raw_event, spawn_event_poller};
 
 use crate::action::Action;
 use crate::api::GeocodingError;
@@ -69,7 +69,10 @@ async fn main() -> io::Result<()> {
         Err(e) => {
             match e {
                 GeocodingError::NotFound(city) => {
-                    eprintln!("Error: City '{}' not found. Please check the spelling.", city);
+                    eprintln!(
+                        "Error: City '{}' not found. Please check the spelling.",
+                        city
+                    );
                     eprintln!("Examples: 'London', 'Tokyo', 'New York'");
                 }
                 GeocodingError::Request(e) => {
@@ -143,7 +146,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     });
 
     // Component
-    let mut weather_display = WeatherDisplay::default();
+    let mut weather_display = WeatherDisplay;
 
     // Initial render
     let mut should_render = true;

@@ -82,8 +82,10 @@ mod tests {
 
     #[test]
     fn test_weather_did_load_clears_loading() {
-        let mut state = AppState::default();
-        state.is_loading = true;
+        let mut state = AppState {
+            is_loading: true,
+            ..Default::default()
+        };
 
         let weather = WeatherData {
             temperature: 22.5,
