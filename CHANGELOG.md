@@ -1,18 +1,17 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2024-12-28
+
+Initial release - centralized state management for Rust TUI apps.
 
 ### Added
-- Core dispatcher with `Action` trait and derive macro
-- `Component` trait for UI components
-- Event system with crossterm integration
-- Focus management for multi-component applications
-- Testing utilities (`TestHarness`, `TestComponent`)
-- Debug/inspect helpers for action tracing
+
+- `Store` with reducer pattern and middleware support
+- `EventBus` for pub/sub event routing with focus management
+- `Component` trait for pure UI components
+- `Keybindings` with context-aware key mapping
+- Derive macros: `Action`, `ComponentId`, `BindingContext`
+- Debug tools: `DebugLayer`, `ActionLoggerMiddleware`, frame freeze/inspect
+- Testing: `TestHarness`, `RenderHarness`, assertion macros

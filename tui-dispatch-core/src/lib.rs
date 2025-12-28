@@ -11,7 +11,7 @@
 //! - **EventBus**: Pub/sub system for event routing
 //! - **Keybindings**: Context-aware key mapping
 //!
-//! # Example
+//! # Basic Example
 //!
 //! ```ignore
 //! use tui_dispatch_core::prelude::*;
@@ -37,6 +37,59 @@
 //! let mut store = Store::new(AppState::default(), reducer);
 //! store.dispatch(MyAction::Increment);
 //! ```
+//!
+//! # Async Handler Pattern
+//!
+//! For applications with async operations (API calls, file I/O, etc.), use a two-phase
+//! action pattern:
+//!
+//! 1. **Intent actions** trigger async work (e.g., `FetchData`)
+//! 2. **Result actions** carry the outcome back (e.g., `DidFetchData`, `DidFetchError`)
+//!
+//! ```ignore
+//! use tokio::sync::mpsc;
+//!
+//! #[derive(Action, Clone, Debug)]
+//! #[action(infer_categories)]
+//! enum Action {
+//!     // Intent: triggers async fetch
+//!     DataFetch { id: String },
+//!     // Result: async operation completed
+//!     DataDidLoad { id: String, payload: Vec<u8> },
+//!     DataDidError { id: String, error: String },
+//! }
+//!
+//! // Async handler spawns a task and sends result back via channel
+//! fn handle_async(action: &Action, tx: mpsc::UnboundedSender<Action>) {
+//!     match action {
+//!         Action::DataFetch { id } => {
+//!             let id = id.clone();
+//!             let tx = tx.clone();
+//!             tokio::spawn(async move {
+//!                 match fetch_from_api(&id).await {
+//!                     Ok(payload) => tx.send(Action::DataDidLoad { id, payload }),
+//!                     Err(e) => tx.send(Action::DataDidError { id, error: e.to_string() }),
+//!                 }
+//!             });
+//!         }
+//!         _ => {}
+//!     }
+//! }
+//!
+//! // Main loop receives actions from both events and async completions
+//! loop {
+//!     tokio::select! {
+//!         Some(action) = action_rx.recv() => {
+//!             handle_async(&action, action_tx.clone());
+//!             store.dispatch(action);
+//!         }
+//!         // ... event handling
+//!     }
+//! }
+//! ```
+//!
+//! The `Did*` naming convention clearly identifies result actions. With `#[action(infer_categories)]`,
+//! these are automatically grouped (e.g., `DataFetch` and `DataDidLoad` both get category `"data"`).
 
 pub mod action;
 pub mod bus;
@@ -52,11 +105,11 @@ pub use action::{Action, ActionCategory};
 pub use component::Component;
 
 // Event system exports
-pub use bus::{EventBus, RawEvent, process_raw_event, spawn_event_poller};
+pub use bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
 pub use event::{ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId};
 
 // Keybindings exports
-pub use keybindings::{BindingContext, Keybindings, format_key_for_display, parse_key_string};
+pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, Keybindings};
 
 // Store exports
 pub use store::{
@@ -66,17 +119,17 @@ pub use store::{
 
 // Re-export ratatui types for convenience
 pub use ratatui::{
-    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
+    Frame,
 };
 
 // Testing exports
 pub use testing::{
-    ActionAssertions, ActionAssertionsEq, RenderHarness, TestHarness, alt_key,
-    buffer_rect_to_string_plain, buffer_to_string, buffer_to_string_plain, char_key, ctrl_key,
-    into_event, key, key_event, key_events, keys,
+    alt_key, buffer_rect_to_string_plain, buffer_to_string, buffer_to_string_plain, char_key,
+    ctrl_key, into_event, key, key_event, key_events, keys, ActionAssertions, ActionAssertionsEq,
+    RenderHarness, TestHarness,
 };
 
 #[cfg(feature = "testing-time")]
@@ -85,13 +138,13 @@ pub use testing::{advance_time, pause_time, resume_time};
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::action::{Action, ActionCategory};
-    pub use crate::bus::{EventBus, RawEvent, process_raw_event, spawn_event_poller};
+    pub use crate::bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
     pub use crate::component::Component;
     pub use crate::event::{
         ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId,
     };
     pub use crate::keybindings::{
-        BindingContext, Keybindings, format_key_for_display, parse_key_string,
+        format_key_for_display, parse_key_string, BindingContext, Keybindings,
     };
     pub use crate::store::{
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
@@ -100,9 +153,9 @@ pub mod prelude {
 
     // Re-export ratatui types
     pub use ratatui::{
-        Frame,
         layout::Rect,
         style::{Color, Modifier, Style},
         text::{Line, Span, Text},
+        Frame,
     };
 }

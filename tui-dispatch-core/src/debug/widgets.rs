@@ -3,14 +3,14 @@
 //! Provides theme-agnostic widgets for rendering debug information.
 //! Applications provide their own styles to customize appearance.
 
-use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, Widget};
+use ratatui::Frame;
 
-use super::cell::{CellPreview, format_color_compact, format_modifier_compact};
+use super::cell::{format_color_compact, format_modifier_compact, CellPreview};
 use super::table::{DebugTableOverlay, DebugTableRow};
 
 /// Convert a buffer to plain text (for clipboard export)

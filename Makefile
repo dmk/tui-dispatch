@@ -1,7 +1,7 @@
 # tui-dispatch Makefile
 # Convenience targets for build, test, lint, and development
 
-.PHONY: all build check test fmt clippy clean help verify release lint fmt-check
+.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc
 
 # Default target
 all: build
@@ -39,6 +39,10 @@ clippy:
 # Full verification (for CI/pre-commit)
 verify: fmt-check check clippy test
 
+# Build documentation (library crates only, excludes examples)
+doc:
+	cargo doc --no-deps -p tui-dispatch -p tui-dispatch-core -p tui-dispatch-macros
+
 # Clean build artifacts
 clean:
 	cargo clean
@@ -56,5 +60,6 @@ help:
 	@echo "  make clippy      - Run linter"
 	@echo "  make lint        - Run fmt-check, check, and clippy"
 	@echo "  make verify      - Run all checks (CI)"
+	@echo "  make doc         - Build docs (library crates only)"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make help        - Show this help"

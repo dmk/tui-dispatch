@@ -2,7 +2,7 @@
 //!
 //! FRAMEWORK PATTERN: Component Trait
 //! - Props<'a>: Read-only data for rendering (borrowed from state)
-//! - handle_event: Receives EventKind, returns Vec<Action>
+//! - handle_event: Receives EventKind, returns `Vec<Action>`
 //! - render: Pure function of props - no side effects
 //! - Focus handled via props, not event context
 

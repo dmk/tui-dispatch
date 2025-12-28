@@ -20,8 +20,8 @@
 //! let middleware = ActionLoggerMiddleware::new(config);
 //! ```
 
-use crate::Action;
 use crate::store::Middleware;
+use crate::Action;
 
 /// Configuration for action logging with glob pattern filtering.
 ///

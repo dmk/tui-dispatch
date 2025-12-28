@@ -608,7 +608,7 @@ impl<S, A: Action> TestHarness<S, A> {
         !self.drain_emitted().is_empty()
     }
 
-    /// Simulate async action completion (semantic alias for [`emit`]).
+    /// Simulate async action completion (semantic alias for [`Self::emit`]).
     ///
     /// Use this when simulating backend responses or async operation results.
     ///
@@ -675,7 +675,7 @@ impl<S, A: Action> TestHarness<S, A> {
 
     /// Send a sequence of key events, calling handler and emitting returned actions.
     ///
-    /// Unlike [`send_keys`], this method emits returned actions to the harness channel,
+    /// Unlike [`Self::send_keys`], this method emits returned actions to the harness channel,
     /// allowing you to drain them later.
     ///
     /// # Example
@@ -987,9 +987,9 @@ macro_rules! assert_state_matches {
 // Render Harness
 // ============================================================================
 
-use ratatui::Terminal;
 use ratatui::backend::{Backend, TestBackend};
 use ratatui::buffer::Buffer;
+use ratatui::Terminal;
 
 /// Test harness for capturing rendered output.
 ///

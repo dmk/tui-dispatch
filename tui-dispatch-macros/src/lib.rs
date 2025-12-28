@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
-use syn::{DeriveInput, parse_macro_input};
+use syn::{parse_macro_input, DeriveInput};
 
 /// Container-level attributes for #[derive(Action)]
 #[derive(Debug, FromDeriveInput)]
@@ -309,9 +309,13 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                     .iter()
                     .map(|v| quote! { #name::#v { .. } })
                     .collect();
+                let doc = format!(
+                    "Returns true if this action belongs to the `{}` category.",
+                    cat
+                );
 
                 quote! {
-                    /// Returns true if this action belongs to the #cat category
+                    #[doc = #doc]
                     pub fn #predicate_name(&self) -> bool {
                         matches!(self, #(#patterns)|*)
                     }
@@ -320,13 +324,20 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
             .collect();
 
         // Add category-related implementations
+        let category_enum_doc = format!(
+            "Action categories for [`{}`].\n\n\
+             Use [`{}::category_enum()`] to get the category of an action.",
+            name, name
+        );
+
         expanded = quote! {
             #expanded
 
-            /// Auto-generated category enum for #name
+            #[doc = #category_enum_doc]
             #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
             pub enum #category_enum_name {
                 #(#category_variants,)*
+                /// Actions that don't belong to any specific category.
                 Uncategorized,
             }
 
@@ -384,8 +395,9 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 .iter()
                 .map(|cat| {
                     let method_name = format_ident!("dispatch_{}", cat);
+                    let doc = format!("Handle actions in the `{}` category.", cat);
                     quote! {
-                        /// Handle actions in the #cat category
+                        #[doc = #doc]
                         fn #method_name(&mut self, action: &#name) -> bool {
                             false
                         }
@@ -404,22 +416,26 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 })
                 .collect();
 
+            let dispatcher_doc = format!(
+                "Dispatcher trait for [`{}`].\n\n\
+                 Implement the `dispatch_*` methods for each category you want to handle.\n\
+                 The [`dispatch()`](Self::dispatch) method automatically routes to the correct handler.",
+                name
+            );
+
             expanded = quote! {
                 #expanded
 
-                /// Auto-generated dispatcher trait for #name
-                ///
-                /// Implement the `dispatch_*` methods for each category you want to handle.
-                /// The `dispatch` method automatically routes to the correct handler.
+                #[doc = #dispatcher_doc]
                 pub trait #dispatcher_trait_name {
                     #(#dispatch_methods)*
 
-                    /// Handle uncategorized actions
+                    /// Handle uncategorized actions.
                     fn dispatch_uncategorized(&mut self, action: &#name) -> bool {
                         false
                     }
 
-                    /// Main dispatch entry point - routes to category-specific handlers
+                    /// Main dispatch entry point - routes to category-specific handlers.
                     fn dispatch(&mut self, action: &#name) -> bool {
                         match action.category_enum() {
                             #(#dispatch_arms,)*

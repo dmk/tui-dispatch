@@ -33,12 +33,12 @@ pub mod prelude {
 
     // Event system
     pub use tui_dispatch_core::{
-        Event, EventBus, EventContext, EventKind, EventType, NumericComponentId, RawEvent,
-        process_raw_event, spawn_event_poller,
+        process_raw_event, spawn_event_poller, Event, EventBus, EventContext, EventKind, EventType,
+        NumericComponentId, RawEvent,
     };
 
     // Keybindings
-    pub use tui_dispatch_core::{Keybindings, format_key_for_display, parse_key_string};
+    pub use tui_dispatch_core::{format_key_for_display, parse_key_string, Keybindings};
 
     // Store
     pub use tui_dispatch_core::{

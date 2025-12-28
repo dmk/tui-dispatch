@@ -1,9 +1,9 @@
 //! Component trait for pure UI elements
 
-use ratatui::{Frame, layout::Rect};
+use ratatui::{layout::Rect, Frame};
 
-use crate::Action;
 use crate::event::{EventKind, EventType};
+use crate::Action;
 
 /// A pure UI component that renders based on props and emits actions
 ///

@@ -1,7 +1,7 @@
 //! Event bus for dispatching events to subscribed components
 
-use crate::Action;
 use crate::event::{ComponentId, Event, EventContext, EventKind, EventType};
+use crate::Action;
 use crossterm::event::{self, KeyModifiers, MouseEventKind};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
