@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-## [0.1.0] - 2024-12-28
+## [0.1.1] - 2024-12-28
+
+Fix workspace dependency versions for crates.io publishing.
+
+## [0.1.0] - 2024-12-28 [YANKED]
 
 Initial release - centralized state management for Rust TUI apps.
 
