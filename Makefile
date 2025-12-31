@@ -1,7 +1,7 @@
 # tui-dispatch Makefile
 # Convenience targets for build, test, lint, and development
 
-.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc
+.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc docs-serve
 
 # Default target
 all: build
@@ -43,6 +43,10 @@ verify: fmt-check check clippy test
 doc:
 	cargo doc --no-deps -p tui-dispatch -p tui-dispatch-core -p tui-dispatch-macros
 
+# Serve mdBook documentation locally
+docs-serve:
+	mdbook serve docs
+
 # Clean build artifacts
 clean:
 	cargo clean
@@ -61,5 +65,6 @@ help:
 	@echo "  make lint        - Run fmt-check, check, and clippy"
 	@echo "  make verify      - Run all checks (CI)"
 	@echo "  make doc         - Build docs (library crates only)"
+	@echo "  make docs-serve  - Serve mdBook docs locally"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make help        - Show this help"

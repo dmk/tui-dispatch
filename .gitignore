@@ -31,3 +31,6 @@ coverage/
 # Python
 .venv/
 __pycache__/
+
+# mdBook build output
+docs/book/

@@ -1,0 +1,12 @@
+[book]
+title = "tui-dispatch"
+description = "Centralized state management for Rust TUI apps"
+authors = ["tui-dispatch contributors"]
+language = "en"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/dmk/tui-dispatch"
+edit-url-template = "https://github.com/dmk/tui-dispatch/edit/main/docs/{path}"
