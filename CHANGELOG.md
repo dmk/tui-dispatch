@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2024-12-31
+
+Simplified debug layer setup and auto-derive for state inspection.
+
+### Added
+
+- `DebugLayer::simple()` - one-line debug layer setup with sensible defaults
+- `DebugLayer::simple_with_toggle_key()` - custom toggle key variant
+- `SimpleDebugContext` - built-in context enum for zero-config debug layer
+- `#[derive(DebugState)]` - auto-generate `debug_sections()` from struct fields
+  - `#[debug(section = "Name")]` - group fields by section
+  - `#[debug(skip)]` - exclude fields from debug output
+  - `#[debug(label = "Custom Label")]` - custom field labels
+  - `#[debug(debug_fmt)]` - use `{:?}` format instead of `Display`
+  - `#[debug(format = "...")]` - custom format strings
+- `default_debug_keybindings()` and `default_debug_keybindings_with_toggle()`
+- Neon color palette for debug UI styling
+- `KeyStyles` for per-action key hint colors
+- Cell preview rendering in inspect overlays
+- Debug layer documentation page
+
+### Changed
+
+- Debug layer styling now uses vibrant neon colors
+- `DebugTableStyle` defaults to neon theme
+- `CellPreviewWidget` uses neon styling by default
+
 ## [0.1.1] - 2024-12-28
 
 Fix workspace dependency versions for crates.io publishing.
