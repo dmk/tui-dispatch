@@ -5,17 +5,23 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Clear};
 use ratatui::Frame;
 use std::marker::PhantomData;
 
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
-use super::config::{DebugConfig, StatusItem};
+use super::config::{
+    default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
+    StatusItem,
+};
 use super::state::DebugState;
 use super::table::{DebugOverlay, DebugTableBuilder, DebugTableOverlay};
-use super::widgets::{dim_buffer, paint_snapshot, BannerItem, DebugBanner, DebugTableWidget};
-use super::DebugFreeze;
+use super::widgets::{
+    dim_buffer, paint_snapshot, BannerItem, CellPreviewWidget, DebugBanner, DebugTableWidget,
+};
+use super::{DebugFreeze, SimpleDebugContext};
 use crate::keybindings::{format_key_for_display, BindingContext};
 
 /// High-level debug layer with sensible defaults
@@ -207,15 +213,26 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             .label_style(style.label_style)
             .background(style.banner_bg);
 
-        // Add standard debug commands
-        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume");
-        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE_STATE, "state");
-        self.add_banner_item(&mut banner, DebugAction::CMD_COPY_FRAME, "copy");
+        // Add standard debug commands with distinct colors
+        let keys = &style.key_styles;
+        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume", keys.toggle);
+        self.add_banner_item(
+            &mut banner,
+            DebugAction::CMD_TOGGLE_STATE,
+            "state",
+            keys.state,
+        );
+        self.add_banner_item(&mut banner, DebugAction::CMD_COPY_FRAME, "copy", keys.copy);
 
         if self.freeze.mouse_capture_enabled {
-            banner = banner.item(BannerItem::new("click", "inspect", style.key_style));
+            banner = banner.item(BannerItem::new("click", "inspect", keys.mouse));
         } else {
-            self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE_MOUSE, "mouse");
+            self.add_banner_item(
+                &mut banner,
+                DebugAction::CMD_TOGGLE_MOUSE,
+                "mouse",
+                keys.mouse,
+            );
         }
 
         // Add message if present
@@ -251,15 +268,26 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             .label_style(style.label_style)
             .background(style.banner_bg);
 
-        // Add standard debug commands
-        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume");
-        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE_STATE, "state");
-        self.add_banner_item(&mut banner, DebugAction::CMD_COPY_FRAME, "copy");
+        // Add standard debug commands with distinct colors
+        let keys = &style.key_styles;
+        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume", keys.toggle);
+        self.add_banner_item(
+            &mut banner,
+            DebugAction::CMD_TOGGLE_STATE,
+            "state",
+            keys.state,
+        );
+        self.add_banner_item(&mut banner, DebugAction::CMD_COPY_FRAME, "copy", keys.copy);
 
         if self.freeze.mouse_capture_enabled {
-            banner = banner.item(BannerItem::new("click", "inspect", style.key_style));
+            banner = banner.item(BannerItem::new("click", "inspect", keys.mouse));
         } else {
-            self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE_MOUSE, "mouse");
+            self.add_banner_item(
+                &mut banner,
+                DebugAction::CMD_TOGGLE_MOUSE,
+                "mouse",
+                keys.mouse,
+            );
         }
 
         // Add message if present
@@ -442,12 +470,48 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         let inner = block.inner(modal_area);
         frame.render_widget(block, modal_area);
 
-        // Render table content
+        // Cell preview on top (if present), table below
+        if let Some(ref preview) = table.cell_preview {
+            if inner.height > 3 {
+                let preview_height = 2u16; // 1 line + 1 spacing
+                let preview_area = Rect {
+                    x: inner.x,
+                    y: inner.y,
+                    width: inner.width,
+                    height: 1,
+                };
+                let table_area = Rect {
+                    x: inner.x,
+                    y: inner.y.saturating_add(preview_height),
+                    width: inner.width,
+                    height: inner.height.saturating_sub(preview_height),
+                };
+
+                // Render cell preview with neon colors
+                let preview_widget = CellPreviewWidget::new(preview)
+                    .label_style(Style::default().fg(DebugStyle::text_secondary()))
+                    .value_style(Style::default().fg(DebugStyle::text_primary()));
+                frame.render_widget(preview_widget, preview_area);
+
+                // Render table below
+                let table_widget = DebugTableWidget::new(table);
+                frame.render_widget(table_widget, table_area);
+                return;
+            }
+        }
+
+        // No cell preview or not enough space - just render table
         let table_widget = DebugTableWidget::new(table);
         frame.render_widget(table_widget, inner);
     }
 
-    fn add_banner_item(&self, banner: &mut DebugBanner<'_>, command: &str, label: &'static str) {
+    fn add_banner_item(
+        &self,
+        banner: &mut DebugBanner<'_>,
+        command: &str,
+        label: &'static str,
+        style: Style,
+    ) {
         if let Some(key) = self
             .config
             .keybindings
@@ -456,11 +520,7 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             let formatted = format_key_for_display(&key);
             // We need to leak the string for the lifetime - this is fine for debug UI
             let key_str: &'static str = Box::leak(formatted.into_boxed_str());
-            *banner = std::mem::take(banner).item(BannerItem::new(
-                key_str,
-                label,
-                self.config.style.key_style,
-            ));
+            *banner = std::mem::take(banner).item(BannerItem::new(key_str, label, style));
         }
     }
 
@@ -506,6 +566,71 @@ impl<A, C: BindingContext> DebugLayerBuilder<A, C> {
     /// Build the DebugLayer
     pub fn build(self) -> DebugLayer<A, C> {
         DebugLayer::new(self.config)
+    }
+}
+
+// ============================================================================
+// Simple API - Zero-configuration debug layer
+// ============================================================================
+
+impl<A> DebugLayer<A, SimpleDebugContext> {
+    /// Create a debug layer with sensible defaults - no configuration needed.
+    ///
+    /// This is the recommended way to add debug capabilities to your app.
+    ///
+    /// # Default Keybindings (when debug mode is active)
+    ///
+    /// - `F12` / `Esc`: Toggle debug mode
+    /// - `S`: Show/hide state overlay
+    /// - `Y`: Copy frozen frame to clipboard
+    /// - `I`: Toggle mouse capture for cell inspection
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use tui_dispatch::debug::DebugLayer;
+    ///
+    /// // One line setup:
+    /// let mut debug = DebugLayer::<MyAction>::simple();
+    ///
+    /// // In render loop:
+    /// terminal.draw(|frame| {
+    ///     debug.render(frame, |f, area| {
+    ///         render_my_app(f, area, &state);
+    ///     });
+    /// })?;
+    ///
+    /// // Handle F12 to toggle (before normal event handling):
+    /// if matches!(event, KeyEvent { code: KeyCode::F(12), .. }) {
+    ///     debug.handle_action(DebugAction::Toggle);
+    /// }
+    /// ```
+    pub fn simple() -> Self {
+        let keybindings = default_debug_keybindings();
+        let config = DebugConfig::new(keybindings, SimpleDebugContext::Debug);
+        Self::new(config)
+    }
+
+    /// Create a debug layer with custom toggle key(s).
+    ///
+    /// Same as [`simple()`](Self::simple) but uses the provided key(s)
+    /// for toggling debug mode instead of `F12`/`Esc`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use tui_dispatch::debug::DebugLayer;
+    ///
+    /// // Use F11 instead of F12:
+    /// let debug = DebugLayer::<MyAction>::simple_with_toggle_key(&["F11"]);
+    ///
+    /// // Multiple toggle keys:
+    /// let debug = DebugLayer::<MyAction>::simple_with_toggle_key(&["F11", "Ctrl+D"]);
+    /// ```
+    pub fn simple_with_toggle_key(keys: &[&str]) -> Self {
+        let keybindings = default_debug_keybindings_with_toggle(keys);
+        let config = DebugConfig::new(keybindings, SimpleDebugContext::Debug);
+        Self::new(config)
     }
 }
 
@@ -619,5 +744,69 @@ mod tests {
         let effect = layer.handle_action(DebugAction::ToggleMouseCapture);
         assert!(matches!(effect, Some(DebugSideEffect::DisableMouseCapture)));
         assert!(!layer.freeze().mouse_capture_enabled);
+    }
+
+    // Tests for simple() API
+    #[test]
+    fn test_simple_creation() {
+        let layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
+        assert!(!layer.is_enabled());
+        assert!(layer.freeze().snapshot.is_none());
+
+        // Verify config uses SimpleDebugContext::Debug
+        assert_eq!(layer.config().debug_context, SimpleDebugContext::Debug);
+    }
+
+    #[test]
+    fn test_simple_toggle_works() {
+        let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
+
+        // Enable
+        layer.handle_action(DebugAction::Toggle);
+        assert!(layer.is_enabled());
+
+        // Disable
+        layer.handle_action(DebugAction::Toggle);
+        assert!(!layer.is_enabled());
+    }
+
+    #[test]
+    fn test_simple_with_toggle_key() {
+        let layer: DebugLayer<TestAction, SimpleDebugContext> =
+            DebugLayer::simple_with_toggle_key(&["F11"]);
+
+        assert!(!layer.is_enabled());
+
+        // Check that F11 is registered (by checking keybindings)
+        let keybindings = &layer.config().keybindings;
+        let toggle_keys = keybindings.get_context_bindings(SimpleDebugContext::Debug);
+        assert!(toggle_keys.is_some());
+
+        if let Some(bindings) = toggle_keys {
+            let keys = bindings.get("debug.toggle");
+            assert!(keys.is_some());
+            assert!(keys.unwrap().contains(&"F11".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_simple_has_default_keybindings() {
+        let layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
+        let keybindings = &layer.config().keybindings;
+
+        // Check all default bindings are present
+        let bindings = keybindings
+            .get_context_bindings(SimpleDebugContext::Debug)
+            .unwrap();
+
+        assert!(bindings.contains_key("debug.toggle"));
+        assert!(bindings.contains_key("debug.state"));
+        assert!(bindings.contains_key("debug.copy"));
+        assert!(bindings.contains_key("debug.mouse"));
+
+        // Check toggle has F12 and Esc
+        let toggle_keys = bindings.get("debug.toggle").unwrap();
+        assert!(toggle_keys.contains(&"F12".to_string()));
+        assert!(toggle_keys.contains(&"Esc".to_string()));
     }
 }

@@ -213,12 +213,22 @@ pub struct DebugTableStyle {
 
 impl Default for DebugTableStyle {
     fn default() -> Self {
+        use super::config::DebugStyle;
         Self {
-            header: Style::default().add_modifier(Modifier::BOLD),
-            section: Style::default().add_modifier(Modifier::BOLD),
-            key: Style::default().add_modifier(Modifier::BOLD),
-            value: Style::default(),
-            row_styles: (Style::default(), Style::default()),
+            header: Style::default()
+                .fg(DebugStyle::neon_cyan())
+                .add_modifier(Modifier::BOLD),
+            section: Style::default()
+                .fg(DebugStyle::neon_purple())
+                .add_modifier(Modifier::BOLD),
+            key: Style::default()
+                .fg(DebugStyle::neon_amber())
+                .add_modifier(Modifier::BOLD),
+            value: Style::default().fg(DebugStyle::text_primary()),
+            row_styles: (
+                Style::default().bg(DebugStyle::bg_panel()),
+                Style::default().bg(DebugStyle::bg_surface()),
+            ),
         }
     }
 }
@@ -315,12 +325,13 @@ pub struct CellPreviewWidget<'a> {
 }
 
 impl<'a> CellPreviewWidget<'a> {
-    /// Create a new cell preview widget
+    /// Create a new cell preview widget with default neon styling
     pub fn new(preview: &'a CellPreview) -> Self {
+        use super::config::DebugStyle;
         Self {
             preview,
-            label_style: Style::default(),
-            value_style: Style::default(),
+            label_style: Style::default().fg(DebugStyle::text_secondary()),
+            value_style: Style::default().fg(DebugStyle::text_primary()),
         }
     }
 
@@ -339,6 +350,8 @@ impl<'a> CellPreviewWidget<'a> {
 
 impl Widget for CellPreviewWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        use super::config::DebugStyle;
+
         if area.width < 20 || area.height < 1 {
             return;
         }
@@ -354,12 +367,16 @@ impl Widget for CellPreviewWidget<'_> {
         let bg_str = format_color_compact(self.preview.bg);
         let mod_str = format_modifier_compact(self.preview.modifier);
 
-        // Single line: [char]  fg: RGB  bg: RGB  mod
+        // Character background highlight
+        let char_bg = Style::default().bg(DebugStyle::bg_surface());
+        let mod_style = Style::default().fg(DebugStyle::neon_purple());
+
+        // Single line: [char]  fg █ RGB  bg █ RGB  mod
         let mut spans = vec![
-            Span::raw(" "),
+            Span::styled(" ", char_bg),
             Span::styled(self.preview.symbol.clone(), char_style),
-            Span::raw("  "),
-            Span::styled("fg ", self.label_style),
+            Span::styled(" ", char_bg),
+            Span::styled("  fg ", self.label_style),
             Span::styled("█", Style::default().fg(self.preview.fg)),
             Span::styled(format!(" {fg_str}"), self.value_style),
             Span::styled("  bg ", self.label_style),
@@ -368,7 +385,7 @@ impl Widget for CellPreviewWidget<'_> {
         ];
 
         if !mod_str.is_empty() {
-            spans.push(Span::styled(format!("  mod {mod_str}"), self.value_style));
+            spans.push(Span::styled(format!("  {mod_str}"), mod_style));
         }
 
         let line = Paragraph::new(Line::from(spans));

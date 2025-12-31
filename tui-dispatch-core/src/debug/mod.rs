@@ -8,26 +8,37 @@
 //! - **Cell Inspection**: Examine individual buffer cells
 //! - **Debug Widgets**: Render debug overlays and tables
 //!
-//! # Quick Start (DebugLayer - Recommended)
+//! # Quick Start (Simple API - Recommended)
 //!
 //! ```ignore
-//! use tui_dispatch::debug::{DebugLayer, DebugConfig, DebugAction};
+//! use tui_dispatch::debug::DebugLayer;
 //!
-//! // In your app:
-//! let config = DebugConfig::new(keybindings, MyContext::Debug);
-//! let debug: DebugLayer<MyAction, MyContext> = DebugLayer::new(config);
+//! // One line setup with sensible defaults:
+//! let debug = DebugLayer::<MyAction>::simple();
 //!
-//! // In render loop - automatic handling:
+//! // In render loop:
 //! debug.render(frame, |f, area| {
 //!     render_main_ui(f, area, &state);
 //! });
 //!
-//! // In event loop:
-//! if let Some(debug_action) = DebugAction::from_command(&cmd) {
-//!     if let Some(side_effect) = debug.handle_action(debug_action) {
-//!         // Handle clipboard, mouse capture, etc.
-//!     }
-//! }
+//! // Default keybindings (when debug mode is active):
+//! // - F12/Esc: Toggle debug mode
+//! // - S: Show/hide state overlay
+//! // - Y: Copy frozen frame to clipboard
+//! // - I: Toggle mouse capture for cell inspection
+//! ```
+//!
+//! # Custom Configuration
+//!
+//! ```ignore
+//! use tui_dispatch::debug::{DebugLayer, DebugConfig, DebugAction};
+//!
+//! // Use custom toggle key:
+//! let debug = DebugLayer::<MyAction>::simple_with_toggle_key(&["F11"]);
+//!
+//! // Or full control with custom context:
+//! let config = DebugConfig::new(keybindings, MyContext::Debug);
+//! let debug: DebugLayer<MyAction, MyContext> = DebugLayer::new(config);
 //! ```
 //!
 //! # Manual Control (Escape Hatch)
@@ -114,7 +125,10 @@ pub mod widgets;
 
 // High-level API (recommended)
 pub use actions::{DebugAction, DebugSideEffect};
-pub use config::{DebugConfig, DebugStyle, StatusItem};
+pub use config::{
+    default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
+    KeyStyles, StatusItem,
+};
 pub use layer::{DebugLayer, DebugLayerBuilder};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
@@ -131,7 +145,54 @@ pub use widgets::{
     DebugTableStyle, DebugTableWidget,
 };
 
+use crate::keybindings::BindingContext;
 use ratatui::buffer::Buffer;
+
+// ============================================================================
+// SimpleDebugContext - Built-in context for simple debug layer usage
+// ============================================================================
+
+/// Built-in context for simple debug layer usage.
+///
+/// Use this with [`DebugLayer::simple()`] for zero-configuration debug layer setup.
+///
+/// # Example
+///
+/// ```ignore
+/// use tui_dispatch::debug::DebugLayer;
+///
+/// // Uses SimpleDebugContext internally:
+/// let debug = DebugLayer::<MyAction>::simple();
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum SimpleDebugContext {
+    /// Normal application context (not debug mode)
+    #[default]
+    Normal,
+    /// Debug mode context (when freeze is active)
+    Debug,
+}
+
+impl BindingContext for SimpleDebugContext {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Debug => "debug",
+        }
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "normal" => Some(Self::Normal),
+            "debug" => Some(Self::Debug),
+            _ => None,
+        }
+    }
+
+    fn all() -> &'static [Self] {
+        &[Self::Normal, Self::Debug]
+    }
+}
 
 /// Debug freeze state for capturing and inspecting UI frames
 ///
@@ -334,5 +395,37 @@ mod tests {
 
         freeze.clear_message();
         assert!(freeze.message.is_none());
+    }
+
+    #[test]
+    fn test_simple_debug_context_binding_context() {
+        use crate::keybindings::BindingContext;
+
+        // Test name()
+        assert_eq!(SimpleDebugContext::Normal.name(), "normal");
+        assert_eq!(SimpleDebugContext::Debug.name(), "debug");
+
+        // Test from_name()
+        assert_eq!(
+            SimpleDebugContext::from_name("normal"),
+            Some(SimpleDebugContext::Normal)
+        );
+        assert_eq!(
+            SimpleDebugContext::from_name("debug"),
+            Some(SimpleDebugContext::Debug)
+        );
+        assert_eq!(SimpleDebugContext::from_name("invalid"), None);
+
+        // Test all()
+        let all = SimpleDebugContext::all();
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&SimpleDebugContext::Normal));
+        assert!(all.contains(&SimpleDebugContext::Debug));
+    }
+
+    #[test]
+    fn test_simple_debug_context_default() {
+        let ctx: SimpleDebugContext = Default::default();
+        assert_eq!(ctx, SimpleDebugContext::Normal);
     }
 }

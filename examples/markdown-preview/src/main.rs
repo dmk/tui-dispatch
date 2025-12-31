@@ -35,10 +35,9 @@ use tokio_util::sync::CancellationToken;
 use tui_dispatch::{
     EventKind, RawEvent, Store,
     debug::{
-        DebugAction, DebugConfig, DebugLayer, DebugSection, DebugSideEffect, DebugState,
-        DebugTableBuilder, inspect_cell,
+        DebugAction, DebugLayer, DebugSection, DebugSideEffect, DebugState, DebugTableBuilder,
+        SimpleDebugContext, inspect_cell,
     },
-    keybindings::{BindingContext, Keybindings},
     process_raw_event, spawn_event_poller,
 };
 
@@ -54,34 +53,6 @@ struct Args {
     /// Markdown file to view
     #[arg(default_value = "README.md")]
     file: String,
-}
-
-/// Keybinding context for debug layer
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Context {
-    Normal,
-    Debug,
-}
-
-impl BindingContext for Context {
-    fn name(&self) -> &'static str {
-        match self {
-            Context::Normal => "normal",
-            Context::Debug => "debug",
-        }
-    }
-
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "normal" => Some(Context::Normal),
-            "debug" => Some(Context::Debug),
-            _ => None,
-        }
-    }
-
-    fn all() -> &'static [Self] {
-        &[Context::Normal, Context::Debug]
-    }
 }
 
 /// Implement DebugState for our AppState
@@ -162,18 +133,8 @@ async fn run_app<B: ratatui::backend::Backend>(
     let size = terminal.size()?;
     store.state_mut().terminal_height = size.height;
 
-    // Debug layer with keybindings
-    let mut keybindings = Keybindings::new();
-    keybindings.add(
-        Context::Debug,
-        "debug.toggle",
-        vec!["F12".into(), "Esc".into()],
-    );
-    keybindings.add(Context::Debug, "debug.state", vec!["s".into(), "S".into()]);
-    keybindings.add(Context::Debug, "debug.copy", vec!["y".into(), "Y".into()]);
-    keybindings.add(Context::Debug, "debug.mouse", vec!["i".into(), "I".into()]);
-    let config = DebugConfig::new(keybindings, Context::Debug);
-    let mut debug: DebugLayer<Action, Context> = DebugLayer::new(config);
+    // Debug layer - one line setup with sensible defaults
+    let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
 
     // Event poller
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
@@ -282,7 +243,7 @@ enum DebugEventResult {
 
 fn handle_debug_event(
     event: &EventKind,
-    debug: &mut DebugLayer<Action, Context>,
+    debug: &mut DebugLayer<Action, SimpleDebugContext>,
     state: &AppState,
 ) -> Option<DebugEventResult> {
     match event {

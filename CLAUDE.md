@@ -51,3 +51,7 @@ make verify
 ```
 
 This runs: fmt-check, check, clippy, and all tests.
+
+## Documentation
+
+New features should ideally be documented in `docs/src/` (mdBook). Keep docs concise.
