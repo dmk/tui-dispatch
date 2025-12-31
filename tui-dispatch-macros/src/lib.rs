@@ -1,6 +1,6 @@
 //! Procedural macros for tui-dispatch
 
-use darling::{FromDeriveInput, FromVariant};
+use darling::{FromDeriveInput, FromField, FromVariant};
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::{format_ident, quote};
@@ -599,6 +599,173 @@ pub fn derive_component_id(input: TokenStream) -> TokenStream {
             return syn::Error::new_spanned(input, "ComponentId can only be derived for enums")
                 .to_compile_error()
                 .into();
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+// ============================================================================
+// DebugState derive macro
+// ============================================================================
+
+/// Container-level attributes for #[derive(DebugState)]
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(debug_state), supports(struct_named))]
+struct DebugStateOpts {
+    ident: syn::Ident,
+    data: darling::ast::Data<(), DebugStateField>,
+}
+
+/// Field-level attributes for DebugState
+#[derive(Debug, FromField)]
+#[darling(attributes(debug))]
+struct DebugStateField {
+    ident: Option<syn::Ident>,
+
+    /// Section name for this field (groups fields together)
+    #[darling(default)]
+    section: Option<String>,
+
+    /// Skip this field in debug output
+    #[darling(default)]
+    skip: bool,
+
+    /// Custom display format (e.g., "{:?}" for Debug, "{:#?}" for pretty Debug)
+    #[darling(default)]
+    format: Option<String>,
+
+    /// Custom label for this field (defaults to field name)
+    #[darling(default)]
+    label: Option<String>,
+
+    /// Use Debug trait instead of Display
+    #[darling(default)]
+    debug_fmt: bool,
+}
+
+/// Derive macro for the DebugState trait
+///
+/// Automatically generates `debug_sections()` implementation from struct fields.
+///
+/// # Attributes
+///
+/// - `#[debug(section = "Name")]` - Group field under a section
+/// - `#[debug(skip)]` - Exclude field from debug output
+/// - `#[debug(label = "Custom Label")]` - Use custom label instead of field name
+/// - `#[debug(debug_fmt)]` - Use `{:?}` format instead of `Display`
+/// - `#[debug(format = "{:#?}")]` - Use custom format string
+///
+/// # Example
+///
+/// ```ignore
+/// use tui_dispatch::DebugState;
+///
+/// #[derive(DebugState)]
+/// struct AppState {
+///     #[debug(section = "Connection")]
+///     host: String,
+///     #[debug(section = "Connection")]
+///     port: u16,
+///
+///     #[debug(section = "UI")]
+///     scroll_offset: usize,
+///
+///     #[debug(skip)]
+///     internal_cache: HashMap<String, Data>,
+///
+///     #[debug(section = "Stats", debug_fmt)]
+///     status: ConnectionStatus,
+/// }
+/// ```
+///
+/// Fields without a section attribute are grouped under a section named after
+/// the struct (e.g., "AppState").
+#[proc_macro_derive(DebugState, attributes(debug, debug_state))]
+pub fn derive_debug_state(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let opts = match DebugStateOpts::from_derive_input(&input) {
+        Ok(opts) => opts,
+        Err(e) => return e.write_errors().into(),
+    };
+
+    let name = &opts.ident;
+    let default_section = name.to_string();
+
+    let fields = match &opts.data {
+        darling::ast::Data::Struct(fields) => fields,
+        _ => {
+            return syn::Error::new_spanned(&input, "DebugState can only be derived for structs")
+                .to_compile_error()
+                .into();
+        }
+    };
+
+    // Group fields by section
+    let mut sections: HashMap<String, Vec<&DebugStateField>> = HashMap::new();
+    let mut section_order: Vec<String> = Vec::new();
+
+    for field in fields.iter() {
+        if field.skip {
+            continue;
+        }
+
+        let section_name = field
+            .section
+            .clone()
+            .unwrap_or_else(|| default_section.clone());
+
+        if !section_order.contains(&section_name) {
+            section_order.push(section_name.clone());
+        }
+
+        sections.entry(section_name).or_default().push(field);
+    }
+
+    // Generate code for each section
+    let section_code: Vec<_> = section_order
+        .iter()
+        .map(|section_name| {
+            let fields_in_section = sections.get(section_name).unwrap();
+
+            let entry_calls: Vec<_> = fields_in_section
+                .iter()
+                .filter_map(|field| {
+                    let field_ident = field.ident.as_ref()?;
+                    let label = field
+                        .label
+                        .clone()
+                        .unwrap_or_else(|| field_ident.to_string());
+
+                    let value_expr = if let Some(ref fmt) = field.format {
+                        quote! { format!(#fmt, self.#field_ident) }
+                    } else if field.debug_fmt {
+                        quote! { format!("{:?}", self.#field_ident) }
+                    } else {
+                        quote! { self.#field_ident.to_string() }
+                    };
+
+                    Some(quote! {
+                        .entry(#label, #value_expr)
+                    })
+                })
+                .collect();
+
+            quote! {
+                tui_dispatch::debug::DebugSection::new(#section_name)
+                    #(#entry_calls)*
+            }
+        })
+        .collect();
+
+    let expanded = quote! {
+        impl tui_dispatch::debug::DebugState for #name {
+            fn debug_sections(&self) -> ::std::vec::Vec<tui_dispatch::debug::DebugSection> {
+                ::std::vec![
+                    #(#section_code),*
+                ]
+            }
         }
     };
 

@@ -5,6 +5,7 @@
 # User Guide
 
 - [Getting Started](./getting-started.md)
+- [Debug Layer](./debug-layer.md)
 
 # Examples
 

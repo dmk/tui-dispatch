@@ -14,7 +14,13 @@ cargo run -p markdown-preview -- path/to/file.md
 
 ## What It Shows
 
-### Debug Layer
+### Debug Layer (One-Line Setup)
+
+The debug layer is set up with a single line:
+
+```rust
+let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
+```
 
 Press **F12** to enter debug mode. The debug layer freezes the frame and provides inspection tools:
 
@@ -29,7 +35,27 @@ When mouse capture is enabled, click any cell to inspect its styling (symbol, fo
 
 ### DebugState Implementation
 
-To enable state inspection, implement the `DebugState` trait:
+To enable state inspection, implement the `DebugState` trait. You can use the derive macro:
+
+```rust
+#[derive(DebugState)]
+struct AppState {
+    #[debug(section = "Document")]
+    file_path: String,
+    #[debug(section = "Document")]
+    total_lines: usize,
+
+    #[debug(section = "AST Statistics")]
+    heading_count: usize,
+    #[debug(section = "AST Statistics")]
+    link_count: usize,
+
+    #[debug(skip)]
+    internal_cache: Vec<u8>,
+}
+```
+
+Or implement it manually for more control:
 
 ```rust
 impl DebugState for AppState {

@@ -24,7 +24,7 @@
 pub use tui_dispatch_core::*;
 
 // Re-export derive macros
-pub use tui_dispatch_macros::{Action, BindingContext, ComponentId};
+pub use tui_dispatch_macros::{Action, BindingContext, ComponentId, DebugState};
 
 /// Prelude for convenient imports
 pub mod prelude {
@@ -52,7 +52,7 @@ pub mod prelude {
     };
 
     // Derive macros
-    pub use tui_dispatch_macros::{Action, BindingContext, ComponentId};
+    pub use tui_dispatch_macros::{Action, BindingContext, ComponentId, DebugState};
 
     // Ratatui re-exports
     pub use tui_dispatch_core::{Color, Frame, Line, Modifier, Rect, Span, Style, Text};
