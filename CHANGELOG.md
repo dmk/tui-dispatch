@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2025-01-01
+
+In-memory action logging with debug overlay integration.
+
+### Added
+
+- `ActionSummary` trait for custom action display (default uses Debug)
+- `ActionLog` ring buffer storing recent actions with timestamps
+- `ActionLogEntry` with name, summary, timestamp, sequence, state_changed
+- `ActionLogConfig` for capacity and filtering settings
+- `ActionLoggerMiddleware::with_default_log()` for in-memory storage
+- `ActionLoggerMiddleware::with_log()` for custom log configuration
+- `ActionLogOverlay` and `ActionLogDisplayEntry` for debug UI
+- `ActionLogWidget` for rendering action history table
+- `DebugAction::ToggleActionLog` and scroll actions
+- `DebugLayer::show_action_log()` method
+- `debug.action_log` keybinding (A key) in default debug bindings
+- Weather example: full action logging integration
+- Weather example: `--refresh-interval` CLI arg for auto-refresh
+
 ## [0.2.1] - 2025-01-01
 
 Runtime feature flags for toggling functionality at runtime.
