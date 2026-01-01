@@ -4,7 +4,7 @@ Centralized state management for Rust TUI apps. Like Redux/Elm, but for terminal
 
 ## The Pitch
 
-Components should be pure functions: state → UI, events → actions. State mutations happen in one place (reducers), making apps predictable and testable.
+Components are pure: state → UI, events → actions. State mutations happen in reducers, making apps predictable and testable.
 
 ```rust
 use tui_dispatch::prelude::*;
@@ -14,33 +14,14 @@ use tui_dispatch::prelude::*;
 enum Action {
     NextItem,
     PrevItem,
-    Select(usize),
     DidLoadData(Vec<String>),  // async result
-}
-
-struct AppState {
-    items: Vec<String>,
-    selected: usize,
 }
 
 fn reducer(state: &mut AppState, action: &Action) -> bool {
     match action {
-        Action::NextItem => {
-            state.selected = (state.selected + 1) % state.items.len();
-            true // needs render
-        }
-        Action::PrevItem => {
-            state.selected = state.selected.saturating_sub(1);
-            true
-        }
-        Action::Select(idx) => {
-            state.selected = *idx;
-            true
-        }
-        Action::DidLoadData(items) => {
-            state.items = items.clone();
-            true
-        }
+        Action::NextItem => { state.selected += 1; true }
+        Action::PrevItem => { state.selected -= 1; true }
+        Action::DidLoadData(items) => { state.items = items.clone(); true }
     }
 }
 ```
@@ -51,208 +32,137 @@ fn reducer(state: &mut AppState, action: &Action) -> bool {
 
 ```rust
 #[derive(Action, Clone, Debug)]
-#[action(infer_categories, generate_dispatcher)]
+#[action(infer_categories)]
 enum Action {
-    // Category: "search" (inferred from prefix)
-    SearchStart,
-    SearchAddChar(char),
+    SearchStart,           // category: "search"
     SearchClear,
-
-    // Category: "async_result" (inferred from Did* prefix)
-    DidConnect(String),
-    DidLoadKeys(Vec<Key>),
-
-    // Uncategorized
-    Quit,
-    Render,
+    DidConnect(String),    // category: "async_result"
+    Quit,                  // uncategorized
 }
 
-// Generated methods:
-action.name()              // "SearchStart", "DidConnect", etc.
-action.category()          // Some("search"), Some("async_result"), None
-action.is_search()         // true for SearchStart, SearchAddChar, SearchClear
-action.is_async_result()   // true for DidConnect, DidLoadKeys
-
-// Generated trait (with generate_dispatcher):
-trait ActionDispatcher {
-    fn dispatch(&mut self, action: &Action) -> bool;
-    fn dispatch_search(&mut self, action: &Action) -> bool;
-    fn dispatch_async_result(&mut self, action: &Action) -> bool;
-    // ...
-}
+action.name()           // "SearchStart"
+action.category()       // Some("search")
+action.is_search()      // true
 ```
 
-### ComponentId
+### DebugState
 
 ```rust
-#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum ComponentId {
-    KeyList,
-    ValueViewer,
-    SearchInput,
-    Modal,
+#[derive(DebugState)]
+struct AppState {
+    #[debug(section = "Connection")]
+    host: String,
+    port: u16,
+
+    #[debug(section = "Data")]
+    items: Vec<String>,
+
+    #[debug(skip)]
+    internal_cache: HashMap<String, Value>,
 }
 ```
 
-### BindingContext
+### FeatureFlags
 
 ```rust
-#[derive(BindingContext, Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum BindingContext {
-    Default,
-    Search,
-    Modal,
-    Help,
+#[derive(FeatureFlags, Default)]
+struct Features {
+    #[flag(default = true)]
+    line_numbers: bool,
+    wrap_lines: bool,
 }
+
+features.is_enabled("line_numbers")  // true
+features.toggle("wrap_lines");
 ```
 
-## Keybindings
-
-Context-aware keybinding system with JSON configuration:
+### ComponentId & BindingContext
 
 ```rust
-// Load from config
-let keybindings = Keybindings::from_config(&config);
+#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash)]
+enum ComponentId { KeyList, ValueViewer, Modal }
 
-// Match key event to command in context
-if let Some(cmd) = keybindings.get_command(key_event, BindingContext::Search) {
-    match cmd.as_str() {
-        "search.confirm" => vec![Action::SearchConfirm],
-        "search.cancel" => vec![Action::SearchClear],
-        _ => vec![],
-    }
-}
-
-// Get keybinding for help display
-keybindings.get_first_keybinding("quit", BindingContext::Default)
-// Returns Some("q")
+#[derive(BindingContext, Clone, Copy, PartialEq, Eq, Hash)]
+enum Context { Default, Search, Modal }
 ```
 
-Config format (`keybindings.json`):
-```json
-{
-  "global": {
-    "quit": ["q", "ctrl+c"],
-    "help": ["?"]
-  },
-  "search": {
-    "search.confirm": ["enter"],
-    "search.cancel": ["esc"]
-  }
-}
-```
+## Debug Layer
 
-## EventBus
-
-Polls terminal events and converts to typed events with context:
+F12 to freeze UI and inspect state. One-line setup:
 
 ```rust
-let (tx, mut rx) = mpsc::unbounded_channel();
-let event_bus = EventBus::new(tx);
+let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
 
-// Spawn poller
-spawn_event_poller(raw_tx, poll_timeout, loop_sleep, cancel_token);
+// In render loop
+terminal.draw(|frame| {
+    debug.render(frame, |f, area| {
+        render_app(f, area, &state);
+    });
+})?;
 
-// Process events
-while let Some(raw) = raw_rx.recv().await {
-    let event_kind = process_raw_event(raw);
-    let event = event_bus.create_event(event_kind);
-
-    // Route to component
-    let actions = component.handle_event(&event, props);
-    for action in actions {
-        action_tx.send(action);
-    }
+// Handle F12
+if key.code == KeyCode::F(12) {
+    debug.handle_action(DebugAction::Toggle);
 }
 ```
 
-## Component Pattern
+Debug mode keys: `S` state overlay, `A` action log, `Y` copy frame, `I` cell inspect.
 
-Components handle events and render, but never mutate external state:
+### Action Logging
 
 ```rust
-struct ItemList;
+let middleware = ActionLoggerMiddleware::with_default_log();
+let mut store = StoreWithMiddleware::new(state, reducer, middleware);
 
-impl Component for ItemList {
-    type Props<'a> = (&'a [String], usize);
+// In debug mode, show action history
+if let Some(log) = store.middleware().log() {
+    debug.show_action_log(log);
+}
+```
 
-    fn handle_event(&mut self, event: &Event, _props: Self::Props<'_>) -> Vec<Action> {
-        match &event.kind {
-            EventKind::Key(k) if k.code == KeyCode::Down => vec![Action::NextItem],
-            EventKind::Key(k) if k.code == KeyCode::Up => vec![Action::PrevItem],
-            _ => vec![],
-        }
-    }
+## Testing
 
-    fn render(&mut self, f: &mut Frame, area: Rect, (items, selected): Self::Props<'_>) {
-        // ratatui widgets here
-    }
+```rust
+#[test]
+fn test_navigation() {
+    let mut harness = TestHarness::new(AppState::default(), reducer);
+
+    harness.send_keys("jjk");  // down, down, up
+    harness.complete_actions();
+
+    assert_eq!(harness.state().selected, 1);
+    assert_emitted!(harness, Action::NextItem);
 }
 ```
 
 ## Architecture
 
 ```
-Terminal
-    │
-    ▼
-EventBus (poll + convert)
-    │
-    ▼ Event
-Component::handle_event()
-    │
-    ▼ Vec<Action>
-action_tx.send()
-    │
-    ├──────────────────────┐
-    ▼                      ▼
-Sync Handlers         Async Handlers
-(state mutation)      (spawn task)
-    │                      │
-    ▼                      │ Did* action
-State                      │
-    │◀─────────────────────┘
-    ▼
-Component::render(state)
+Terminal → EventBus → Component::handle_event() → Vec<Action>
+                                                      │
+              ┌───────────────────────────────────────┤
+              ▼                                       ▼
+        Sync Handler                           Async Handler
+        (reducer)                              (spawn task)
+              │                                       │
+              ▼                                       │ Did* action
+           State ◀────────────────────────────────────┘
+              │
+              ▼
+        Component::render()
 ```
 
 ## Crate Structure
 
 ```
-tui-dispatch/
-├── tui-dispatch-core/   # Core traits: Action, Component, Event, EventBus
-├── tui-dispatch-macros/ # #[derive(Action, ComponentId, BindingContext)]
-└── tui-dispatch/        # Re-exports + prelude
+tui-dispatch/           # Re-exports + prelude
+tui-dispatch-core/      # Store, EventBus, Component, Debug, Testing
+tui-dispatch-macros/    # #[derive(Action, DebugState, FeatureFlags, ...)]
 ```
 
 ## Real-World Usage
 
 Used in production by [memtui](https://github.com/dmk/memtui), a TUI for Redis/Memcached/etcd.
-
-## Status
-
-| Feature | Status |
-|---------|--------|
-| Action trait + derive | ✅ |
-| Category inference | ✅ |
-| ActionDispatcher generation | ✅ |
-| ComponentId derive | ✅ |
-| BindingContext derive | ✅ |
-| EventBus + polling | ✅ |
-| Keybindings system | ✅ |
-| Component trait | ✅ |
-| Store abstraction | 🔜 |
-| Debug overlay | 🔜 |
-
-## vs tui-realm
-
-| Aspect | tui-realm | tui-dispatch |
-|--------|-----------|--------------|
-| State | Distributed (component-owned) | Centralized |
-| Components | Stateful actors | Event → Action mappers |
-| Mutations | `perform(&mut self)` | Reducers only |
-| Testing | MockComponent | Dispatch action, assert state |
-| Concepts | ~15 | ~5 |
 
 ## License
 
