@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-01-01
+
+Runtime feature flags for toggling functionality at runtime.
+
+### Added
+
+- `FeatureFlags` trait for runtime feature flag management
+- `#[derive(FeatureFlags)]` - auto-generate feature flag accessors
+  - `#[flag(default = true)]` - set default values
+- `DynamicFeatures` - runtime-defined feature flags
+- Feature flags documentation page
+- Feature flags example in markdown-preview (L/W/T toggles)
+
 ## [0.2.0] - 2024-12-31
 
 Simplified debug layer setup and auto-derive for state inspection.
