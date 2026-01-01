@@ -9,11 +9,14 @@ const NEON_PURPLE: Color = Color::Rgb(160, 100, 220);
 const NEON_PINK: Color = Color::Rgb(255, 100, 150);
 const NEON_AMBER: Color = Color::Rgb(255, 191, 0);
 const NEON_CYAN: Color = Color::Rgb(0, 255, 255);
+const NEON_GREEN: Color = Color::Rgb(80, 255, 120);
 const ELECTRIC_BLUE: Color = Color::Rgb(80, 180, 255);
+const KINDA_GREEN: Color = Color::Rgb(40, 220, 80);
 
 const BG_DEEP: Color = Color::Rgb(12, 14, 22);
 const BG_PANEL: Color = Color::Rgb(18, 21, 32);
 const BG_SURFACE: Color = Color::Rgb(26, 30, 44);
+const BG_HIGHLIGHT: Color = Color::Rgb(45, 50, 70);
 
 const TEXT_PRIMARY: Color = Color::Rgb(240, 240, 245);
 const TEXT_SECONDARY: Color = Color::Rgb(150, 150, 160);
@@ -46,6 +49,8 @@ pub struct KeyStyles {
     pub copy: Style,
     /// Style for mouse key (I)
     pub mouse: Style,
+    /// Style for actions key (A)
+    pub actions: Style,
 }
 
 impl Default for KeyStyles {
@@ -61,6 +66,7 @@ impl Default for KeyStyles {
             state: key_base(NEON_CYAN),
             copy: key_base(NEON_AMBER),
             mouse: key_base(ELECTRIC_BLUE),
+            actions: key_base(KINDA_GREEN),
         }
     }
 }
@@ -95,6 +101,10 @@ impl DebugStyle {
     pub const fn neon_amber() -> Color {
         NEON_AMBER
     }
+    /// Get the neon green color
+    pub const fn neon_green() -> Color {
+        NEON_GREEN
+    }
     /// Get the deep background color
     pub const fn bg_deep() -> Color {
         BG_DEEP
@@ -106,6 +116,10 @@ impl DebugStyle {
     /// Get the surface background color
     pub const fn bg_surface() -> Color {
         BG_SURFACE
+    }
+    /// Get the highlight background color (for selected items)
+    pub const fn bg_highlight() -> Color {
+        BG_HIGHLIGHT
     }
     /// Get the primary text color
     pub const fn text_primary() -> Color {
@@ -272,6 +286,11 @@ pub fn default_debug_keybindings_with_toggle(
         SimpleDebugContext::Debug,
         "debug.mouse",
         vec!["i".into(), "I".into()],
+    );
+    kb.add(
+        SimpleDebugContext::Debug,
+        "debug.action_log",
+        vec!["a".into(), "A".into()],
     );
     kb
 }

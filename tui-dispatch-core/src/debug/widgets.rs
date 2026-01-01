@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, Widget};
 use ratatui::Frame;
 
 use super::cell::{format_color_compact, format_modifier_compact, CellPreview};
-use super::table::{DebugTableOverlay, DebugTableRow};
+use super::table::{ActionLogOverlay, DebugTableOverlay, DebugTableRow};
 
 /// Convert a buffer to plain text (for clipboard export)
 ///
@@ -390,6 +390,182 @@ impl Widget for CellPreviewWidget<'_> {
 
         let line = Paragraph::new(Line::from(spans));
         line.render(area, buf);
+    }
+}
+
+// ============================================================================
+// Action Log Widget
+// ============================================================================
+
+/// Style configuration for action log rendering
+#[derive(Clone)]
+pub struct ActionLogStyle {
+    /// Style for the header row
+    pub header: Style,
+    /// Style for sequence numbers
+    pub sequence: Style,
+    /// Style for action names
+    pub name: Style,
+    /// Style for summaries
+    pub summary: Style,
+    /// Style for elapsed time
+    pub elapsed: Style,
+    /// Style for state_changed = true
+    pub changed_yes: Style,
+    /// Style for state_changed = false
+    pub changed_no: Style,
+    /// Selected row style
+    pub selected: Style,
+    /// Alternating row styles (even, odd)
+    pub row_styles: (Style, Style),
+}
+
+impl Default for ActionLogStyle {
+    fn default() -> Self {
+        use super::config::DebugStyle;
+        Self {
+            header: Style::default()
+                .fg(DebugStyle::neon_cyan())
+                .add_modifier(Modifier::BOLD),
+            sequence: Style::default().fg(DebugStyle::text_secondary()),
+            name: Style::default()
+                .fg(DebugStyle::neon_amber())
+                .add_modifier(Modifier::BOLD),
+            summary: Style::default().fg(DebugStyle::text_primary()),
+            elapsed: Style::default().fg(DebugStyle::text_secondary()),
+            changed_yes: Style::default().fg(DebugStyle::neon_green()),
+            changed_no: Style::default().fg(DebugStyle::text_secondary()),
+            selected: Style::default()
+                .bg(DebugStyle::bg_highlight())
+                .add_modifier(Modifier::BOLD),
+            row_styles: (
+                Style::default().bg(DebugStyle::bg_panel()),
+                Style::default().bg(DebugStyle::bg_surface()),
+            ),
+        }
+    }
+}
+
+/// A widget for rendering an action log overlay
+///
+/// Displays recent actions in a scrollable table format with:
+/// - Sequence number
+/// - Action name
+/// - Summary (truncated if necessary)
+/// - Elapsed time since action
+/// - State change indicator
+pub struct ActionLogWidget<'a> {
+    log: &'a ActionLogOverlay,
+    style: ActionLogStyle,
+    /// Number of visible rows (for scroll calculations)
+    visible_rows: usize,
+}
+
+impl<'a> ActionLogWidget<'a> {
+    /// Create a new action log widget
+    pub fn new(log: &'a ActionLogOverlay) -> Self {
+        Self {
+            log,
+            style: ActionLogStyle::default(),
+            visible_rows: 10, // Default, will be adjusted based on area
+        }
+    }
+
+    /// Set the style configuration
+    pub fn style(mut self, style: ActionLogStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Set the number of visible rows
+    pub fn visible_rows(mut self, rows: usize) -> Self {
+        self.visible_rows = rows;
+        self
+    }
+}
+
+impl Widget for ActionLogWidget<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.height < 2 || area.width < 30 {
+            return;
+        }
+
+        // Reserve 1 row for header
+        let visible_rows = (area.height.saturating_sub(1)) as usize;
+
+        // Column layout: [#] [Action] [Summary] [Elapsed] [Chg]
+        let constraints = [
+            Constraint::Length(5),  // Sequence #
+            Constraint::Length(24), // Action name
+            Constraint::Min(20),    // Summary (flexible)
+            Constraint::Length(8),  // Elapsed
+            Constraint::Length(3),  // Changed indicator
+        ];
+
+        // Header row
+        let header = Row::new(vec![
+            Cell::from("#").style(self.style.header),
+            Cell::from("Action").style(self.style.header),
+            Cell::from("Summary").style(self.style.header),
+            Cell::from("Elapsed").style(self.style.header),
+            Cell::from("Chg").style(self.style.header),
+        ]);
+
+        // Calculate scroll offset to keep selected row visible
+        let scroll_offset = if self.log.selected >= visible_rows {
+            self.log.selected - visible_rows + 1
+        } else {
+            0
+        };
+
+        // Build visible rows
+        let rows: Vec<Row> = self
+            .log
+            .entries
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(visible_rows)
+            .map(|(idx, entry)| {
+                let is_selected = idx == self.log.selected;
+                let base_style = if is_selected {
+                    self.style.selected
+                } else if idx % 2 == 0 {
+                    self.style.row_styles.0
+                } else {
+                    self.style.row_styles.1
+                };
+
+                let changed_cell = match entry.state_changed {
+                    Some(true) => Cell::from("Y").style(self.style.changed_yes),
+                    Some(false) => Cell::from("N").style(self.style.changed_no),
+                    None => Cell::from("-").style(self.style.elapsed),
+                };
+
+                // Truncate summary if needed (char-aware to avoid UTF-8 panic)
+                let summary = if entry.summary.chars().count() > 60 {
+                    let truncated: String = entry.summary.chars().take(57).collect();
+                    format!("{}...", truncated)
+                } else {
+                    entry.summary.clone()
+                };
+
+                Row::new(vec![
+                    Cell::from(format!("{}", entry.sequence)).style(self.style.sequence),
+                    Cell::from(entry.name.clone()).style(self.style.name),
+                    Cell::from(summary).style(self.style.summary),
+                    Cell::from(entry.elapsed.clone()).style(self.style.elapsed),
+                    changed_cell,
+                ])
+                .style(base_style)
+            })
+            .collect();
+
+        let table = Table::new(rows, constraints)
+            .header(header)
+            .column_spacing(1);
+
+        table.render(area, buf);
     }
 }
 

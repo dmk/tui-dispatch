@@ -283,6 +283,7 @@ fn handle_debug_event(
                     debug.show_state_overlay(state);
                     return None;
                 }
+                KeyCode::Char('a') | KeyCode::Char('A') => Some(DebugAction::ToggleActionLog),
                 KeyCode::Char('y') | KeyCode::Char('Y') => Some(DebugAction::CopyFrame),
                 KeyCode::Char('i') | KeyCode::Char('I') => Some(DebugAction::ToggleMouseCapture),
                 _ => None,

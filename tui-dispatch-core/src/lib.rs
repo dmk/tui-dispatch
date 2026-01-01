@@ -102,7 +102,7 @@ pub mod store;
 pub mod testing;
 
 // Core trait exports
-pub use action::{Action, ActionCategory};
+pub use action::{Action, ActionCategory, ActionSummary};
 pub use component::Component;
 pub use features::{DynamicFeatures, FeatureFlags};
 

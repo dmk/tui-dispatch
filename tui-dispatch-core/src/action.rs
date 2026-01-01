@@ -49,3 +49,36 @@ pub trait ActionCategory: Action {
     /// Get the action's category as an enum value
     fn category_enum(&self) -> Self::Category;
 }
+
+/// Trait for actions that provide a summary representation for logging
+///
+/// The default implementation uses the Debug representation. Override
+/// `summary()` to provide concise summaries for actions with large payloads
+/// (e.g., showing byte counts instead of full data).
+///
+/// # Example
+///
+/// ```ignore
+/// impl ActionSummary for MyAction {
+///     fn summary(&self) -> String {
+///         match self {
+///             MyAction::DidLoadData { data } => {
+///                 format!("DidLoadData {{ bytes: {} }}", data.len())
+///             }
+///             _ => format!("{:?}", self)
+///         }
+///     }
+/// }
+/// ```
+pub trait ActionSummary: Action {
+    /// Get a summary representation of this action for logging
+    ///
+    /// Should return a concise string, ideally one line, suitable for
+    /// display in a scrolling action log. For actions with large data payloads,
+    /// show size/count summaries instead of full content.
+    ///
+    /// Default implementation uses `Debug` formatting.
+    fn summary(&self) -> String {
+        format!("{:?}", self)
+    }
+}

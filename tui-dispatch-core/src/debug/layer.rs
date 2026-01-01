@@ -10,6 +10,7 @@ use ratatui::widgets::{Block, Borders, Clear};
 use ratatui::Frame;
 use std::marker::PhantomData;
 
+use super::action_logger::ActionLog;
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
 use super::config::{
@@ -17,9 +18,10 @@ use super::config::{
     StatusItem,
 };
 use super::state::DebugState;
-use super::table::{DebugOverlay, DebugTableBuilder, DebugTableOverlay};
+use super::table::{ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay};
 use super::widgets::{
-    dim_buffer, paint_snapshot, BannerItem, CellPreviewWidget, DebugBanner, DebugTableWidget,
+    dim_buffer, paint_snapshot, ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner,
+    DebugTableWidget,
 };
 use super::{DebugFreeze, SimpleDebugContext};
 use crate::keybindings::{format_key_for_display, BindingContext};
@@ -194,7 +196,14 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
 
         // Render overlay if present
         if let Some(ref overlay) = self.freeze.overlay {
-            self.render_modal(frame, app_area, overlay.table());
+            match overlay {
+                DebugOverlay::Inspect(table) | DebugOverlay::State(table) => {
+                    self.render_table_modal(frame, app_area, table);
+                }
+                DebugOverlay::ActionLog(log) => {
+                    self.render_action_log_modal(frame, app_area, log);
+                }
+            }
         }
     }
 
@@ -216,6 +225,12 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         // Add standard debug commands with distinct colors
         let keys = &style.key_styles;
         self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume", keys.toggle);
+        self.add_banner_item(
+            &mut banner,
+            DebugAction::CMD_TOGGLE_ACTION_LOG,
+            "actions",
+            keys.actions,
+        );
         self.add_banner_item(
             &mut banner,
             DebugAction::CMD_TOGGLE_STATE,
@@ -271,6 +286,12 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         // Add standard debug commands with distinct colors
         let keys = &style.key_styles;
         self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume", keys.toggle);
+        self.add_banner_item(
+            &mut banner,
+            DebugAction::CMD_TOGGLE_ACTION_LOG,
+            "actions",
+            keys.actions,
+        );
         self.add_banner_item(
             &mut banner,
             DebugAction::CMD_TOGGLE_STATE,
@@ -329,7 +350,7 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             }
             DebugAction::ToggleState => {
                 // Toggle between no overlay and state overlay
-                if self.freeze.overlay.is_some() {
+                if matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
                     self.freeze.clear_overlay();
                 } else {
                     // App should call show_state_overlay() with their state
@@ -339,6 +360,49 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
                         .entry("hint", "Call show_state_overlay() with your state")
                         .finish("Application State");
                     self.freeze.set_overlay(DebugOverlay::State(table));
+                }
+                None
+            }
+            DebugAction::ToggleActionLog => {
+                // Toggle between no overlay and action log overlay
+                if matches!(self.freeze.overlay, Some(DebugOverlay::ActionLog(_))) {
+                    self.freeze.clear_overlay();
+                } else {
+                    // App should call show_action_log() with their log
+                    // For now, just show a placeholder
+                    let overlay = ActionLogOverlay {
+                        title: "Action Log".to_string(),
+                        entries: vec![],
+                        selected: 0,
+                        scroll_offset: 0,
+                    };
+                    self.freeze
+                        .set_message("Call show_action_log() with your ActionLog");
+                    self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
+                }
+                None
+            }
+            DebugAction::ActionLogScrollUp => {
+                if let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay {
+                    log.scroll_up();
+                }
+                None
+            }
+            DebugAction::ActionLogScrollDown => {
+                if let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay {
+                    log.scroll_down();
+                }
+                None
+            }
+            DebugAction::ActionLogScrollTop => {
+                if let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay {
+                    log.scroll_to_top();
+                }
+                None
+            }
+            DebugAction::ActionLogScrollBottom => {
+                if let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay {
+                    log.scroll_to_bottom();
                 }
                 None
             }
@@ -410,6 +474,29 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         self.freeze.set_overlay(DebugOverlay::State(table));
     }
 
+    /// Show action log overlay
+    ///
+    /// Displays recent actions from the provided ActionLog.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // If using ActionLoggerMiddleware with storage
+    /// if let Some(log) = middleware.log() {
+    ///     debug_layer.show_action_log(log);
+    /// }
+    /// ```
+    pub fn show_action_log(&mut self, log: &ActionLog) {
+        let overlay = ActionLogOverlay::from_log(log, "Action Log");
+        self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
+    }
+
+    /// Show action log overlay with custom title
+    pub fn show_action_log_with_title(&mut self, log: &ActionLog, title: &str) {
+        let overlay = ActionLogOverlay::from_log(log, title);
+        self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
+    }
+
     /// Queue an action to be processed when debug mode is disabled
     pub fn queue_action(&mut self, action: A) {
         self.freeze.queue(action);
@@ -437,14 +524,21 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
 
         // Render overlay if present
         if let Some(ref overlay) = self.freeze.overlay {
-            self.render_modal(frame, app_area, overlay.table());
+            match overlay {
+                DebugOverlay::Inspect(table) | DebugOverlay::State(table) => {
+                    self.render_table_modal(frame, app_area, table);
+                }
+                DebugOverlay::ActionLog(log) => {
+                    self.render_action_log_modal(frame, app_area, log);
+                }
+            }
         }
 
         // Render banner
         self.render_banner(frame, banner_area);
     }
 
-    fn render_modal(&self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
+    fn render_table_modal(&self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
         // Calculate modal size (80% width, 60% height, with min/max)
         let modal_width = (app_area.width * 80 / 100)
             .clamp(30, 120)
@@ -503,6 +597,44 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         // No cell preview or not enough space - just render table
         let table_widget = DebugTableWidget::new(table);
         frame.render_widget(table_widget, inner);
+    }
+
+    fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
+        // Calculate modal size (larger for action log - 90% width, 70% height)
+        let modal_width = (app_area.width * 90 / 100)
+            .clamp(40, 140)
+            .min(app_area.width);
+        let modal_height = (app_area.height * 70 / 100)
+            .clamp(10, 50)
+            .min(app_area.height);
+
+        // Center the modal
+        let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
+        let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
+
+        let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
+
+        // Clear and render modal background
+        frame.render_widget(Clear, modal_area);
+
+        let entry_count = log.entries.len();
+        let title = if entry_count > 0 {
+            format!(" {} ({} entries) ", log.title, entry_count)
+        } else {
+            format!(" {} (empty) ", log.title)
+        };
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .style(self.config.style.banner_bg);
+
+        let inner = block.inner(modal_area);
+        frame.render_widget(block, modal_area);
+
+        // Render action log widget
+        let widget = ActionLogWidget::new(log);
+        frame.render_widget(widget, inner);
     }
 
     fn add_banner_item(

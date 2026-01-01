@@ -12,6 +12,8 @@ pub enum DebugAction {
     CopyFrame,
     /// Toggle state overlay
     ToggleState,
+    /// Toggle action log overlay
+    ToggleActionLog,
     /// Toggle mouse capture mode for cell inspection
     ToggleMouseCapture,
     /// Inspect cell at position (from mouse click)
@@ -20,6 +22,14 @@ pub enum DebugAction {
     CloseOverlay,
     /// Request a new frame capture
     RequestCapture,
+    /// Scroll action log up
+    ActionLogScrollUp,
+    /// Scroll action log down
+    ActionLogScrollDown,
+    /// Scroll action log to top
+    ActionLogScrollTop,
+    /// Scroll action log to bottom
+    ActionLogScrollBottom,
 }
 
 impl DebugAction {
@@ -27,6 +37,7 @@ impl DebugAction {
     pub const CMD_TOGGLE: &'static str = "debug.toggle";
     pub const CMD_COPY_FRAME: &'static str = "debug.copy";
     pub const CMD_TOGGLE_STATE: &'static str = "debug.state";
+    pub const CMD_TOGGLE_ACTION_LOG: &'static str = "debug.action_log";
     pub const CMD_TOGGLE_MOUSE: &'static str = "debug.mouse";
     pub const CMD_CLOSE_OVERLAY: &'static str = "debug.close";
 
@@ -36,6 +47,7 @@ impl DebugAction {
             Self::CMD_TOGGLE => Some(Self::Toggle),
             Self::CMD_COPY_FRAME => Some(Self::CopyFrame),
             Self::CMD_TOGGLE_STATE => Some(Self::ToggleState),
+            Self::CMD_TOGGLE_ACTION_LOG => Some(Self::ToggleActionLog),
             Self::CMD_TOGGLE_MOUSE => Some(Self::ToggleMouseCapture),
             Self::CMD_CLOSE_OVERLAY => Some(Self::CloseOverlay),
             _ => None,
@@ -48,10 +60,16 @@ impl DebugAction {
             Self::Toggle => Some(Self::CMD_TOGGLE),
             Self::CopyFrame => Some(Self::CMD_COPY_FRAME),
             Self::ToggleState => Some(Self::CMD_TOGGLE_STATE),
+            Self::ToggleActionLog => Some(Self::CMD_TOGGLE_ACTION_LOG),
             Self::ToggleMouseCapture => Some(Self::CMD_TOGGLE_MOUSE),
             Self::CloseOverlay => Some(Self::CMD_CLOSE_OVERLAY),
             // These don't have command strings (triggered programmatically)
-            Self::InspectCell { .. } | Self::RequestCapture => None,
+            Self::InspectCell { .. }
+            | Self::RequestCapture
+            | Self::ActionLogScrollUp
+            | Self::ActionLogScrollDown
+            | Self::ActionLogScrollTop
+            | Self::ActionLogScrollBottom => None,
         }
     }
 }
@@ -102,6 +120,10 @@ mod tests {
             DebugAction::from_command("debug.state"),
             Some(DebugAction::ToggleState)
         );
+        assert_eq!(
+            DebugAction::from_command("debug.action_log"),
+            Some(DebugAction::ToggleActionLog)
+        );
         assert_eq!(DebugAction::from_command("unknown"), None);
     }
 
@@ -111,6 +133,7 @@ mod tests {
             DebugAction::Toggle,
             DebugAction::CopyFrame,
             DebugAction::ToggleState,
+            DebugAction::ToggleActionLog,
             DebugAction::ToggleMouseCapture,
             DebugAction::CloseOverlay,
         ];
@@ -120,5 +143,14 @@ mod tests {
             let parsed = DebugAction::from_command(cmd).expect("should parse");
             assert_eq!(parsed, action);
         }
+    }
+
+    #[test]
+    fn test_scroll_actions_no_command() {
+        // Scroll actions are triggered programmatically, not via commands
+        assert!(DebugAction::ActionLogScrollUp.command().is_none());
+        assert!(DebugAction::ActionLogScrollDown.command().is_none());
+        assert!(DebugAction::ActionLogScrollTop.command().is_none());
+        assert!(DebugAction::ActionLogScrollBottom.command().is_none());
     }
 }
