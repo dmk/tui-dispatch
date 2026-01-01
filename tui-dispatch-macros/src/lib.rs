@@ -771,3 +771,174 @@ pub fn derive_debug_state(input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+
+// ============================================================================
+// FeatureFlags derive macro
+// ============================================================================
+
+/// Field-level attributes for FeatureFlags
+#[derive(Debug, FromField)]
+#[darling(attributes(flag))]
+struct FeatureFlagsField {
+    ident: Option<syn::Ident>,
+    ty: syn::Type,
+
+    /// Default value for this feature (defaults to false)
+    #[darling(default)]
+    default: Option<bool>,
+}
+
+/// Container-level attributes for #[derive(FeatureFlags)]
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(feature_flags), supports(struct_named))]
+struct FeatureFlagsOpts {
+    ident: syn::Ident,
+    data: darling::ast::Data<(), FeatureFlagsField>,
+}
+
+/// Derive macro for the FeatureFlags trait
+///
+/// Generates implementations for `is_enabled()`, `set()`, and `all_flags()` methods.
+/// Also generates a `Default` implementation using the specified defaults.
+///
+/// # Attributes
+///
+/// - `#[flag(default = true)]` - Set default value (defaults to false)
+///
+/// # Example
+///
+/// ```ignore
+/// use tui_dispatch::FeatureFlags;
+///
+/// #[derive(FeatureFlags)]
+/// struct Features {
+///     #[flag(default = false)]
+///     new_search_ui: bool,
+///
+///     #[flag(default = true)]
+///     vim_bindings: bool,
+/// }
+///
+/// let mut features = Features::default();
+/// assert!(!features.new_search_ui);
+/// assert!(features.vim_bindings);
+///
+/// features.enable("new_search_ui");
+/// assert!(features.new_search_ui);
+/// ```
+#[proc_macro_derive(FeatureFlags, attributes(flag, feature_flags))]
+pub fn derive_feature_flags(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let opts = match FeatureFlagsOpts::from_derive_input(&input) {
+        Ok(opts) => opts,
+        Err(e) => return e.write_errors().into(),
+    };
+
+    let name = &opts.ident;
+
+    let fields = match &opts.data {
+        darling::ast::Data::Struct(fields) => fields,
+        _ => {
+            return syn::Error::new_spanned(
+                &input,
+                "FeatureFlags can only be derived for structs with named fields",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    // Collect bool fields only
+    let bool_fields: Vec<_> = fields
+        .iter()
+        .filter_map(|f| {
+            let ident = f.ident.as_ref()?;
+            // Check if type is bool
+            if let syn::Type::Path(type_path) = &f.ty {
+                if type_path.path.is_ident("bool") {
+                    return Some((ident.clone(), f.default.unwrap_or(false)));
+                }
+            }
+            None
+        })
+        .collect();
+
+    if bool_fields.is_empty() {
+        return syn::Error::new_spanned(
+            &input,
+            "FeatureFlags struct must have at least one bool field",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    // Generate is_enabled match arms
+    let is_enabled_arms: Vec<_> = bool_fields
+        .iter()
+        .map(|(ident, _)| {
+            let name_str = ident.to_string();
+            quote! { #name_str => ::core::option::Option::Some(self.#ident) }
+        })
+        .collect();
+
+    // Generate set match arms
+    let set_arms: Vec<_> = bool_fields
+        .iter()
+        .map(|(ident, _)| {
+            let name_str = ident.to_string();
+            quote! {
+                #name_str => {
+                    self.#ident = enabled;
+                    true
+                }
+            }
+        })
+        .collect();
+
+    // Generate all_flags array
+    let flag_names: Vec<_> = bool_fields
+        .iter()
+        .map(|(ident, _)| ident.to_string())
+        .collect();
+
+    // Generate Default impl with proper defaults
+    let default_fields: Vec<_> = bool_fields
+        .iter()
+        .map(|(ident, default)| {
+            quote! { #ident: #default }
+        })
+        .collect();
+
+    let expanded = quote! {
+        impl tui_dispatch::FeatureFlags for #name {
+            fn is_enabled(&self, name: &str) -> ::core::option::Option<bool> {
+                match name {
+                    #(#is_enabled_arms,)*
+                    _ => ::core::option::Option::None,
+                }
+            }
+
+            fn set(&mut self, name: &str, enabled: bool) -> bool {
+                match name {
+                    #(#set_arms)*
+                    _ => false,
+                }
+            }
+
+            fn all_flags() -> &'static [&'static str] {
+                &[#(#flag_names),*]
+            }
+        }
+
+        impl ::core::default::Default for #name {
+            fn default() -> Self {
+                Self {
+                    #(#default_fields,)*
+                }
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}

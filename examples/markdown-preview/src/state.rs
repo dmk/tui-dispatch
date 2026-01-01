@@ -1,11 +1,45 @@
 //! Application state for markdown preview
 
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{self, ThemeSet};
+use syntect::parsing::SyntaxSet;
+
+/// Code block background color
+pub const CODE_BG: Color = Color::Rgb(30, 30, 40);
+
+/// A rendered line with metadata
+#[derive(Debug, Clone)]
+pub struct RenderedLine {
+    /// The line content
+    pub line: Line<'static>,
+    /// Whether this is a code block line (needs full-width background)
+    pub is_code: bool,
+    /// Language label to show in top-right (only for first line of code block)
+    pub lang: Option<String>,
+}
+
+impl RenderedLine {
+    fn text(line: Line<'static>) -> Self {
+        Self {
+            line,
+            is_code: false,
+            lang: None,
+        }
+    }
+
+    fn code_with_lang(line: Line<'static>, lang: Option<String>) -> Self {
+        Self {
+            line,
+            is_code: true,
+            lang,
+        }
+    }
+}
 
 /// Application state
-#[derive(Debug)]
 pub struct AppState {
     /// Path to the markdown file
     pub file_path: String,
@@ -14,7 +48,7 @@ pub struct AppState {
     pub raw_content: String,
 
     /// Rendered lines for display
-    pub rendered_lines: Vec<Line<'static>>,
+    pub rendered_lines: Vec<RenderedLine>,
 
     /// Current scroll offset (line index)
     pub scroll_offset: usize,
@@ -27,6 +61,22 @@ pub struct AppState {
 
     /// Document statistics (for debug overlay)
     pub stats: DocStats,
+
+    /// Syntax highlighting resources (not Debug)
+    syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
+}
+
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("file_path", &self.file_path)
+            .field("scroll_offset", &self.scroll_offset)
+            .field("terminal_height", &self.terminal_height)
+            .field("search", &self.search)
+            .field("stats", &self.stats)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Search mode state
@@ -67,6 +117,8 @@ impl AppState {
             terminal_height: 24,
             search: SearchState::default(),
             stats: DocStats::default(),
+            syntax_set: SyntaxSet::load_defaults_newlines(),
+            theme_set: ThemeSet::load_defaults(),
         };
         state.reload();
         state
@@ -81,16 +133,64 @@ impl AppState {
         self.search = SearchState::default();
     }
 
+    /// Convert syntect color to ratatui color
+    fn syntect_to_ratatui(color: highlighting::Color) -> Color {
+        Color::Rgb(color.r, color.g, color.b)
+    }
+
+    /// Highlight code with syntect
+    fn highlight_code(&self, code: &str, lang: &str) -> Vec<Line<'static>> {
+        let syntax = self
+            .syntax_set
+            .find_syntax_by_token(lang)
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let theme = &self.theme_set.themes["base16-ocean.dark"];
+        let mut highlighter = HighlightLines::new(syntax, theme);
+
+        let mut lines = Vec::new();
+        for line in code.lines() {
+            let highlighted = highlighter
+                .highlight_line(line, &self.syntax_set)
+                .unwrap_or_default();
+
+            let spans: Vec<Span<'static>> = highlighted
+                .into_iter()
+                .map(|(style, text)| {
+                    Span::styled(
+                        text.to_string(),
+                        Style::default()
+                            .fg(Self::syntect_to_ratatui(style.foreground))
+                            .bg(CODE_BG),
+                    )
+                })
+                .collect();
+
+            lines.push(Line::from(spans));
+        }
+        lines
+    }
+
     /// Render markdown to styled lines
     fn render_markdown(&mut self) {
-        let parser = Parser::new(&self.raw_content);
-        let mut lines: Vec<Line<'static>> = Vec::new();
+        // Enable tables
+        let options = Options::ENABLE_TABLES;
+        let parser = Parser::new_ext(&self.raw_content, options);
+        let mut lines: Vec<RenderedLine> = Vec::new();
         let mut current_spans: Vec<Span<'static>> = Vec::new();
         let mut stats = DocStats::default();
 
         // Style stack for nested formatting
         let mut style_stack: Vec<Style> = vec![Style::default()];
         let mut in_code_block = false;
+        let mut code_block_lang = String::new();
+        let mut code_block_content = String::new();
+
+        // Table state
+        let mut in_table = false;
+        let mut table_rows: Vec<Vec<String>> = Vec::new();
+        let mut current_row: Vec<String> = Vec::new();
+        let mut current_cell = String::new();
 
         for event in parser {
             match event {
@@ -114,12 +214,15 @@ impl AppState {
                             .last()
                             .unwrap_or(&Style::default())
                             .add_modifier(Modifier::ITALIC),
-                        Tag::CodeBlock(_) => {
+                        Tag::CodeBlock(kind) => {
                             stats.code_block_count += 1;
                             in_code_block = true;
+                            code_block_content.clear();
+                            code_block_lang = match kind {
+                                CodeBlockKind::Fenced(lang) => lang.to_string(),
+                                CodeBlockKind::Indented => String::new(),
+                            };
                             Style::default()
-                                .fg(Color::Rgb(180, 180, 180))
-                                .bg(Color::Rgb(40, 40, 50))
                         }
                         Tag::Link { .. } => {
                             stats.link_count += 1;
@@ -130,13 +233,29 @@ impl AppState {
                         Tag::List(_) => Style::default(),
                         Tag::Item => {
                             stats.list_item_count += 1;
-                            // Add bullet point
                             current_spans
-                                .push(Span::styled("  - ", Style::default().fg(Color::DarkGray)));
+                                .push(Span::styled("  • ", Style::default().fg(Color::DarkGray)));
                             Style::default()
                         }
                         Tag::Paragraph => {
                             stats.paragraph_count += 1;
+                            Style::default()
+                        }
+                        Tag::Table(_alignments) => {
+                            in_table = true;
+                            table_rows.clear();
+                            Style::default()
+                        }
+                        Tag::TableHead => {
+                            current_row.clear();
+                            Style::default()
+                        }
+                        Tag::TableRow => {
+                            current_row.clear();
+                            Style::default()
+                        }
+                        Tag::TableCell => {
+                            current_cell.clear();
                             Style::default()
                         }
                         _ => Style::default(),
@@ -148,60 +267,172 @@ impl AppState {
                     match tag_end {
                         TagEnd::Heading(_) | TagEnd::Paragraph => {
                             if !current_spans.is_empty() {
-                                lines.push(Line::from(std::mem::take(&mut current_spans)));
+                                lines.push(RenderedLine::text(Line::from(std::mem::take(
+                                    &mut current_spans,
+                                ))));
                             }
-                            lines.push(Line::from(""));
+                            lines.push(RenderedLine::text(Line::from("")));
                         }
                         TagEnd::CodeBlock => {
                             in_code_block = false;
-                            if !current_spans.is_empty() {
-                                lines.push(Line::from(std::mem::take(&mut current_spans)));
+
+                            // Highlight code lines
+                            let highlighted =
+                                self.highlight_code(&code_block_content, &code_block_lang);
+
+                            for (i, code_line) in highlighted.into_iter().enumerate() {
+                                let mut spans =
+                                    vec![Span::styled("  ", Style::default().bg(CODE_BG))];
+                                spans.extend(code_line.spans);
+
+                                // Add language label on first line (will be right-aligned at render)
+                                let is_first = i == 0;
+                                lines.push(RenderedLine::code_with_lang(
+                                    Line::from(spans).style(Style::default().bg(CODE_BG)),
+                                    if is_first {
+                                        Some(code_block_lang.clone())
+                                    } else {
+                                        None
+                                    },
+                                ));
                             }
-                            lines.push(Line::from(""));
+
+                            lines.push(RenderedLine::text(Line::from("")));
+                            code_block_content.clear();
                         }
                         TagEnd::Item => {
                             if !current_spans.is_empty() {
-                                lines.push(Line::from(std::mem::take(&mut current_spans)));
+                                lines.push(RenderedLine::text(Line::from(std::mem::take(
+                                    &mut current_spans,
+                                ))));
                             }
+                        }
+                        TagEnd::TableCell => {
+                            current_row.push(std::mem::take(&mut current_cell));
+                        }
+                        TagEnd::TableHead => {
+                            if !current_row.is_empty() {
+                                table_rows.push(std::mem::take(&mut current_row));
+                            }
+                        }
+                        TagEnd::TableRow => {
+                            if !current_row.is_empty() {
+                                table_rows.push(std::mem::take(&mut current_row));
+                            }
+                        }
+                        TagEnd::Table => {
+                            // Render the table
+                            if !table_rows.is_empty() {
+                                // Calculate column widths
+                                let col_count =
+                                    table_rows.iter().map(|r| r.len()).max().unwrap_or(0);
+                                let mut col_widths = vec![0usize; col_count];
+                                for row in &table_rows {
+                                    for (i, cell) in row.iter().enumerate() {
+                                        col_widths[i] = col_widths[i].max(cell.len());
+                                    }
+                                }
+
+                                // Render header row
+                                if let Some(header) = table_rows.first() {
+                                    let mut spans = Vec::new();
+                                    for (i, cell) in header.iter().enumerate() {
+                                        let width = col_widths.get(i).copied().unwrap_or(0);
+                                        spans.push(Span::styled(
+                                            format!(" {:width$} ", cell, width = width),
+                                            Style::default()
+                                                .fg(Color::Cyan)
+                                                .add_modifier(Modifier::BOLD),
+                                        ));
+                                        if i < header.len() - 1 {
+                                            spans.push(Span::styled(
+                                                "│",
+                                                Style::default().fg(Color::DarkGray),
+                                            ));
+                                        }
+                                    }
+                                    lines.push(RenderedLine::text(Line::from(spans)));
+
+                                    // Separator line
+                                    let sep: String = col_widths
+                                        .iter()
+                                        .map(|w| "─".repeat(w + 2))
+                                        .collect::<Vec<_>>()
+                                        .join("┼");
+                                    lines.push(RenderedLine::text(Line::from(Span::styled(
+                                        sep,
+                                        Style::default().fg(Color::DarkGray),
+                                    ))));
+                                }
+
+                                // Render data rows
+                                for row in table_rows.iter().skip(1) {
+                                    let mut spans = Vec::new();
+                                    for (i, cell) in row.iter().enumerate() {
+                                        let width = col_widths.get(i).copied().unwrap_or(0);
+                                        spans.push(Span::styled(
+                                            format!(" {:width$} ", cell, width = width),
+                                            Style::default(),
+                                        ));
+                                        if i < row.len() - 1 {
+                                            spans.push(Span::styled(
+                                                "│",
+                                                Style::default().fg(Color::DarkGray),
+                                            ));
+                                        }
+                                    }
+                                    lines.push(RenderedLine::text(Line::from(spans)));
+                                }
+
+                                lines.push(RenderedLine::text(Line::from("")));
+                            }
+                            in_table = false;
+                            table_rows.clear();
                         }
                         _ => {}
                     }
                 }
                 Event::Text(text) => {
-                    let style = *style_stack.last().unwrap_or(&Style::default());
                     if in_code_block {
-                        // Handle code block lines
-                        for line in text.lines() {
-                            current_spans.push(Span::styled(format!("  {}", line), style));
-                            lines.push(Line::from(std::mem::take(&mut current_spans)));
-                        }
+                        code_block_content.push_str(&text);
+                    } else if in_table {
+                        current_cell.push_str(&text);
                     } else {
+                        let style = *style_stack.last().unwrap_or(&Style::default());
                         current_spans.push(Span::styled(text.to_string(), style));
                     }
                 }
                 Event::Code(code) => {
-                    let style = Style::default()
-                        .fg(Color::Rgb(220, 180, 100))
-                        .bg(Color::Rgb(40, 40, 50));
-                    current_spans.push(Span::styled(format!("`{}`", code), style));
+                    if in_table {
+                        current_cell.push_str(&format!("`{}`", code));
+                    } else {
+                        let style = Style::default()
+                            .fg(Color::Rgb(220, 180, 100))
+                            .bg(Color::Rgb(40, 40, 50));
+                        current_spans.push(Span::styled(format!(" {} ", code), style));
+                    }
                 }
                 Event::SoftBreak => {
                     current_spans.push(Span::raw(" "));
                 }
                 Event::HardBreak => {
                     if !current_spans.is_empty() {
-                        lines.push(Line::from(std::mem::take(&mut current_spans)));
+                        lines.push(RenderedLine::text(Line::from(std::mem::take(
+                            &mut current_spans,
+                        ))));
                     }
                 }
                 Event::Rule => {
                     if !current_spans.is_empty() {
-                        lines.push(Line::from(std::mem::take(&mut current_spans)));
+                        lines.push(RenderedLine::text(Line::from(std::mem::take(
+                            &mut current_spans,
+                        ))));
                     }
-                    lines.push(Line::from(Span::styled(
+                    lines.push(RenderedLine::text(Line::from(Span::styled(
                         "─".repeat(40),
                         Style::default().fg(Color::DarkGray),
-                    )));
-                    lines.push(Line::from(""));
+                    ))));
+                    lines.push(RenderedLine::text(Line::from("")));
                 }
                 _ => {}
             }
@@ -209,7 +440,7 @@ impl AppState {
 
         // Flush remaining spans
         if !current_spans.is_empty() {
-            lines.push(Line::from(current_spans));
+            lines.push(RenderedLine::text(Line::from(current_spans)));
         }
 
         stats.total_lines = lines.len();
@@ -251,8 +482,13 @@ impl AppState {
         }
 
         let query_lower = self.search.query.to_lowercase();
-        for (i, line) in self.rendered_lines.iter().enumerate() {
-            let line_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        for (i, rendered) in self.rendered_lines.iter().enumerate() {
+            let line_text: String = rendered
+                .line
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect();
             if line_text.to_lowercase().contains(&query_lower) {
                 self.search.matches.push(i);
             }

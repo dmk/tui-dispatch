@@ -73,6 +73,37 @@ impl DebugState for AppState {
 }
 ```
 
+### Feature Flags (CLI)
+
+Feature flags via command line using `#[derive(FeatureFlags)]`:
+
+```rust
+#[derive(FeatureFlags)]
+pub struct Features {
+    #[flag(default = false)]
+    pub line_numbers: bool,
+
+    #[flag(default = true)]
+    pub wrap_lines: bool,
+
+    #[flag(default = true)]
+    pub show_stats: bool,
+}
+```
+
+Enable/disable via CLI:
+
+```bash
+# Enable line numbers
+cargo run -p markdown-preview -- README.md --enable line_numbers
+
+# Disable wrapping, enable line numbers
+cargo run -p markdown-preview -- README.md --disable wrap_lines --enable line_numbers
+
+# Multiple flags (comma-separated)
+cargo run -p markdown-preview -- README.md --enable line_numbers,show_stats
+```
+
 ### Search Functionality
 
 The example includes vim-style search:
@@ -120,3 +151,4 @@ Search matches are highlighted in the document with the current match emphasized
 | `src/action.rs` | Navigation, search, file actions |
 | `src/state.rs` | AppState with markdown rendering, search state |
 | `src/reducer.rs` | State mutations for scrolling, search, file ops |
+| `src/features.rs` | CLI feature flags (line numbers, wrapping, stats) |

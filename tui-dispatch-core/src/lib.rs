@@ -96,6 +96,7 @@ pub mod bus;
 pub mod component;
 pub mod debug;
 pub mod event;
+pub mod features;
 pub mod keybindings;
 pub mod store;
 pub mod testing;
@@ -103,6 +104,7 @@ pub mod testing;
 // Core trait exports
 pub use action::{Action, ActionCategory};
 pub use component::Component;
+pub use features::{DynamicFeatures, FeatureFlags};
 
 // Event system exports
 pub use bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
@@ -143,6 +145,7 @@ pub mod prelude {
     pub use crate::event::{
         ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId,
     };
+    pub use crate::features::{DynamicFeatures, FeatureFlags};
     pub use crate::keybindings::{
         format_key_for_display, parse_key_string, BindingContext, Keybindings,
     };

@@ -1,12 +1,20 @@
 //! Markdown Preview - TUI markdown viewer with debug features
 //!
-//! Demonstrates tui-dispatch debug capabilities:
-//! - F12: Freeze frame, inspect UI
+//! Demonstrates tui-dispatch capabilities:
+//!
+//! ## Feature Flags (CLI)
+//! ```bash
+//! mdpreview README.md --enable line_numbers --disable wrap_lines
+//! ```
+//! Available flags: `line_numbers`, `wrap_lines`, `show_stats`
+//!
+//! ## Debug Layer (F12)
 //! - S: Show state overlay (AST stats)
 //! - Y: Copy frame to clipboard (OSC52)
-//! - Mouse click: Inspect cell styling
+//! - I: Mouse capture for cell inspection
 
 mod action;
+mod features;
 mod reducer;
 mod state;
 
@@ -38,12 +46,14 @@ use tui_dispatch::{
         DebugAction, DebugLayer, DebugSection, DebugSideEffect, DebugState, DebugTableBuilder,
         SimpleDebugContext, inspect_cell,
     },
+    features::FeatureFlags,
     process_raw_event, spawn_event_poller,
 };
 
 use crate::action::Action;
+use crate::features::Features;
 use crate::reducer::reducer;
-use crate::state::AppState;
+use crate::state::{AppState, CODE_BG};
 
 /// Markdown Preview - TUI markdown viewer
 #[derive(Parser, Debug)]
@@ -53,6 +63,14 @@ struct Args {
     /// Markdown file to view
     #[arg(default_value = "README.md")]
     file: String,
+
+    /// Enable features (comma-separated: line_numbers,wrap_lines,show_stats)
+    #[arg(long, value_delimiter = ',')]
+    enable: Vec<String>,
+
+    /// Disable features (comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    disable: Vec<String>,
 }
 
 /// Implement DebugState for our AppState
@@ -105,7 +123,16 @@ async fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, args.file).await;
+    // Setup features from CLI args
+    let mut features = Features::default();
+    for name in &args.enable {
+        features.enable(name);
+    }
+    for name in &args.disable {
+        features.disable(name);
+    }
+
+    let result = run_app(&mut terminal, args.file, features).await;
 
     // Cleanup
     disable_raw_mode()?;
@@ -122,6 +149,7 @@ async fn main() -> io::Result<()> {
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     file_path: String,
+    features: Features,
 ) -> io::Result<()> {
     // Action channel
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
@@ -154,7 +182,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             terminal.draw(|frame| {
                 let state = store.state();
                 debug.render(frame, |f, area| {
-                    render_app(f, area, state);
+                    render_app(f, area, state, &features);
                 });
             })?;
             should_render = false;
@@ -338,11 +366,15 @@ fn handle_event(event: &EventKind, state: &AppState) -> Vec<Action> {
                 _ => vec![],
             }
         }
+        EventKind::Scroll { delta, .. } => {
+            vec![Action::NavScroll((delta * 3) as i16)]
+        }
+        EventKind::Mouse(_) => vec![],
         _ => vec![],
     }
 }
 
-fn render_app(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
+fn render_app(frame: &mut ratatui::Frame, area: Rect, state: &AppState, features: &Features) {
     let chunks = Layout::vertical([
         Constraint::Length(1), // Title bar
         Constraint::Min(1),    // Content
@@ -367,13 +399,13 @@ fn render_app(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
     );
 
     // Content
-    render_content(frame, chunks[1], state);
+    render_content(frame, chunks[1], state, features);
 
     // Status bar
-    render_status_bar(frame, chunks[2], state);
+    render_status_bar(frame, chunks[2], state, features);
 }
 
-fn render_content(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
+fn render_content(frame: &mut ratatui::Frame, area: Rect, state: &AppState, features: &Features) {
     let block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT)
         .border_style(Style::default().fg(Color::Rgb(60, 60, 70)));
@@ -381,42 +413,131 @@ fn render_content(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // Calculate gutter width for line numbers
+    let gutter_width = if features.line_numbers {
+        let max_line = state.rendered_lines.len();
+        (max_line.to_string().len() + 1) as u16
+    } else {
+        0
+    };
+
+    // Split area for gutter and content
+    let content_area = if features.line_numbers {
+        Rect {
+            x: inner.x + gutter_width,
+            width: inner.width.saturating_sub(gutter_width),
+            ..inner
+        }
+    } else {
+        inner
+    };
+
+    let content_width = content_area.width as usize;
+
     // Get visible lines
     let visible_height = inner.height as usize;
     let start = state.scroll_offset;
     let end = (start + visible_height).min(state.rendered_lines.len());
 
-    let visible_lines: Vec<Line> = state.rendered_lines[start..end]
-        .iter()
-        .enumerate()
-        .map(|(i, line)| {
-            let line_idx = start + i;
-            // Highlight search matches
-            if !state.search.query.is_empty() && state.search.matches.contains(&line_idx) {
-                let is_current =
-                    state.search.matches.get(state.search.current_match) == Some(&line_idx);
-                let bg = if is_current {
-                    Color::Rgb(80, 80, 40)
-                } else {
-                    Color::Rgb(50, 50, 30)
-                };
-                Line::from(
-                    line.spans
-                        .iter()
-                        .map(|s| Span::styled(s.content.clone(), s.style.bg(bg)))
-                        .collect::<Vec<_>>(),
-                )
-            } else {
-                line.clone()
-            }
-        })
-        .collect();
+    // Render line numbers if enabled
+    if features.line_numbers {
+        let gutter_area = Rect {
+            width: gutter_width,
+            ..inner
+        };
+        let line_nums: Vec<Line> = (start..end)
+            .map(|i| {
+                Line::from(Span::styled(
+                    format!("{:>width$} ", i + 1, width = gutter_width as usize - 1),
+                    Style::default().fg(Color::DarkGray),
+                ))
+            })
+            .collect();
+        frame.render_widget(Paragraph::new(line_nums), gutter_area);
+    }
 
-    let paragraph = Paragraph::new(visible_lines).wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, inner);
+    // Render each line, handling code blocks specially for full-width background
+    for (i, rendered) in state.rendered_lines[start..end].iter().enumerate() {
+        let line_idx = start + i;
+        let y = content_area.y + i as u16;
+
+        if y >= content_area.y + content_area.height {
+            break;
+        }
+
+        let line_area = Rect {
+            x: content_area.x,
+            y,
+            width: content_area.width,
+            height: 1,
+        };
+
+        // For code blocks, fill the entire line with background first
+        if rendered.is_code {
+            let bg_fill = " ".repeat(content_width);
+            frame.render_widget(
+                Paragraph::new(Line::from(bg_fill)).style(Style::default().bg(CODE_BG)),
+                line_area,
+            );
+
+            // Render language label in top-right if present
+            if let Some(ref lang) = rendered.lang
+                && !lang.is_empty()
+            {
+                let label = format!(" {} ", lang);
+                let label_width = label.len() as u16;
+                let label_area = Rect {
+                    x: line_area.x + line_area.width.saturating_sub(label_width + 1),
+                    y: line_area.y,
+                    width: label_width,
+                    height: 1,
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        label,
+                        Style::default().fg(Color::Rgb(90, 90, 110)).bg(CODE_BG),
+                    ))),
+                    label_area,
+                );
+            }
+        }
+
+        // Prepare the line (with search highlighting if needed)
+        let line = if !state.search.query.is_empty() && state.search.matches.contains(&line_idx) {
+            let is_current =
+                state.search.matches.get(state.search.current_match) == Some(&line_idx);
+            let bg = if is_current {
+                Color::Rgb(80, 80, 40)
+            } else {
+                Color::Rgb(50, 50, 30)
+            };
+            Line::from(
+                rendered
+                    .line
+                    .spans
+                    .iter()
+                    .map(|s| Span::styled(s.content.clone(), s.style.bg(bg)))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            rendered.line.clone()
+        };
+
+        // Render the actual content
+        let mut paragraph = Paragraph::new(line);
+        if features.wrap_lines && !rendered.is_code {
+            paragraph = paragraph.wrap(Wrap { trim: false });
+        }
+        frame.render_widget(paragraph, line_area);
+    }
 }
 
-fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
+fn render_status_bar(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    state: &AppState,
+    features: &Features,
+) {
     let style = Style::default().bg(Color::Rgb(30, 30, 40));
 
     if state.search.active {
@@ -455,11 +576,22 @@ fn render_status_bar(frame: &mut ratatui::Frame, area: Rect, state: &AppState) {
             state.rendered_lines.len()
         );
 
-        let help = " j/k:scroll  /:search  n/N:next/prev  r:reload  F12:debug  q:quit ";
+        // Stats info (when enabled)
+        let stats_info = if features.show_stats {
+            format!(
+                " §{} ¶{} ",
+                state.stats.heading_count, state.stats.paragraph_count
+            )
+        } else {
+            String::new()
+        };
+
+        let help = " j/k:scroll  /:search  n/N:next/prev  F12:debug  q:quit ";
 
         let status = Line::from(vec![
             Span::styled(line_info, Style::default().fg(Color::DarkGray)),
             Span::styled(match_info, Style::default().fg(Color::Yellow)),
+            Span::styled(stats_info, Style::default().fg(Color::Cyan)),
             Span::styled(help, Style::default().fg(Color::Rgb(80, 80, 90))),
         ]);
         frame.render_widget(Paragraph::new(status).style(style), area);
