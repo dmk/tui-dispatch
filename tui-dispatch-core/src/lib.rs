@@ -95,10 +95,15 @@ pub mod action;
 pub mod bus;
 pub mod component;
 pub mod debug;
+pub mod effect;
 pub mod event;
 pub mod features;
 pub mod keybindings;
 pub mod store;
+#[cfg(feature = "subscriptions")]
+pub mod subscriptions;
+#[cfg(feature = "tasks")]
+pub mod tasks;
 pub mod testing;
 
 // Core trait exports
@@ -118,6 +123,17 @@ pub use store::{
     ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
     StoreWithMiddleware,
 };
+
+// Effect exports
+pub use effect::{DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware};
+
+// Task exports (requires "tasks" feature)
+#[cfg(feature = "tasks")]
+pub use tasks::{TaskKey, TaskManager};
+
+// Subscription exports (requires "subscriptions" feature)
+#[cfg(feature = "subscriptions")]
+pub use subscriptions::{SubKey, Subscriptions};
 
 // Re-export ratatui types for convenience
 pub use ratatui::{
@@ -142,6 +158,9 @@ pub mod prelude {
     pub use crate::action::{Action, ActionCategory};
     pub use crate::bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
     pub use crate::component::Component;
+    pub use crate::effect::{
+        DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
+    };
     pub use crate::event::{
         ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId,
     };
@@ -153,6 +172,10 @@ pub mod prelude {
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
         StoreWithMiddleware,
     };
+    #[cfg(feature = "subscriptions")]
+    pub use crate::subscriptions::{SubKey, Subscriptions};
+    #[cfg(feature = "tasks")]
+    pub use crate::tasks::{TaskKey, TaskManager};
 
     // Re-export ratatui types
     pub use ratatui::{

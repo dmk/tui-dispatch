@@ -7,6 +7,12 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+tasks = ["tui-dispatch-core/tasks"]
+subscriptions = ["tui-dispatch-core/subscriptions"]
+testing-time = ["tui-dispatch-core/testing-time"]
+
 [dependencies]
 tui-dispatch-core.workspace = true
 tui-dispatch-macros.workspace = true

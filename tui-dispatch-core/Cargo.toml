@@ -12,12 +12,17 @@ default = []
 # Enable time control utilities for testing debounced actions
 # Requires tokio with test-util feature
 testing-time = ["tokio/test-util"]
+# Enable TaskManager for async task lifecycle management
+tasks = []
+# Enable Subscriptions for declarative action sources
+subscriptions = ["tokio-stream"]
 
 [dependencies]
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+tokio-stream = { version = "0.1", optional = true }
 bitflags.workspace = true
 tracing.workspace = true
 serde.workspace = true

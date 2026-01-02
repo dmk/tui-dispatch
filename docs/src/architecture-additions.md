@@ -3,7 +3,7 @@
 This draft outlines architectural additions that reduce framework friction at
 the same level of impact as `store` + `reducer` + `actions`.
 
-> **Status**: Design proposals only. None of these are implemented yet.
+> **Status**: Items 1-3 are implemented in v0.3.0. See [Async Patterns](./async.md).
 > See [ROADMAP.md](../../ROADMAP.md) for confirmed roadmap items.
 > See also [Ideas](./ideas.md) for other exploratory features.
 
@@ -28,7 +28,7 @@ across the app, and requires repeated boilerplate.
 
 ## Proposed additions
 
-### 1) Effect / Command pipeline (immediate)
+### 1) Effect / Command pipeline (immediate) - IMPLEMENTED
 
 Add an optional effect layer so reducers can emit side effects explicitly.
 
@@ -74,7 +74,7 @@ Notes:
 - Provide optional helpers for common effects (spawn task, clipboard, open URL).
 - Logging can include effect summaries alongside actions.
 
-### 2) Subscriptions (immediate)
+### 2) Subscriptions (immediate) - IMPLEMENTED
 
 Provide a declarative registry for continuous sources of actions.
 
@@ -93,7 +93,7 @@ Notes:
 - Keeps timers, streams, and channels in one place.
 - Supports enabling/disabling subscriptions based on state or features.
 
-### 3) Task manager + cancellation (immediate)
+### 3) Task manager + cancellation (immediate) - IMPLEMENTED
 
 Standardize async task lifecycle and stale-result handling.
 

@@ -46,6 +46,19 @@ pub mod prelude {
         StoreWithMiddleware,
     };
 
+    // Effects
+    pub use tui_dispatch_core::{
+        DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
+    };
+
+    // Tasks (requires "tasks" feature)
+    #[cfg(feature = "tasks")]
+    pub use tui_dispatch_core::{TaskKey, TaskManager};
+
+    // Subscriptions (requires "subscriptions" feature)
+    #[cfg(feature = "subscriptions")]
+    pub use tui_dispatch_core::{SubKey, Subscriptions};
+
     // Debug
     pub use tui_dispatch_core::debug::{
         ActionLoggerConfig, ActionLoggerMiddleware, DebugFreeze, DebugOverlay, DebugTableBuilder,
