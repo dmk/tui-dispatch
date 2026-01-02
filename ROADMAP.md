@@ -1,11 +1,11 @@
-# Roadmap to 1.0
+# Roadmap to 1.0.0
 
 An opinionated Redux/Elm-inspired architecture for Rust TUI apps.
 Not trying to be everything - just making the core patterns ergonomic.
 
-## Current State: 8/10
+## Current State
 
-**Done:**
+**Core (Done):**
 - [x] `Store` with reducer dispatch and middleware
 - [x] `EventBus` with subscriptions, focus, component areas
 - [x] `Keybindings` with context-aware lookup, merge, serde
@@ -13,16 +13,22 @@ Not trying to be everything - just making the core patterns ergonomic.
 - [x] `#[derive(BindingContext)]`, `#[derive(ComponentId)]`
 - [x] Testing: `TestHarness`, `RenderHarness`, fluent assertions, key helpers, time control
 
+**Added in v0.2.x:**
+- [x] `DebugLayer::simple()` - one-liner debug overlay setup
+- [x] `#[derive(DebugState)]` with `#[debug(section, skip, label)]` attributes
+- [x] `#[derive(FeatureFlags)]` with runtime toggle, export/import
+- [x] `ActionLoggerMiddleware` with pattern-based filtering
+
 ---
 
-## Path to 10/10
+## Plans
 
-### 1. Fix Component Trait (High Priority)
+### 1. Document Component Trait Pattern (High Priority)
 
-The core `Component` trait isn't used by memtui because it receives `EventKind`
-instead of the full `Event` with context. Two options:
+The core `Component` trait receives `EventKind` instead of the full `Event`
+with context. This is intentional - focus is passed via props.
 
-**Option A: Pass context through props (current design intent)**
+**Design (Option A - current):**
 ```rust
 // Component receives EventKind, focus passed via Props
 fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<impl Action>;
@@ -34,17 +40,8 @@ struct MyProps<'a> {
 }
 ```
 
-**Option B: Make Component generic over event type**
-```rust
-trait Component<E = EventKind> {
-    fn handle_event(&mut self, event: &E, props: Self::Props<'_>) -> Vec<impl Action>;
-}
-
-// Usage: impl Component<Event<MyComponentId>> for MyComponent
-```
-
-Decision: Stick with Option A, but document the pattern clearly. The caller
-(app loop) knows about focus and passes it via props - keeps components decoupled.
+- [ ] Document this pattern clearly in the Component trait docs
+- [ ] Add example showing focus handling via props
 
 ### 2. Documentation (High Priority)
 
@@ -68,7 +65,7 @@ testing/
 
 ### 4. Explicit Category Attribute (Low Priority)
 
-For actions that don't follow prefix convention:
+~~For actions that don't follow prefix convention~~ **Already supported:**
 
 ```rust
 #[derive(Action)]
@@ -81,8 +78,8 @@ enum Action {
 }
 ```
 
-Already partially supported via `#[action(category = "foo")]` on variants,
-just needs documentation.
+- [x] `#[action(category = "foo")]` works on variants
+- [ ] Document this in the derive macro docs
 
 ---
 
@@ -103,3 +100,26 @@ These are intentionally not planned:
 - [ ] `ComponentHarness` for isolated component testing
 - [ ] Insta integration helpers for render snapshots
 - [ ] More key format variants (vim-style `<C-p>`, emacs-style `C-p`)
+
+---
+
+## Post 1.0 Directions
+
+See [Ideas](docs/src/ideas.md) for exploratory features and
+[Architectural Additions](docs/src/architecture-additions.md) for
+larger architectural proposals.
+
+**Likely next:**
+- Effects/Command pipeline (`EffectReducer`, `DispatchResult`)
+- Task manager (spawn, debounce, cancel)
+- `tui-dispatch-components` crate (SelectList, TextInput, CmdLine)
+
+**Maybe:**
+- Theme system
+- Input routing / focus tree
+- `StoreTestHarness`
+
+**Unlikely (non-goals):**
+- Selectors / memoization
+- Time-travel debugging
+- Async middleware

@@ -1,29 +1,39 @@
 # Examples
 
-tui-dispatch includes two example applications that demonstrate different aspects of the framework.
+tui-dispatch includes three example applications, from simple to complex.
+
+## Counter
+
+The simplest possible tui-dispatch app - increment/decrement a counter. Start here.
+
+**Demonstrates:**
+- Core pattern in ~80 lines
+- State, Actions, Reducer, Store
+- Event loop and conditional render
+
+[Read more →](./counter.md)
 
 ## Weather
 
-A weather TUI that fetches data from the Open-Meteo API. This is the best starting point for understanding tui-dispatch patterns.
+A weather TUI that fetches data from the Open-Meteo API.
 
 **Demonstrates:**
-- Full event → action → state → render cycle
-- Async API calls with the `Did*` action pattern
+- Async API calls with `Did*` action pattern
 - Loading states and error handling
-- Action category inference
+- Action logging middleware
+- Debug mode (`--debug` flag)
 
 [Read more →](./weather.md)
 
 ## Markdown Preview
 
-A markdown file viewer with debug overlay capabilities. Shows advanced features for building complex TUI applications.
+A markdown file viewer with debug overlay and feature flags.
 
 **Demonstrates:**
 - Debug layer with F12 toggle
 - State inspection overlay
-- Frame capture and cell inspection
-- Search functionality with navigation
-- Vim-like keybindings
+- Feature flags (line numbers, wrap, stats)
+- Search with navigation
 
 [Read more →](./markdown-preview.md)
 
@@ -32,15 +42,18 @@ A markdown file viewer with debug overlay capabilities. Shows advanced features 
 From the repository root:
 
 ```bash
-# Weather example (default city: Kyiv)
+# Counter - the minimal example
+cargo run -p counter
+
+# Weather (default city: Kyiv)
 cargo run -p weather-example
 
-# Weather with custom city
-cargo run -p weather-example -- --city London
+# Weather with debug mode
+cargo run -p weather-example -- --city London --debug
 
 # Markdown preview (default: README.md)
 cargo run -p markdown-preview
 
-# Preview a specific file
-cargo run -p markdown-preview -- path/to/file.md
+# Markdown preview with debug mode
+cargo run -p markdown-preview -- path/to/file.md --debug
 ```

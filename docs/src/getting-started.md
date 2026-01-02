@@ -6,139 +6,163 @@ Add tui-dispatch to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tui-dispatch = "0.1"
+tui-dispatch = "0.2"
 ratatui = "0.29"
 crossterm = "0.28"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-util = "0.7"
 ```
 
-## Quick Example
+## Minimal Example
 
-Here's a minimal example showing the core pattern:
+The counter example (~80 lines) shows the core pattern:
+
+```bash
+cargo run -p counter
+```
+
+The pattern is simple:
+
+```
+Event → Action → Store.dispatch() → reducer() → state change → render
+```
+
+### 1. State - What the app knows
 
 ```rust
-use tui_dispatch::prelude::*;
-
-// 1. Define your actions
-#[derive(Action, Clone, Debug)]
-#[action(infer_categories)]
-enum Action {
-    NextItem,
-    PrevItem,
-    Select(usize),
-    DidLoadData(Vec<String>),  // async result
-}
-
-// 2. Define your state
+#[derive(Default)]
 struct AppState {
-    items: Vec<String>,
-    selected: usize,
+    count: i32,
 }
+```
 
-// 3. Write a reducer
-fn reducer(state: &mut AppState, action: &Action) -> bool {
+### 2. Actions - What can happen
+
+```rust
+#[derive(Clone, Debug, Action)]
+#[action(infer_categories)]
+enum AppAction {
+    CountIncrement,
+    CountDecrement,
+    Quit,
+}
+```
+
+### 3. Reducer - How state changes
+
+```rust
+fn reducer(state: &mut AppState, action: AppAction) -> bool {
     match action {
-        Action::NextItem => {
-            state.selected = (state.selected + 1) % state.items.len();
-            true // needs render
-        }
-        Action::PrevItem => {
-            state.selected = state.selected.saturating_sub(1);
-            true
-        }
-        Action::Select(idx) => {
-            state.selected = *idx;
-            true
-        }
-        Action::DidLoadData(items) => {
-            state.items = items.clone();
-            true
-        }
+        AppAction::CountIncrement => { state.count += 1; true }
+        AppAction::CountDecrement => { state.count -= 1; true }
+        AppAction::Quit => false,
     }
 }
 ```
 
-## Core Concepts
+### 4. Store - Where state lives
 
-### Actions
+```rust
+let mut store = Store::new(AppState::default(), reducer);
 
-Actions describe state changes. Use the `#[derive(Action)]` macro with `#[action(infer_categories)]` to automatically categorize actions by their prefix:
+// In event loop:
+let state_changed = store.dispatch(action);
+if state_changed { /* render */ }
+```
+
+### 5. Main loop - Event → Action → Dispatch → Render
+
+```rust
+// Map events to actions
+if let EventKind::Key(key) = event {
+    let action = match key.code {
+        KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
+        KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
+        KeyCode::Char('q') => Some(AppAction::Quit),
+        _ => None,
+    };
+    if let Some(a) = action {
+        action_tx.send(a);
+    }
+}
+```
+
+## Action Categories
+
+Use `#[action(infer_categories)]` to auto-categorize actions by prefix:
 
 ```rust
 #[derive(Action, Clone, Debug)]
-#[action(infer_categories, generate_dispatcher)]
+#[action(infer_categories)]
 enum Action {
-    // Category: "search" (inferred from prefix)
+    // Category: "search"
     SearchStart,
     SearchAddChar(char),
     SearchClear,
 
-    // Category: "async_result" (inferred from Did* prefix)
+    // Category: "async_result" (Did* prefix)
     DidConnect(String),
-    DidLoadKeys(Vec<Key>),
+    DidLoadData(Vec<Data>),
 
     // Uncategorized
     Quit,
 }
 ```
 
-This generates:
-- `action.name()` - returns the variant name
-- `action.category()` - returns the inferred category
-- `action.is_search()` - returns true for Search* variants
-- `action.is_async_result()` - returns true for Did* variants
+Generated methods:
+- `action.name()` - variant name as string
+- `action.category()` - inferred category
+- `action.is_search()` - true for Search* variants
+- `action.is_async_result()` - true for Did* variants
 
-### Components
+## Async Pattern
 
-Components handle events and render UI, but never mutate state directly:
+Split async work into intent + result actions:
 
 ```rust
-struct ItemList;
-
-impl Component for ItemList {
-    type Props<'a> = (&'a [String], usize);
-
-    fn handle_event(&mut self, event: &Event, _props: Self::Props<'_>) -> Vec<Action> {
-        match &event.kind {
-            EventKind::Key(k) if k.code == KeyCode::Down => vec![Action::NextItem],
-            EventKind::Key(k) if k.code == KeyCode::Up => vec![Action::PrevItem],
-            _ => vec![],
+// Intent action triggers async work
+Action::DataFetch { id } => {
+    let tx = action_tx.clone();
+    tokio::spawn(async move {
+        match api_call().await {
+            Ok(data) => tx.send(Action::DidLoadData { id, data }),
+            Err(e) => tx.send(Action::DidError { id, error: e.to_string() }),
         }
-    }
+    });
+}
 
-    fn render(&mut self, f: &mut Frame, area: Rect, (items, selected): Self::Props<'_>) {
-        // ratatui rendering here
-    }
+// Result action updates state (in reducer)
+Action::DidLoadData { id, data } => {
+    state.data.insert(id, data);
+    true
 }
 ```
 
-### Async Pattern
+## Debug Mode
 
-For async operations, split into intent and result actions:
+Add debug overlay with zero overhead when disabled:
 
 ```rust
-// In your action handler:
-match action {
-    Action::DataFetch { id } => {
-        let tx = action_tx.clone();
-        tokio::spawn(async move {
-            match api_call().await {
-                Ok(data) => tx.send(Action::DidLoadData { id, data }),
-                Err(e) => tx.send(Action::DidError { id, error: e.to_string() }),
-            }
-        });
-    }
-    // Result actions update state in reducer
-    Action::DidLoadData { id, data } => {
-        state.data.insert(id, data);
-        true
-    }
-    // ...
+// CLI flag
+#[arg(long)]
+debug: bool,
+
+// Setup (only active when --debug passed)
+let mut debug = DebugLayer::simple().active(args.debug);
+
+// In event loop - handles F12 toggle, state overlay, etc.
+if debug.intercepts(&event, store.state()) {
+    should_render = true;
+    continue;
 }
+
+// In render
+debug.render(frame, |f, area| render_app(f, area, state));
 ```
 
 ## Next Steps
 
-Check out the [examples](./examples/README.md) to see full working applications:
-- [Weather](./examples/weather.md) - async API calls and basic UI
-- [Markdown Preview](./examples/markdown-preview.md) - debug overlay and advanced features
+Check out the [examples](./examples/README.md):
+- [Counter](./examples/counter.md) - minimal example (~80 lines)
+- [Weather](./examples/weather.md) - async API calls, middleware
+- [Markdown Preview](./examples/markdown-preview.md) - debug overlay, feature flags
