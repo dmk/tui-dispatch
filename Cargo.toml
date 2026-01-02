@@ -4,6 +4,7 @@ members = [
     "tui-dispatch",
     "tui-dispatch-core",
     "tui-dispatch-macros",
+    "examples/counter",
     "examples/weather",
     "examples/markdown-preview",
 ]

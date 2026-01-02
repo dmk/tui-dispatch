@@ -8,7 +8,11 @@
 //! ```
 //! Available flags: `line_numbers`, `wrap_lines`, `show_stats`
 //!
-//! ## Debug Layer (F12)
+//! ## Debug Mode (--debug)
+//! ```bash
+//! mdpreview README.md --debug
+//! ```
+//! When enabled, press F12 to toggle debug overlay:
 //! - S: Show state overlay (AST stats)
 //! - Y: Copy frame to clipboard (OSC52)
 //! - I: Mouse capture for cell inspection
@@ -18,15 +22,12 @@ mod features;
 mod reducer;
 mod state;
 
-use std::io::{self, Write};
+use std::io;
 use std::time::Duration;
 
-use base64::Engine;
 use clap::Parser;
 use crossterm::{
-    event::{
-        DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
-    },
+    event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -42,10 +43,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tui_dispatch::{
     EventKind, RawEvent, Store,
-    debug::{
-        DebugAction, DebugLayer, DebugSection, DebugSideEffect, DebugState, DebugTableBuilder,
-        SimpleDebugContext, inspect_cell,
-    },
+    debug::{DebugLayer, DebugSection, DebugState},
     features::FeatureFlags,
     process_raw_event, spawn_event_poller,
 };
@@ -71,6 +69,10 @@ struct Args {
     /// Disable features (comma-separated)
     #[arg(long, value_delimiter = ',')]
     disable: Vec<String>,
+
+    /// Enable debug mode (F12 to toggle overlay, state inspection)
+    #[arg(long)]
+    debug: bool,
 }
 
 /// Implement DebugState for our AppState
@@ -132,7 +134,7 @@ async fn main() -> io::Result<()> {
         features.disable(name);
     }
 
-    let result = run_app(&mut terminal, args.file, features).await;
+    let result = run_app(&mut terminal, args.file, features, args.debug).await;
 
     // Cleanup
     disable_raw_mode()?;
@@ -150,6 +152,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     file_path: String,
     features: Features,
+    debug_enabled: bool,
 ) -> io::Result<()> {
     // Action channel
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
@@ -161,8 +164,8 @@ async fn run_app<B: ratatui::backend::Backend>(
     let size = terminal.size()?;
     store.state_mut().terminal_height = size.height;
 
-    // Debug layer - one line setup with sensible defaults
-    let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
+    // Debug layer - only active when --debug flag passed
+    let mut debug: DebugLayer<Action, _> = DebugLayer::simple().active(debug_enabled);
 
     // Event poller
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
@@ -200,44 +203,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                     continue;
                 }
 
-                // Handle debug mode first
-                if debug.is_enabled() {
-                    if let Some(action) = handle_debug_event(&event_kind, &mut debug, store.state()) {
-                        match action {
-                            DebugEventResult::Action(debug_action) => {
-                                if let Some(effect) = debug.handle_action(debug_action) {
-                                    handle_side_effect(effect);
-                                }
-                            }
-                            DebugEventResult::Mouse(x, y) => {
-                                // Cell inspection on mouse click
-                                if let Some(ref snapshot) = debug.freeze().snapshot
-                                    && let Some(cell) = inspect_cell(snapshot, x, y)
-                                {
-                                    let overlay = DebugTableBuilder::new()
-                                        .section("Cell Info")
-                                        .entry("position", format!("({}, {})", x, y))
-                                        .entry("symbol", format!("'{}'", cell.symbol))
-                                        .entry("fg", format!("{:?}", cell.fg))
-                                        .entry("bg", format!("{:?}", cell.bg))
-                                        .entry("modifier", format!("{:?}", cell.modifier))
-                                        .cell_preview(cell)
-                                        .finish_inspect("Cell Inspector");
-                                    debug.freeze_mut().set_overlay(overlay);
-                                }
-                            }
-                        }
-                    }
-                    // Always render after debug mode event handling (e.g., 's' sets overlay directly)
-                    should_render = true;
-                    continue;
-                }
-
-                // Check for F12 to enter debug mode
-                if let EventKind::Key(key) = &event_kind
-                    && key.code == KeyCode::F(12)
-                {
-                    debug.handle_action(DebugAction::Toggle);
+                // Debug layer intercepts events (toggle key, debug commands, etc.)
+                if debug.intercepts(&event_kind, store.state()) {
                     should_render = true;
                     continue;
                 }
@@ -262,63 +229,6 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     cancel_token.cancel();
     Ok(())
-}
-
-enum DebugEventResult {
-    Action(DebugAction),
-    Mouse(u16, u16),
-}
-
-fn handle_debug_event(
-    event: &EventKind,
-    debug: &mut DebugLayer<Action, SimpleDebugContext>,
-    state: &AppState,
-) -> Option<DebugEventResult> {
-    match event {
-        EventKind::Key(key) => {
-            let action = match key.code {
-                KeyCode::F(12) | KeyCode::Esc => Some(DebugAction::Toggle),
-                KeyCode::Char('s') | KeyCode::Char('S') => {
-                    // Show state overlay
-                    debug.show_state_overlay(state);
-                    return None;
-                }
-                KeyCode::Char('a') | KeyCode::Char('A') => Some(DebugAction::ToggleActionLog),
-                KeyCode::Char('y') | KeyCode::Char('Y') => Some(DebugAction::CopyFrame),
-                KeyCode::Char('i') | KeyCode::Char('I') => Some(DebugAction::ToggleMouseCapture),
-                _ => None,
-            };
-            action.map(DebugEventResult::Action)
-        }
-        EventKind::Mouse(mouse) => {
-            if debug.freeze().mouse_capture_enabled
-                && let MouseEventKind::Down(MouseButton::Left) = mouse.kind
-            {
-                return Some(DebugEventResult::Mouse(mouse.column, mouse.row));
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn handle_side_effect(effect: DebugSideEffect<Action>) {
-    match effect {
-        DebugSideEffect::CopyToClipboard(text) => {
-            copy_to_clipboard(&text);
-        }
-        DebugSideEffect::ProcessQueuedActions(_actions) => {
-            // Actions queued while frozen - we'd dispatch them here
-        }
-        _ => {}
-    }
-}
-
-/// Copy text to clipboard via OSC52 escape sequence
-fn copy_to_clipboard(text: &str) {
-    let encoded = base64::engine::general_purpose::STANDARD.encode(text);
-    print!("\x1b]52;c;{}\x07", encoded);
-    io::stdout().flush().ok();
 }
 
 fn handle_event(event: &EventKind, state: &AppState) -> Vec<Action> {

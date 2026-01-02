@@ -41,7 +41,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, KeyCode},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -49,7 +49,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tui_dispatch::debug::{
-    ActionLoggerMiddleware, DebugAction, DebugLayer, DebugSideEffect, SimpleDebugContext,
+    ActionLoggerMiddleware, DebugLayer, DebugSideEffect, SimpleDebugContext,
 };
 use tui_dispatch::{
     EventKind, RawEvent, StoreWithMiddleware, process_raw_event, spawn_event_poller,
@@ -70,8 +70,13 @@ struct Args {
     #[arg(long, short, default_value = "Kyiv")]
     city: String,
 
+    /// Refresh interval in seconds
     #[arg(long, short, default_value = "30")]
     refresh_interval: u64,
+
+    /// Enable debug mode (F12 to toggle overlay)
+    #[arg(long)]
+    debug: bool,
 }
 
 #[tokio::main]
@@ -107,7 +112,7 @@ async fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Run the app and capture result
-    let result = run_app(&mut terminal, location, args.refresh_interval).await;
+    let result = run_app(&mut terminal, location, args.refresh_interval, args.debug).await;
 
     // ===== Cleanup =====
     disable_raw_mode()?;
@@ -125,6 +130,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     location: Location,
     refresh_interval: u64,
+    debug_enabled: bool,
 ) -> io::Result<()> {
     // ===== Framework setup =====
 
@@ -133,12 +139,13 @@ async fn run_app<B: ratatui::backend::Backend>(
     // 2. Async tasks (API calls)
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    // Store with middleware for action logging
-    let middleware = ActionLoggerMiddleware::with_default_log();
+    // Store with middleware for action logging (only active when --debug)
+    let middleware = ActionLoggerMiddleware::with_default_log().active(debug_enabled);
     let mut store = StoreWithMiddleware::new(AppState::new(location), reducer, middleware);
 
-    // Debug layer for inspection (F12)
-    let mut debug: DebugLayer<Action, SimpleDebugContext> = DebugLayer::simple();
+    // Debug layer for inspection (F12) - only active when --debug
+    let mut debug: DebugLayer<Action, SimpleDebugContext> =
+        DebugLayer::simple().active(debug_enabled);
 
     // Event poller - converts terminal events to RawEvent
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
@@ -220,56 +227,17 @@ async fn run_app<B: ratatui::backend::Backend>(
                     continue;
                 }
 
-                // Handle debug toggle (F12)
-                if let EventKind::Key(key_event) = &event_kind {
-                    if key_event.code == KeyCode::F(12) {
-                        if let Some(side_effect) = debug.handle_action(DebugAction::Toggle) {
-                            handle_debug_side_effect(side_effect, &action_tx);
-                        }
-                        should_render = true;
-                        continue;
-                    }
-
-                    // Handle debug mode keys
-                    if debug.is_enabled() {
-                        let debug_action = match key_event.code {
-                            KeyCode::Esc => Some(DebugAction::Toggle),
-                            KeyCode::Char('s') | KeyCode::Char('S') => {
-                                Some(DebugAction::ToggleState)
-                            }
-                            KeyCode::Char('a') | KeyCode::Char('A') => {
-                                // Show action log
-                                if let Some(log) = store.middleware().log() {
-                                    debug.show_action_log(log);
-                                }
-                                should_render = true;
-                                continue;
-                            }
-                            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                                Some(DebugAction::CopyFrame)
-                            }
-                            KeyCode::Char('i') | KeyCode::Char('I') => {
-                                Some(DebugAction::ToggleMouseCapture)
-                            }
-                            KeyCode::Up => Some(DebugAction::ActionLogScrollUp),
-                            KeyCode::Down => Some(DebugAction::ActionLogScrollDown),
-                            KeyCode::Home => Some(DebugAction::ActionLogScrollTop),
-                            KeyCode::End => Some(DebugAction::ActionLogScrollBottom),
-                            _ => None,
-                        };
-
-                        if let Some(action) = debug_action {
-                            if let Some(side_effect) = debug.handle_action(action) {
-                                handle_debug_side_effect(side_effect, &action_tx);
-                            }
-                            should_render = true;
-                            continue;
-                        }
-                    }
+                // Sync action log to debug layer (for 'A' key to work)
+                if let Some(log) = store.middleware().log() {
+                    debug.show_action_log(log);
                 }
 
-                // When debug is enabled, queue app actions instead of processing
-                if debug.is_enabled() {
+                // Debug layer handles F12, state overlay, action log, etc.
+                if let Some(effects) = debug.intercepts_with_effects(&event_kind, store.state()) {
+                    for effect in effects {
+                        handle_debug_side_effect(effect, &action_tx);
+                    }
+                    should_render = true;
                     continue;
                 }
 

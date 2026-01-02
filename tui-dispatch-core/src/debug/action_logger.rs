@@ -336,6 +336,9 @@ pub struct ActionLoggerMiddleware {
     log: Option<ActionLog>,
     /// Tracks whether the last action was logged (for state_changed updates)
     last_action_logged: bool,
+    /// Whether the middleware is active (processes actions)
+    /// When false, all methods become no-ops for zero overhead.
+    active: bool,
 }
 
 impl ActionLoggerMiddleware {
@@ -345,6 +348,7 @@ impl ActionLoggerMiddleware {
             config,
             log: None,
             last_action_logged: false,
+            active: true,
         }
     }
 
@@ -354,6 +358,7 @@ impl ActionLoggerMiddleware {
             config: config.filter.clone(),
             log: Some(ActionLog::new(config)),
             last_action_logged: false,
+            active: true,
         }
     }
 
@@ -370,6 +375,27 @@ impl ActionLoggerMiddleware {
     /// Create with no filtering (logs all actions), tracing only
     pub fn log_all() -> Self {
         Self::new(ActionLoggerConfig::with_patterns(vec![], vec![]))
+    }
+
+    /// Set whether the middleware is active.
+    ///
+    /// When inactive (`false`), all methods become no-ops with zero overhead.
+    /// This is useful for conditional logging based on CLI flags.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let middleware = ActionLoggerMiddleware::default_filtering()
+    ///     .active(args.debug);  // Only log if --debug flag passed
+    /// ```
+    pub fn active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
+    }
+
+    /// Check if the middleware is active.
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 
     /// Get the action log (if storage is enabled)
@@ -395,6 +421,11 @@ impl ActionLoggerMiddleware {
 
 impl<A: ActionSummary> Middleware<A> for ActionLoggerMiddleware {
     fn before(&mut self, action: &A) {
+        // Inactive: no-op
+        if !self.active {
+            return;
+        }
+
         let name = action.name();
 
         // Always log to tracing if filter passes
@@ -412,6 +443,11 @@ impl<A: ActionSummary> Middleware<A> for ActionLoggerMiddleware {
     }
 
     fn after(&mut self, _action: &A, state_changed: bool) {
+        // Inactive: no-op
+        if !self.active {
+            return;
+        }
+
         // Only update state_changed if this action was actually logged
         if self.last_action_logged {
             if let Some(ref mut log) = self.log {

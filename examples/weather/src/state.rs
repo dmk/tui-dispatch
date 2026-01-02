@@ -46,27 +46,32 @@ impl TempUnit {
 }
 
 /// Application state - everything the UI needs to render
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, tui_dispatch::DebugState)]
 pub struct AppState {
     /// Current weather data (None = not yet fetched)
+    #[debug(skip)]
     pub weather: Option<WeatherData>,
 
     /// Loading state for async operations
     pub is_loading: bool,
 
     /// Error message (if last fetch failed)
+    #[debug(skip)]
     pub error: Option<String>,
 
     /// Single location (from geocoding)
+    #[debug(skip)]
     pub location: Location,
 
     /// Temperature unit preference
+    #[debug(skip)]
     pub unit: TempUnit,
 
     /// Animation frame counter (for loading spinner)
     pub tick_count: u32,
 
     /// Terminal dimensions (for sprite sizing)
+    #[debug(skip)]
     pub terminal_size: (u16, u16),
 }
 
