@@ -11,7 +11,7 @@ use ratatui::prelude::{Frame, Rect};
 use ratatui::{
     layout::{Alignment, Constraint, Flex, Layout},
     style::{Color, Style, Stylize},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 use tui_dispatch::EventKind;
@@ -56,54 +56,45 @@ impl WeatherDisplay {
     pub fn render(&mut self, frame: &mut Frame, area: Rect, props: WeatherDisplayProps<'_>) {
         let state = props.state;
 
+        // Loading indicator for title
+        let loading_indicator = if state.is_loading {
+            let spinners = ["◐", "◓", "◑", "◒"];
+            let spinner = spinners[(state.tick_count as usize / 2) % spinners.len()];
+            format!(" {} ", spinner)
+        } else {
+            String::new()
+        };
+
         // Main container with nice border
         let outer_block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Rgb(80, 80, 100)))
-            .title(" ☁ Weather ")
+            .title(format!(" ☁ Weather{}", loading_indicator))
             .title_style(Style::default().fg(Color::Cyan).bold())
             .title_alignment(Alignment::Center);
 
         frame.render_widget(outer_block.clone(), area);
         let inner = outer_block.inner(area);
 
-        // Layout: header, main content, footer
+        // Layout: main content area + help bar at bottom
         let chunks = Layout::vertical([
-            Constraint::Length(3), // Location header
-            Constraint::Min(14),   // Weather art + info
-            Constraint::Length(1), // Spacer
+            Constraint::Min(1),    // Main content (will be centered internally)
             Constraint::Length(1), // Help bar
         ])
         .split(inner);
 
-        // Location header with coordinates
-        let location = state.current_location();
-        let location_text = vec![
-            Line::from(vec![
-                Span::styled("📍 ", Style::default()),
-                Span::styled(&location.name, Style::default().fg(Color::White).bold()),
-            ])
-            .centered(),
-            Line::from(vec![Span::styled(
-                format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
-                Style::default().fg(Color::DarkGray),
-            )])
-            .centered(),
-        ];
-        let header = Paragraph::new(location_text);
-        frame.render_widget(header, chunks[0]);
-
         // Main content area
-        let content_area = chunks[1];
+        let content_area = chunks[0];
 
-        if state.is_loading {
-            render_loading(frame, content_area, state.tick_count);
-        } else if let Some(ref error) = state.error {
-            render_error(frame, content_area, error);
+        // Show existing weather while loading, only show loading screen if no data yet
+        if let Some(ref error) = state.error {
+            render_error(frame, content_area, error, state);
         } else if let Some(ref weather) = state.weather {
             render_weather(frame, content_area, weather, state);
+        } else if state.is_loading {
+            render_loading(frame, content_area, state);
         } else {
-            render_empty(frame, content_area);
+            render_empty(frame, content_area, state);
         }
 
         // Help bar
@@ -116,75 +107,153 @@ impl WeatherDisplay {
             Span::styled(" quit ", Style::default().fg(Color::DarkGray)),
         ])
         .centered();
-        frame.render_widget(Paragraph::new(help), chunks[3]);
+        frame.render_widget(Paragraph::new(help), chunks[1]);
     }
 }
 
-fn render_loading(frame: &mut Frame, area: Rect, tick: u32) {
+fn render_loading(frame: &mut Frame, area: Rect, state: &AppState) {
     let spinners = ["◐", "◓", "◑", "◒"];
-    let spinner = spinners[(tick as usize / 2) % spinners.len()];
+    let spinner = spinners[(state.tick_count as usize / 2) % spinners.len()];
+    let dots = ".".repeat((state.tick_count as usize / 3) % 4);
+    let location = state.current_location();
 
-    let dots = ".".repeat((tick as usize / 3) % 4);
+    let chunks = Layout::vertical([
+        Constraint::Length(1), // Location
+        Constraint::Length(1), // Coordinates
+        Constraint::Length(1), // Blank
+        Constraint::Length(1), // Loading
+    ])
+    .flex(Flex::Center)
+    .split(area);
 
-    let loading = Text::from(vec![
-        Line::from(""),
-        Line::from(""),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(spinner, Style::default().fg(Color::Cyan)),
-            Span::styled(
-                format!(" Fetching weather{:<3}", dots),
-                Style::default().fg(Color::Gray),
-            ),
-        ])
-        .centered(),
-    ]);
+    // Location
+    let location_line = Line::from(vec![
+        Span::styled("📍 ", Style::default()),
+        Span::styled(&location.name, Style::default().fg(Color::White).bold()),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(location_line), chunks[0]);
 
-    frame.render_widget(Paragraph::new(loading), area);
+    // Coordinates
+    let coords_line = Line::from(vec![Span::styled(
+        format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
+        Style::default().fg(Color::DarkGray),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(coords_line), chunks[1]);
+
+    // Loading spinner
+    let loading_line = Line::from(vec![
+        Span::styled(spinner, Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!(" Fetching weather{:<3}", dots),
+            Style::default().fg(Color::Gray),
+        ),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(loading_line), chunks[3]);
 }
 
-fn render_error(frame: &mut Frame, area: Rect, error: &str) {
-    let error_art = vec![
-        Line::from(""),
-        Line::from(vec![Span::styled("  ⚠️  ", Style::default())]).centered(),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "Error",
-            Style::default().fg(Color::Red).bold(),
-        )])
-        .centered(),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            error,
-            Style::default().fg(Color::Rgb(200, 100, 100)),
-        )])
-        .centered(),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled("r", Style::default().fg(Color::Cyan).bold()),
-            Span::styled(" to retry", Style::default().fg(Color::DarkGray)),
-        ])
-        .centered(),
-    ];
+fn render_error(frame: &mut Frame, area: Rect, error: &str, state: &AppState) {
+    let location = state.current_location();
 
-    frame.render_widget(Paragraph::new(error_art), area);
+    let chunks = Layout::vertical([
+        Constraint::Length(1), // Location
+        Constraint::Length(1), // Coordinates
+        Constraint::Length(1), // Blank
+        Constraint::Length(1), // Error icon
+        Constraint::Length(1), // Error title
+        Constraint::Length(1), // Error message
+        Constraint::Length(1), // Blank
+        Constraint::Length(1), // Retry hint
+    ])
+    .flex(Flex::Center)
+    .split(area);
+
+    // Location
+    let location_line = Line::from(vec![
+        Span::styled("📍 ", Style::default()),
+        Span::styled(&location.name, Style::default().fg(Color::White).bold()),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(location_line), chunks[0]);
+
+    // Coordinates
+    let coords_line = Line::from(vec![Span::styled(
+        format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
+        Style::default().fg(Color::DarkGray),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(coords_line), chunks[1]);
+
+    // Error icon
+    frame.render_widget(
+        Paragraph::new(Line::from("⚠️").centered()),
+        chunks[3],
+    );
+
+    // Error title
+    let title = Line::from(vec![Span::styled(
+        "Error",
+        Style::default().fg(Color::Red).bold(),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(title), chunks[4]);
+
+    // Error message
+    let msg = Line::from(vec![Span::styled(
+        error,
+        Style::default().fg(Color::Rgb(200, 100, 100)),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(msg), chunks[5]);
+
+    // Retry hint
+    let hint = Line::from(vec![
+        Span::styled("Press ", Style::default().fg(Color::DarkGray)),
+        Span::styled("r", Style::default().fg(Color::Cyan).bold()),
+        Span::styled(" to retry", Style::default().fg(Color::DarkGray)),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(hint), chunks[7]);
 }
 
-fn render_empty(frame: &mut Frame, area: Rect) {
-    let empty = Text::from(vec![
-        Line::from(""),
-        Line::from(""),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled("r", Style::default().fg(Color::Cyan).bold()),
-            Span::styled(" to fetch weather", Style::default().fg(Color::DarkGray)),
-        ])
-        .centered(),
-    ]);
+fn render_empty(frame: &mut Frame, area: Rect, state: &AppState) {
+    let location = state.current_location();
 
-    frame.render_widget(Paragraph::new(empty), area);
+    let chunks = Layout::vertical([
+        Constraint::Length(1), // Location
+        Constraint::Length(1), // Coordinates
+        Constraint::Length(1), // Blank
+        Constraint::Length(1), // Hint
+    ])
+    .flex(Flex::Center)
+    .split(area);
+
+    // Location
+    let location_line = Line::from(vec![
+        Span::styled("📍 ", Style::default()),
+        Span::styled(&location.name, Style::default().fg(Color::White).bold()),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(location_line), chunks[0]);
+
+    // Coordinates
+    let coords_line = Line::from(vec![Span::styled(
+        format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
+        Style::default().fg(Color::DarkGray),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(coords_line), chunks[1]);
+
+    // Hint
+    let hint = Line::from(vec![
+        Span::styled("Press ", Style::default().fg(Color::DarkGray)),
+        Span::styled("r", Style::default().fg(Color::Cyan).bold()),
+        Span::styled(" to fetch weather", Style::default().fg(Color::DarkGray)),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(hint), chunks[3]);
 }
 
 fn render_weather(
@@ -193,38 +262,66 @@ fn render_weather(
     weather: &crate::state::WeatherData,
     state: &AppState,
 ) {
-    // Split into art area and info area
-    let chunks = Layout::horizontal([
-        Constraint::Min(30),    // Weather art
-        Constraint::Length(20), // Temperature & info
-    ])
-    .flex(Flex::Center)
-    .split(area);
-
     // Weather art with auto-sizing based on terminal dimensions
     let (art_lines, _) = sprites::weather_sprite(weather.weather_code, state.terminal_size);
-    let art = Paragraph::new(art_lines).alignment(Alignment::Center);
-    frame.render_widget(art, chunks[0]);
+    let sprite_height = art_lines.lines.len() as u16;
 
     // Temperature and description
     let temp = state.unit.format(weather.temperature);
     let temp_color = temp_to_color(weather.temperature);
 
-    let info = Text::from(vec![
-        Line::from(""),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            &temp,
-            Style::default().fg(temp_color).bold(),
-        )]),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            &weather.description,
-            Style::default().fg(Color::Gray),
-        )]),
-    ]);
+    // Location info
+    let location = state.current_location();
 
-    frame.render_widget(Paragraph::new(info).alignment(Alignment::Left), chunks[1]);
+    // Vertical layout: location, coords, blank, sprite, blank, temp, description
+    // All centered as one block
+    let chunks = Layout::vertical([
+        Constraint::Length(1),             // Location name
+        Constraint::Length(1),             // Coordinates
+        Constraint::Length(1),             // Blank line
+        Constraint::Length(sprite_height), // Sprite
+        Constraint::Length(1),             // Blank line
+        Constraint::Length(1),             // Temperature
+        Constraint::Length(1),             // Description
+    ])
+    .flex(Flex::Center)
+    .split(area);
+
+    // Render location name centered
+    let location_line = Line::from(vec![
+        Span::styled("📍 ", Style::default()),
+        Span::styled(&location.name, Style::default().fg(Color::White).bold()),
+    ])
+    .centered();
+    frame.render_widget(Paragraph::new(location_line), chunks[0]);
+
+    // Render coordinates centered
+    let coords_line = Line::from(vec![Span::styled(
+        format!("{:.2}°N, {:.2}°E", location.lat, location.lon),
+        Style::default().fg(Color::DarkGray),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(coords_line), chunks[1]);
+
+    // Render sprite centered
+    let art = Paragraph::new(art_lines).alignment(Alignment::Center);
+    frame.render_widget(art, chunks[3]);
+
+    // Render temperature centered
+    let temp_line = Line::from(vec![Span::styled(
+        temp,
+        Style::default().fg(temp_color).bold(),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(temp_line), chunks[5]);
+
+    // Render description centered
+    let desc_line = Line::from(vec![Span::styled(
+        &weather.description,
+        Style::default().fg(Color::Gray),
+    )])
+    .centered();
+    frame.render_widget(Paragraph::new(desc_line), chunks[6]);
 }
 
 /// Get temperature-based color

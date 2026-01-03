@@ -1,56 +1,157 @@
-//! Weather sprite system with auto-sizing based on terminal dimensions
+//! Weather sprite system with auto-sizing and multi-color layer support
 //!
 //! Sprites are loaded from text files at compile time using `include_str!`.
 //! Each weather condition has Small, Medium, and Large variants.
+//! Multi-layer sprites (like partly_cloudy) composite multiple colored layers.
 
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 
 // ============================================================================
 // Sprite data - embedded at compile time
+// File naming: {size}_{color}.txt (e.g., small_yellow.txt, medium_gray.txt)
 // ============================================================================
 
 mod sprite_data {
     pub mod sun {
-        pub const SMALL: &str = include_str!("../sprites/sun/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/sun/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/sun/large.txt");
+        pub const SMALL_YELLOW: &str = include_str!("../sprites/sun/small_yellow.txt");
+        pub const MEDIUM_YELLOW: &str = include_str!("../sprites/sun/medium_yellow.txt");
+        pub const LARGE_YELLOW: &str = include_str!("../sprites/sun/large_yellow.txt");
     }
     pub mod partly_cloudy {
-        pub const SMALL: &str = include_str!("../sprites/partly_cloudy/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/partly_cloudy/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/partly_cloudy/large.txt");
+        // Sun layer (background)
+        pub const SMALL_YELLOW: &str = include_str!("../sprites/partly_cloudy/small_yellow.txt");
+        pub const MEDIUM_YELLOW: &str = include_str!("../sprites/partly_cloudy/medium_yellow.txt");
+        pub const LARGE_YELLOW: &str = include_str!("../sprites/partly_cloudy/large_yellow.txt");
+        // Cloud layer (foreground)
+        pub const SMALL_GRAY: &str = include_str!("../sprites/partly_cloudy/small_gray.txt");
+        pub const MEDIUM_GRAY: &str = include_str!("../sprites/partly_cloudy/medium_gray.txt");
+        pub const LARGE_GRAY: &str = include_str!("../sprites/partly_cloudy/large_gray.txt");
     }
     pub mod cloudy {
-        pub const SMALL: &str = include_str!("../sprites/cloudy/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/cloudy/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/cloudy/large.txt");
+        // Back cloud (darker, smaller)
+        pub const SMALL_DARKGRAY: &str = include_str!("../sprites/cloudy/small_darkgray.txt");
+        pub const MEDIUM_DARKGRAY: &str = include_str!("../sprites/cloudy/medium_darkgray.txt");
+        pub const LARGE_DARKGRAY: &str = include_str!("../sprites/cloudy/large_darkgray.txt");
+        // Front cloud (lighter, larger)
+        pub const SMALL_LIGHTGRAY: &str = include_str!("../sprites/cloudy/small_lightgray.txt");
+        pub const MEDIUM_LIGHTGRAY: &str = include_str!("../sprites/cloudy/medium_lightgray.txt");
+        pub const LARGE_LIGHTGRAY: &str = include_str!("../sprites/cloudy/large_lightgray.txt");
     }
     pub mod fog {
-        pub const SMALL: &str = include_str!("../sprites/fog/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/fog/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/fog/large.txt");
+        // Cloud layer (darker)
+        pub const SMALL_DARKGRAY: &str = include_str!("../sprites/fog/small_darkgray.txt");
+        pub const MEDIUM_DARKGRAY: &str = include_str!("../sprites/fog/medium_darkgray.txt");
+        pub const LARGE_DARKGRAY: &str = include_str!("../sprites/fog/large_darkgray.txt");
+        // Fog lines (lighter)
+        pub const SMALL_LIGHTGRAY: &str = include_str!("../sprites/fog/small_lightgray.txt");
+        pub const MEDIUM_LIGHTGRAY: &str = include_str!("../sprites/fog/medium_lightgray.txt");
+        pub const LARGE_LIGHTGRAY: &str = include_str!("../sprites/fog/large_lightgray.txt");
     }
     pub mod drizzle {
-        pub const SMALL: &str = include_str!("../sprites/drizzle/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/drizzle/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/drizzle/large.txt");
+        // Cloud layer (background)
+        pub const SMALL_GRAY: &str = include_str!("../sprites/drizzle/small_gray.txt");
+        pub const MEDIUM_GRAY: &str = include_str!("../sprites/drizzle/medium_gray.txt");
+        pub const LARGE_GRAY: &str = include_str!("../sprites/drizzle/large_gray.txt");
+        // Drizzle layer (foreground)
+        pub const SMALL_BLUE: &str = include_str!("../sprites/drizzle/small_blue.txt");
+        pub const MEDIUM_BLUE: &str = include_str!("../sprites/drizzle/medium_blue.txt");
+        pub const LARGE_BLUE: &str = include_str!("../sprites/drizzle/large_blue.txt");
     }
     pub mod rain {
-        pub const SMALL: &str = include_str!("../sprites/rain/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/rain/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/rain/large.txt");
+        // Cloud layer (background)
+        pub const SMALL_GRAY: &str = include_str!("../sprites/rain/small_gray.txt");
+        pub const MEDIUM_GRAY: &str = include_str!("../sprites/rain/medium_gray.txt");
+        pub const LARGE_GRAY: &str = include_str!("../sprites/rain/large_gray.txt");
+        // Rain layer (foreground)
+        pub const SMALL_BLUE: &str = include_str!("../sprites/rain/small_blue.txt");
+        pub const MEDIUM_BLUE: &str = include_str!("../sprites/rain/medium_blue.txt");
+        pub const LARGE_BLUE: &str = include_str!("../sprites/rain/large_blue.txt");
     }
     pub mod snow {
-        pub const SMALL: &str = include_str!("../sprites/snow/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/snow/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/snow/large.txt");
+        // Cloud layer (background)
+        pub const SMALL_GRAY: &str = include_str!("../sprites/snow/small_gray.txt");
+        pub const MEDIUM_GRAY: &str = include_str!("../sprites/snow/medium_gray.txt");
+        pub const LARGE_GRAY: &str = include_str!("../sprites/snow/large_gray.txt");
+        // Snow layer (foreground)
+        pub const SMALL_WHITE: &str = include_str!("../sprites/snow/small_white.txt");
+        pub const MEDIUM_WHITE: &str = include_str!("../sprites/snow/medium_white.txt");
+        pub const LARGE_WHITE: &str = include_str!("../sprites/snow/large_white.txt");
     }
     pub mod thunderstorm {
-        pub const SMALL: &str = include_str!("../sprites/thunderstorm/small.txt");
-        pub const MEDIUM: &str = include_str!("../sprites/thunderstorm/medium.txt");
-        pub const LARGE: &str = include_str!("../sprites/thunderstorm/large.txt");
+        // Cloud layer (background)
+        pub const SMALL_GRAY: &str = include_str!("../sprites/thunderstorm/small_gray.txt");
+        pub const MEDIUM_GRAY: &str = include_str!("../sprites/thunderstorm/medium_gray.txt");
+        pub const LARGE_GRAY: &str = include_str!("../sprites/thunderstorm/large_gray.txt");
+        // Lightning layer (foreground)
+        pub const SMALL_YELLOW: &str = include_str!("../sprites/thunderstorm/small_yellow.txt");
+        pub const MEDIUM_YELLOW: &str = include_str!("../sprites/thunderstorm/medium_yellow.txt");
+        pub const LARGE_YELLOW: &str = include_str!("../sprites/thunderstorm/large_yellow.txt");
     }
+}
+
+// ============================================================================
+// Layer compositing
+// ============================================================================
+
+/// A single sprite layer with its content and color
+struct SpriteLayer {
+    content: &'static str,
+    color: Color,
+}
+
+/// Composite multiple layers into Text, treating spaces as transparent
+fn composite_layers(layers: &[SpriteLayer]) -> Text<'static> {
+    if layers.is_empty() {
+        return Text::default();
+    }
+
+    // Pre-collect lines for each layer to avoid repeated .lines() calls
+    let layer_lines: Vec<Vec<&str>> = layers.iter().map(|l| l.content.lines().collect()).collect();
+
+    // Get max dimensions
+    let max_lines = layer_lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    let max_width = layer_lines
+        .iter()
+        .flat_map(|lines| lines.iter())
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    // Build composited lines
+    let mut result_lines = Vec::with_capacity(max_lines);
+
+    for line_idx in 0..max_lines {
+        let mut spans = Vec::with_capacity(max_width);
+
+        for col_idx in 0..max_width {
+            // Find topmost non-space character at this position
+            // Iterate layers back-to-front (last layer = top/foreground)
+            let mut found_char = ' ';
+            let mut found_color = Color::Reset;
+
+            for (layer_idx, layer) in layers.iter().enumerate().rev() {
+                if let Some(line) = layer_lines[layer_idx].get(line_idx) {
+                    if let Some(ch) = line.chars().nth(col_idx) {
+                        if ch != ' ' {
+                            found_char = ch;
+                            found_color = layer.color;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            spans.push(Span::styled(
+                found_char.to_string(),
+                Style::default().fg(found_color),
+            ));
+        }
+
+        result_lines.push(Line::from(spans));
+    }
+
+    Text::from(result_lines)
 }
 
 // ============================================================================
@@ -72,11 +173,12 @@ impl SpriteSize {
     /// Determine appropriate sprite size based on terminal dimensions
     pub fn from_terminal_size(_width: u16, height: u16) -> Self {
         // Account for UI chrome: border (2) + header (3) + spacer (1) + help (1) = 7
-        let content_height = height.saturating_sub(7);
+        // Plus temp (1) + description (1) + blank (1) = 3 more for the new vertical layout
+        let content_height = height.saturating_sub(10);
 
         match content_height {
-            0..=12 => SpriteSize::Small,
-            13..=20 => SpriteSize::Medium,
+            0..=10 => SpriteSize::Small,
+            11..=16 => SpriteSize::Medium,
             _ => SpriteSize::Large,
         }
     }
@@ -140,63 +242,171 @@ pub fn weather_sprite(code: u8, terminal_size: (u16, u16)) -> (Text<'static>, Co
 }
 
 /// Get weather art for the given condition and size
+///
+/// Multi-layer sprites (like partly_cloudy) are composited with different colors.
 pub fn get_sprite(condition: WeatherCondition, size: SpriteSize) -> (Text<'static>, Color) {
-    let sprite_str = match condition {
-        WeatherCondition::ClearSky => match size {
-            SpriteSize::Small => sprite_data::sun::SMALL,
-            SpriteSize::Medium => sprite_data::sun::MEDIUM,
-            SpriteSize::Large => sprite_data::sun::LARGE,
-        },
-        WeatherCondition::PartlyCloudy => match size {
-            SpriteSize::Small => sprite_data::partly_cloudy::SMALL,
-            SpriteSize::Medium => sprite_data::partly_cloudy::MEDIUM,
-            SpriteSize::Large => sprite_data::partly_cloudy::LARGE,
-        },
-        WeatherCondition::Cloudy | WeatherCondition::Unknown => match size {
-            SpriteSize::Small => sprite_data::cloudy::SMALL,
-            SpriteSize::Medium => sprite_data::cloudy::MEDIUM,
-            SpriteSize::Large => sprite_data::cloudy::LARGE,
-        },
-        WeatherCondition::Fog => match size {
-            SpriteSize::Small => sprite_data::fog::SMALL,
-            SpriteSize::Medium => sprite_data::fog::MEDIUM,
-            SpriteSize::Large => sprite_data::fog::LARGE,
-        },
-        WeatherCondition::Drizzle => match size {
-            SpriteSize::Small => sprite_data::drizzle::SMALL,
-            SpriteSize::Medium => sprite_data::drizzle::MEDIUM,
-            SpriteSize::Large => sprite_data::drizzle::LARGE,
-        },
-        WeatherCondition::Rain => match size {
-            SpriteSize::Small => sprite_data::rain::SMALL,
-            SpriteSize::Medium => sprite_data::rain::MEDIUM,
-            SpriteSize::Large => sprite_data::rain::LARGE,
-        },
-        WeatherCondition::Snow => match size {
-            SpriteSize::Small => sprite_data::snow::SMALL,
-            SpriteSize::Medium => sprite_data::snow::MEDIUM,
-            SpriteSize::Large => sprite_data::snow::LARGE,
-        },
-        WeatherCondition::Thunderstorm => match size {
-            SpriteSize::Small => sprite_data::thunderstorm::SMALL,
-            SpriteSize::Medium => sprite_data::thunderstorm::MEDIUM,
-            SpriteSize::Large => sprite_data::thunderstorm::LARGE,
-        },
+    let primary_color = condition.color();
+
+    let layers: Vec<SpriteLayer> = match condition {
+        WeatherCondition::ClearSky => vec![SpriteLayer {
+            content: match size {
+                SpriteSize::Small => sprite_data::sun::SMALL_YELLOW,
+                SpriteSize::Medium => sprite_data::sun::MEDIUM_YELLOW,
+                SpriteSize::Large => sprite_data::sun::LARGE_YELLOW,
+            },
+            color: Color::Yellow,
+        }],
+
+        WeatherCondition::PartlyCloudy => vec![
+            // Sun layer (background - listed first)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::partly_cloudy::SMALL_YELLOW,
+                    SpriteSize::Medium => sprite_data::partly_cloudy::MEDIUM_YELLOW,
+                    SpriteSize::Large => sprite_data::partly_cloudy::LARGE_YELLOW,
+                },
+                color: Color::Yellow,
+            },
+            // Cloud layer (foreground - listed last, rendered on top)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::partly_cloudy::SMALL_GRAY,
+                    SpriteSize::Medium => sprite_data::partly_cloudy::MEDIUM_GRAY,
+                    SpriteSize::Large => sprite_data::partly_cloudy::LARGE_GRAY,
+                },
+                color: Color::Rgb(200, 200, 210),
+            },
+        ],
+
+        WeatherCondition::Cloudy | WeatherCondition::Unknown => vec![
+            // Back cloud (darker, in background)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::cloudy::SMALL_DARKGRAY,
+                    SpriteSize::Medium => sprite_data::cloudy::MEDIUM_DARKGRAY,
+                    SpriteSize::Large => sprite_data::cloudy::LARGE_DARKGRAY,
+                },
+                color: Color::Rgb(120, 120, 140),
+            },
+            // Front cloud (lighter, in foreground)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::cloudy::SMALL_LIGHTGRAY,
+                    SpriteSize::Medium => sprite_data::cloudy::MEDIUM_LIGHTGRAY,
+                    SpriteSize::Large => sprite_data::cloudy::LARGE_LIGHTGRAY,
+                },
+                color: Color::Rgb(170, 170, 185),
+            },
+        ],
+
+        WeatherCondition::Fog => vec![
+            // Cloud layer (darker)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::fog::SMALL_DARKGRAY,
+                    SpriteSize::Medium => sprite_data::fog::MEDIUM_DARKGRAY,
+                    SpriteSize::Large => sprite_data::fog::LARGE_DARKGRAY,
+                },
+                color: Color::Rgb(140, 140, 155),
+            },
+            // Fog lines (lighter, hazy)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::fog::SMALL_LIGHTGRAY,
+                    SpriteSize::Medium => sprite_data::fog::MEDIUM_LIGHTGRAY,
+                    SpriteSize::Large => sprite_data::fog::LARGE_LIGHTGRAY,
+                },
+                color: Color::Rgb(180, 180, 190),
+            },
+        ],
+
+        WeatherCondition::Drizzle => vec![
+            // Cloud layer (background)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::drizzle::SMALL_GRAY,
+                    SpriteSize::Medium => sprite_data::drizzle::MEDIUM_GRAY,
+                    SpriteSize::Large => sprite_data::drizzle::LARGE_GRAY,
+                },
+                color: Color::Rgb(160, 160, 175),
+            },
+            // Drizzle layer (foreground)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::drizzle::SMALL_BLUE,
+                    SpriteSize::Medium => sprite_data::drizzle::MEDIUM_BLUE,
+                    SpriteSize::Large => sprite_data::drizzle::LARGE_BLUE,
+                },
+                color: Color::Rgb(130, 170, 200),
+            },
+        ],
+
+        WeatherCondition::Rain => vec![
+            // Cloud layer (background)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::rain::SMALL_GRAY,
+                    SpriteSize::Medium => sprite_data::rain::MEDIUM_GRAY,
+                    SpriteSize::Large => sprite_data::rain::LARGE_GRAY,
+                },
+                color: Color::Rgb(160, 160, 175),
+            },
+            // Rain layer (foreground)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::rain::SMALL_BLUE,
+                    SpriteSize::Medium => sprite_data::rain::MEDIUM_BLUE,
+                    SpriteSize::Large => sprite_data::rain::LARGE_BLUE,
+                },
+                color: Color::Rgb(80, 140, 200),
+            },
+        ],
+
+        WeatherCondition::Snow => vec![
+            // Cloud layer (background)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::snow::SMALL_GRAY,
+                    SpriteSize::Medium => sprite_data::snow::MEDIUM_GRAY,
+                    SpriteSize::Large => sprite_data::snow::LARGE_GRAY,
+                },
+                color: Color::Rgb(160, 160, 175),
+            },
+            // Snow layer (foreground)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::snow::SMALL_WHITE,
+                    SpriteSize::Medium => sprite_data::snow::MEDIUM_WHITE,
+                    SpriteSize::Large => sprite_data::snow::LARGE_WHITE,
+                },
+                color: Color::Rgb(200, 220, 255),
+            },
+        ],
+
+        WeatherCondition::Thunderstorm => vec![
+            // Cloud layer (background)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::thunderstorm::SMALL_GRAY,
+                    SpriteSize::Medium => sprite_data::thunderstorm::MEDIUM_GRAY,
+                    SpriteSize::Large => sprite_data::thunderstorm::LARGE_GRAY,
+                },
+                color: Color::Rgb(120, 120, 140),
+            },
+            // Lightning layer (foreground)
+            SpriteLayer {
+                content: match size {
+                    SpriteSize::Small => sprite_data::thunderstorm::SMALL_YELLOW,
+                    SpriteSize::Medium => sprite_data::thunderstorm::MEDIUM_YELLOW,
+                    SpriteSize::Large => sprite_data::thunderstorm::LARGE_YELLOW,
+                },
+                color: Color::Yellow,
+            },
+        ],
     };
 
-    let color = condition.color();
-    let text = sprite_to_text(sprite_str, color);
-    (text, color)
-}
-
-/// Convert sprite string to colored Text
-fn sprite_to_text(sprite: &'static str, color: Color) -> Text<'static> {
-    let style = Style::default().fg(color);
-    let lines: Vec<Line> = sprite
-        .lines()
-        .map(|line| Line::from(Span::styled(line, style)))
-        .collect();
-    Text::from(lines)
+    let text = composite_layers(&layers);
+    (text, primary_color)
 }
 
 // ============================================================================
@@ -209,16 +419,16 @@ mod tests {
 
     #[test]
     fn test_sprite_size_from_terminal() {
-        // Small terminals
+        // Small terminals (content_height = height - 10, then 0-10 = small)
         assert_eq!(SpriteSize::from_terminal_size(80, 10), SpriteSize::Small);
-        assert_eq!(SpriteSize::from_terminal_size(80, 19), SpriteSize::Small);
+        assert_eq!(SpriteSize::from_terminal_size(80, 20), SpriteSize::Small);
 
-        // Medium terminals
-        assert_eq!(SpriteSize::from_terminal_size(80, 20), SpriteSize::Medium);
-        assert_eq!(SpriteSize::from_terminal_size(80, 27), SpriteSize::Medium);
+        // Medium terminals (content_height 11-16)
+        assert_eq!(SpriteSize::from_terminal_size(80, 21), SpriteSize::Medium);
+        assert_eq!(SpriteSize::from_terminal_size(80, 26), SpriteSize::Medium);
 
-        // Large terminals
-        assert_eq!(SpriteSize::from_terminal_size(80, 28), SpriteSize::Large);
+        // Large terminals (content_height 17+)
+        assert_eq!(SpriteSize::from_terminal_size(80, 27), SpriteSize::Large);
         assert_eq!(SpriteSize::from_terminal_size(80, 50), SpriteSize::Large);
     }
 

@@ -7,10 +7,11 @@
 //! - Use fluent assertions for readable tests
 
 use tui_dispatch::testing::*;
-use tui_dispatch::{NumericComponentId, Store, assert_emitted, assert_not_emitted};
+use tui_dispatch::{EffectStore, NumericComponentId, assert_emitted, assert_not_emitted};
 use weather_example::{
     action::Action,
     components::{WeatherDisplay, WeatherDisplayProps},
+    effect::Effect,
     reducer::reducer,
     state::{AppState, Location, TempUnit, WeatherData},
 };
@@ -18,21 +19,23 @@ use weather_example::{
 #[test]
 fn test_reducer_weather_fetch() {
     // PATTERN: Create store with reducer, dispatch actions, verify state
-    let mut store = Store::new(AppState::default(), reducer);
+    let mut store = EffectStore::new(AppState::default(), reducer);
 
     // Initial state
     assert!(!store.state().is_loading);
     assert!(store.state().weather.is_none());
 
-    // Dispatch fetch - should set loading
-    let changed = store.dispatch(Action::WeatherFetch);
-    assert!(changed, "State should change");
+    // Dispatch fetch - should set loading and return FetchWeather effect
+    let result = store.dispatch(Action::WeatherFetch);
+    assert!(result.changed, "State should change");
     assert!(store.state().is_loading);
+    assert_eq!(result.effects.len(), 1);
+    assert!(matches!(result.effects[0], Effect::FetchWeather { .. }));
 }
 
 #[test]
 fn test_reducer_weather_load() {
-    let mut store = Store::new(AppState::default(), reducer);
+    let mut store = EffectStore::new(AppState::default(), reducer);
 
     // Simulate fetch completing
     let weather = WeatherData {
@@ -51,7 +54,7 @@ fn test_reducer_weather_load() {
 
 #[test]
 fn test_reducer_toggle_units() {
-    let mut store = Store::new(AppState::default(), reducer);
+    let mut store = EffectStore::new(AppState::default(), reducer);
 
     assert_eq!(store.state().unit, TempUnit::Celsius);
     store.dispatch(Action::UiToggleUnits);
@@ -161,19 +164,19 @@ fn test_custom_location() {
 
 #[test]
 fn test_terminal_resize_action() {
-    let mut store = Store::new(AppState::default(), reducer);
+    let mut store = EffectStore::new(AppState::default(), reducer);
 
     // Initial size
     assert_eq!(store.state().terminal_size, (80, 24));
 
     // Resize should update state
-    let changed = store.dispatch(Action::UiTerminalResize(120, 40));
-    assert!(changed);
+    let result = store.dispatch(Action::UiTerminalResize(120, 40));
+    assert!(result.changed);
     assert_eq!(store.state().terminal_size, (120, 40));
 
     // Same size should not change
-    let changed = store.dispatch(Action::UiTerminalResize(120, 40));
-    assert!(!changed);
+    let result = store.dispatch(Action::UiTerminalResize(120, 40));
+    assert!(!result.changed);
 }
 
 #[test]

@@ -1,14 +1,13 @@
 //! Open-Meteo API client
 //!
 //! FRAMEWORK PATTERN: Async Side Effects
-//! - Intent action triggers async task spawn
-//! - Async task sends Result action back via channel
+//! - Reducer emits Effect::FetchWeather
+//! - TaskManager spawns async task
+//! - Task returns Result, TaskManager sends action
 //! - No async in reducer or component - side effects are isolated
 
 use serde::Deserialize;
-use tokio::sync::mpsc;
 
-use crate::action::Action;
 use crate::state::{Location, WeatherData};
 
 // ============================================================================
@@ -91,39 +90,31 @@ struct CurrentWeather {
     weathercode: u8,
 }
 
-/// Fetch weather from Open-Meteo API
+/// Fetch weather data from Open-Meteo API
 ///
 /// # Arguments
 /// * `lat`, `lon` - Coordinates
-/// * `action_tx` - Channel to send result action
+///
+/// # Returns
+/// `Ok(WeatherData)` on success, `Err(String)` with error message on failure.
 ///
 /// # Pattern
-/// This function is spawned as an async task when `WeatherFetch` is dispatched.
-/// It sends `WeatherDidLoad` or `WeatherDidError` back through the action channel.
-pub async fn fetch_weather(lat: f64, lon: f64, action_tx: mpsc::UnboundedSender<Action>) {
+/// This function is called from TaskManager when Effect::FetchWeather is handled.
+/// The return value is converted to an Action by the effect handler.
+pub async fn fetch_weather_data(lat: f64, lon: f64) -> Result<WeatherData, String> {
     let url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current_weather=true",
         lat, lon
     );
 
-    let result = async {
-        let response = reqwest::get(&url).await?;
-        let data: WeatherResponse = response.json().await?;
-        Ok::<_, reqwest::Error>(data)
-    }
-    .await;
+    let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    let data: WeatherResponse = response.json().await.map_err(|e| e.to_string())?;
 
-    let action = match result {
-        Ok(data) => Action::WeatherDidLoad(WeatherData {
-            temperature: data.current_weather.temperature,
-            weather_code: data.current_weather.weathercode,
-            description: weather_description(data.current_weather.weathercode),
-        }),
-        Err(e) => Action::WeatherDidError(e.to_string()),
-    };
-
-    // Send result action - ignore error if receiver dropped
-    let _ = action_tx.send(action);
+    Ok(WeatherData {
+        temperature: data.current_weather.temperature,
+        weather_code: data.current_weather.weathercode,
+        description: weather_description(data.current_weather.weathercode),
+    })
 }
 
 /// Convert WMO weather code to human-readable description

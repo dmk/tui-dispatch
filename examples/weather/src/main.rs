@@ -1,17 +1,18 @@
 //! Weather TUI - tui-dispatch example
 //!
-//! This example demonstrates the full tui-dispatch pattern:
+//! This example demonstrates the full tui-dispatch pattern with effects:
 //! 1. Event (keyboard) -> Component.handle_event() -> Actions
-//! 2. Actions dispatched to Store
-//! 3. Reducer updates state
-//! 4. If state changed, re-render
+//! 2. Actions dispatched to EffectStore
+//! 3. Reducer updates state and returns effects
+//! 4. Effects handled by TaskManager
+//! 5. If state changed, re-render
 //!
-//! FRAMEWORK PATTERN: The Main Loop
+//! FRAMEWORK PATTERN: The Main Loop with Effects
 //! - spawn_event_poller for terminal events
-//! - Action channel for async results
-//! - Store with middleware for state management
+//! - EffectStore for state management with declarative effects
+//! - TaskManager for async operations (API calls)
+//! - Subscriptions for continuous sources (tick timer, auto-refresh)
 //! - Debug layer for inspection (F12)
-//! - Render on state change
 //!
 //! # Features
 //!
@@ -32,6 +33,7 @@
 mod action;
 mod api;
 mod components;
+mod effect;
 mod reducer;
 mod sprites;
 mod state;
@@ -41,23 +43,23 @@ use std::time::Duration;
 
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{DisableMouseCapture, EnableMouseCapture, KeyCode},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tui_dispatch::debug::{
-    ActionLoggerMiddleware, DebugLayer, DebugSideEffect, SimpleDebugContext,
-};
+use tui_dispatch::debug::{DebugLayer, DebugSideEffect};
 use tui_dispatch::{
-    EventKind, RawEvent, StoreWithMiddleware, process_raw_event, spawn_event_poller,
+    EffectStoreWithMiddleware, EventKind, RawEvent, Subscriptions, TaskManager, process_raw_event,
+    spawn_event_poller,
 };
 
 use crate::action::Action;
 use crate::api::GeocodingError;
 use crate::components::{WeatherDisplay, WeatherDisplayProps};
+use crate::effect::Effect;
 use crate::reducer::reducer;
 use crate::state::{AppState, Location};
 
@@ -136,16 +138,41 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     // Action channel - receives actions from:
     // 1. Component event handlers
-    // 2. Async tasks (API calls)
+    // 2. Async tasks (via TaskManager)
+    // 3. Subscriptions (tick, refresh timers)
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    // Store with middleware for action logging (only active when --debug)
-    let middleware = ActionLoggerMiddleware::with_default_log().active(debug_enabled);
-    let mut store = StoreWithMiddleware::new(AppState::new(location), reducer, middleware);
+    // EffectStore for state management
+    let mut store = EffectStoreWithMiddleware::new(
+        AppState::new(location),
+        reducer,
+        tui_dispatch::NoopMiddleware,
+    );
+
+    // TaskManager for async operations (API calls)
+    let tasks = TaskManager::new(action_tx.clone());
+
+    // Subscriptions for continuous action sources
+    let subs = Subscriptions::new(action_tx.clone());
 
     // Debug layer for inspection (F12) - only active when --debug
-    let mut debug: DebugLayer<Action, SimpleDebugContext> =
-        DebugLayer::simple().active(debug_enabled);
+    // Automatically pauses tasks/subs when debug mode is enabled
+    let mut debug = DebugLayer::new(KeyCode::F(12))
+        .with_task_manager(&tasks)
+        .with_subscriptions(&subs)
+        .active(debug_enabled);
+
+    // Now we can mutate tasks and subs
+    let mut tasks = tasks;
+    let mut subs = subs;
+
+    // Tick timer for loading animation (100ms)
+    subs.interval("tick", Duration::from_millis(100), || Action::Tick);
+
+    // Auto-refresh timer
+    subs.interval("refresh", Duration::from_secs(refresh_interval), || {
+        Action::WeatherFetch
+    });
 
     // Event poller - converts terminal events to RawEvent
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
@@ -156,37 +183,6 @@ async fn run_app<B: ratatui::backend::Backend>(
         Duration::from_millis(16), // loop sleep (~60fps)
         cancel_token.clone(),
     );
-
-    // Tick timer for loading animation
-    let tick_tx = action_tx.clone();
-    let tick_cancel = cancel_token.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
-        loop {
-            tokio::select! {
-                _ = tick_cancel.cancelled() => break,
-                _ = interval.tick() => {
-                    let _ = tick_tx.send(Action::Tick);
-                }
-            }
-        }
-    });
-
-    // Auto-refresh timer (every 5 minutes)
-    let refresh_tx = action_tx.clone();
-    let refresh_cancel = cancel_token.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(refresh_interval));
-        interval.tick().await; // Skip immediate first tick
-        loop {
-            tokio::select! {
-                _ = refresh_cancel.cancelled() => break,
-                _ = interval.tick() => {
-                    let _ = refresh_tx.send(Action::WeatherFetch);
-                }
-            }
-        }
-    });
 
     // Component
     let mut weather_display = WeatherDisplay;
@@ -227,15 +223,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                     continue;
                 }
 
-                // Sync action log to debug layer (for 'A' key to work)
-                if let Some(log) = store.middleware().log() {
-                    debug.show_action_log(log);
-                }
-
                 // Debug layer handles F12, state overlay, action log, etc.
-                if let Some(effects) = debug.intercepts_with_effects(&event_kind, store.state()) {
+                if let Some(effects) = debug.intercepts_with_effects(&event_kind) {
                     for effect in effects {
                         handle_debug_side_effect(effect, &action_tx);
+                    }
+                    // Refresh state overlay if it's currently shown
+                    if debug.is_state_overlay_visible() {
+                        debug.show_state_overlay(store.state());
                     }
                     should_render = true;
                     continue;
@@ -254,35 +249,49 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
             }
 
-            // Action received (from component or async task)
+            // Action received (from component, TaskManager, or Subscriptions)
             Some(action) = action_rx.recv() => {
                 // Handle quit before dispatch
                 if matches!(action, Action::Quit) {
                     break;
                 }
 
-                // Handle async trigger before dispatch
-                if matches!(action, Action::WeatherFetch) {
-                    let loc = store.state().current_location();
-                    let tx = action_tx.clone();
-                    let lat = loc.lat;
-                    let lon = loc.lon;
-                    tokio::spawn(async move {
-                        api::fetch_weather(lat, lon, tx).await;
-                    });
+                // Log action for debug overlay
+                debug.log_action(&action);
+
+                // Dispatch to store - returns effects
+                let result = store.dispatch(action);
+
+                // Handle effects via TaskManager
+                for effect in result.effects {
+                    handle_effect(effect, &mut tasks);
                 }
 
-                // Dispatch to store
-                let state_changed = store.dispatch(action);
-                should_render = state_changed;
+                should_render = result.changed;
             }
         }
     }
 
-    // Cancel background tasks
+    // Cleanup
     cancel_token.cancel();
+    subs.cancel_all();
+    tasks.cancel_all();
 
     Ok(())
+}
+
+/// Handle effects by spawning tasks
+fn handle_effect(effect: Effect, tasks: &mut TaskManager<Action>) {
+    match effect {
+        Effect::FetchWeather { lat, lon } => {
+            tasks.spawn("weather", async move {
+                match api::fetch_weather_data(lat, lon).await {
+                    Ok(data) => Action::WeatherDidLoad(data),
+                    Err(e) => Action::WeatherDidError(e),
+                }
+            });
+        }
+    }
 }
 
 /// Handle debug side effects
@@ -298,9 +307,6 @@ fn handle_debug_side_effect(
         }
         DebugSideEffect::CopyToClipboard(_text) => {
             // Could integrate with clipboard crate
-        }
-        DebugSideEffect::EnableMouseCapture | DebugSideEffect::DisableMouseCapture => {
-            // Mouse capture is always enabled in this example
         }
     }
 }
