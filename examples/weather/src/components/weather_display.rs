@@ -187,10 +187,7 @@ fn render_error(frame: &mut Frame, area: Rect, error: &str, state: &AppState) {
     frame.render_widget(Paragraph::new(coords_line), chunks[1]);
 
     // Error icon
-    frame.render_widget(
-        Paragraph::new(Line::from("⚠️").centered()),
-        chunks[3],
-    );
+    frame.render_widget(Paragraph::new(Line::from("⚠️").centered()), chunks[3]);
 
     // Error title
     let title = Line::from(vec![Span::styled(

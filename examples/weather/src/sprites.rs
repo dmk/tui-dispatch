@@ -131,14 +131,13 @@ fn composite_layers(layers: &[SpriteLayer]) -> Text<'static> {
             let mut found_color = Color::Reset;
 
             for (layer_idx, layer) in layers.iter().enumerate().rev() {
-                if let Some(line) = layer_lines[layer_idx].get(line_idx) {
-                    if let Some(ch) = line.chars().nth(col_idx) {
-                        if ch != ' ' {
-                            found_char = ch;
-                            found_color = layer.color;
-                            break;
-                        }
-                    }
+                if let Some(line) = layer_lines[layer_idx].get(line_idx)
+                    && let Some(ch) = line.chars().nth(col_idx)
+                    && ch != ' '
+                {
+                    found_char = ch;
+                    found_color = layer.color;
+                    break;
                 }
             }
 
