@@ -1,85 +1,87 @@
 //! High-level debug layer for TUI applications
 //!
-//! Provides a wrapper that handles debug UI rendering with sensible defaults.
+//! Provides a self-contained debug overlay with automatic pause/resume of
+//! tasks and subscriptions.
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use std::io::Write;
+
+use base64::prelude::*;
+use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Clear};
 use ratatui::Frame;
-use std::marker::PhantomData;
 
-use super::action_logger::ActionLog;
+use super::action_logger::{ActionLog, ActionLogConfig};
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
-use super::config::{
-    default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
-    StatusItem,
-};
+use super::config::DebugStyle;
 use super::state::DebugState;
 use super::table::{ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay};
 use super::widgets::{
     dim_buffer, paint_snapshot, ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner,
     DebugTableWidget,
 };
-use super::{DebugFreeze, SimpleDebugContext};
-use crate::keybindings::{format_key_for_display, BindingContext};
+use super::DebugFreeze;
+#[cfg(feature = "subscriptions")]
+use crate::subscriptions::SubPauseHandle;
+#[cfg(feature = "tasks")]
+use crate::tasks::TaskPauseHandle;
+use crate::Action;
 
-/// High-level debug layer with sensible defaults
+/// High-level debug layer with minimal configuration.
 ///
-/// Wraps `DebugFreeze` and provides automatic rendering with:
-/// - 1-line status bar at bottom when debug mode is active
-/// - Frame capture/restore with dimming
-/// - Modal overlays for state inspection
-///
-/// # Type Parameters
-///
-/// - `A`: The application's action type (for queuing actions while frozen)
-/// - `C`: The keybinding context type
+/// Provides automatic freeze/unfreeze with pause/resume of tasks and subscriptions.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch::debug::{DebugLayer, DebugConfig};
+/// use crossterm::event::KeyCode;
+/// use tui_dispatch::debug::DebugLayer;
 ///
-/// // In your app:
-/// struct App {
-///     debug: DebugLayer<MyAction, MyContext>,
-///     // ...
+/// // Minimal setup - just the toggle key
+/// let mut debug = DebugLayer::new(KeyCode::F(12))
+///     .with_task_manager(&tasks)
+///     .with_subscriptions(&subs)
+///     .active(args.debug);
+///
+/// // In event loop
+/// if debug.intercepts(&event) {
+///     continue;
 /// }
 ///
-/// // In render loop:
-/// app.debug.render(frame, |f, area| {
-///     // Render your normal UI here
-///     app.render_main(f, area);
+/// // In render
+/// debug.render(frame, |f, area| {
+///     app.render(f, area);
 /// });
+///
+/// // Log actions for the action log feature
+/// debug.log_action(&action);
 /// ```
-///
-/// # Conditional Activation
-///
-/// Use `.active(false)` for zero-overhead when debug is not needed:
-///
-/// ```ignore
-/// let mut debug = DebugLayer::<Action>::simple()
-///     .active(args.debug);  // Only enable if --debug flag passed
-///
-/// // Same code works - methods become no-ops when inactive
-/// if debug.intercepts(&event, state) { continue; }
-/// ```
-pub struct DebugLayer<A, C: BindingContext> {
+pub struct DebugLayer<A> {
+    /// Key to toggle debug mode
+    toggle_key: KeyCode,
     /// Internal freeze state
     freeze: DebugFreeze<A>,
-    /// Configuration
-    config: DebugConfig<C>,
-    /// Whether the debug layer is active (processes events, renders overlay)
-    /// When false, all methods become no-ops for zero overhead.
+    /// Style configuration
+    style: DebugStyle,
+    /// Whether the debug layer is active (can be disabled for release builds)
     active: bool,
+    /// Action log for display
+    action_log: ActionLog,
+    /// Handle to pause/resume task manager
+    #[cfg(feature = "tasks")]
+    task_handle: Option<TaskPauseHandle<A>>,
+    /// Handle to pause/resume subscriptions
+    #[cfg(feature = "subscriptions")]
+    sub_handle: Option<SubPauseHandle>,
 }
 
-impl<A, C: BindingContext> std::fmt::Debug for DebugLayer<A, C> {
+impl<A> std::fmt::Debug for DebugLayer<A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DebugLayer")
+            .field("toggle_key", &self.toggle_key)
             .field("active", &self.active)
             .field("enabled", &self.freeze.enabled)
             .field("has_snapshot", &self.freeze.snapshot.is_some())
@@ -88,86 +90,112 @@ impl<A, C: BindingContext> std::fmt::Debug for DebugLayer<A, C> {
     }
 }
 
-impl<A, C: BindingContext> DebugLayer<A, C> {
-    /// Create a new debug layer with the given configuration
-    pub fn new(config: DebugConfig<C>) -> Self {
+impl<A: Action> DebugLayer<A> {
+    /// Create a new debug layer with the given toggle key.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use crossterm::event::KeyCode;
+    ///
+    /// let debug = DebugLayer::new(KeyCode::F(12));
+    /// ```
+    pub fn new(toggle_key: KeyCode) -> Self {
         Self {
+            toggle_key,
             freeze: DebugFreeze::new(),
-            config,
+            style: DebugStyle::default(),
             active: true,
+            action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
+            #[cfg(feature = "tasks")]
+            task_handle: None,
+            #[cfg(feature = "subscriptions")]
+            sub_handle: None,
         }
     }
 
     /// Set whether the debug layer is active.
     ///
     /// When inactive (`false`), all methods become no-ops with zero overhead.
-    /// This is useful for conditional debug mode based on CLI flags.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let mut debug = DebugLayer::<Action>::simple()
-    ///     .active(args.debug);  // Only enable if --debug flag passed
-    /// ```
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
         self
     }
 
-    /// Check if the debug layer is active.
+    /// Connect a task manager for automatic pause/resume.
     ///
-    /// Returns `false` if `.active(false)` was called, meaning all methods are no-ops.
+    /// When debug mode is enabled, the task manager will be paused.
+    /// When disabled, queued actions will be returned.
+    #[cfg(feature = "tasks")]
+    pub fn with_task_manager(mut self, tasks: &crate::tasks::TaskManager<A>) -> Self {
+        self.task_handle = Some(tasks.pause_handle());
+        self
+    }
+
+    /// Connect subscriptions for automatic pause/resume.
+    ///
+    /// When debug mode is enabled, subscriptions will be paused.
+    #[cfg(feature = "subscriptions")]
+    pub fn with_subscriptions(mut self, subs: &crate::subscriptions::Subscriptions<A>) -> Self {
+        self.sub_handle = Some(subs.pause_handle());
+        self
+    }
+
+    /// Set the action log capacity.
+    pub fn with_action_log_capacity(mut self, capacity: usize) -> Self {
+        self.action_log = ActionLog::new(ActionLogConfig::with_capacity(capacity));
+        self
+    }
+
+    /// Set custom style.
+    pub fn with_style(mut self, style: DebugStyle) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Check if the debug layer is active.
     pub fn is_active(&self) -> bool {
         self.active
     }
 
-    /// Check if debug mode is enabled (and layer is active)
-    ///
-    /// Returns `false` if the layer is inactive or debug mode is off.
+    /// Check if debug mode is enabled (and layer is active).
     pub fn is_enabled(&self) -> bool {
         self.active && self.freeze.enabled
     }
 
-    /// Get a reference to the underlying freeze state
+    /// Check if the state overlay is currently visible.
+    pub fn is_state_overlay_visible(&self) -> bool {
+        matches!(self.freeze.overlay, Some(DebugOverlay::State(_)))
+    }
+
+    /// Get a reference to the underlying freeze state.
     pub fn freeze(&self) -> &DebugFreeze<A> {
         &self.freeze
     }
 
-    /// Get a mutable reference to the underlying freeze state
+    /// Get a mutable reference to the underlying freeze state.
     pub fn freeze_mut(&mut self) -> &mut DebugFreeze<A> {
         &mut self.freeze
     }
 
-    /// Get the configuration
-    pub fn config(&self) -> &DebugConfig<C> {
-        &self.config
+    /// Log an action to the action log.
+    ///
+    /// Call this when dispatching actions to record them for the debug overlay.
+    pub fn log_action<T: crate::ActionParams>(&mut self, action: &T) {
+        if self.active {
+            self.action_log.log(action);
+        }
     }
 
-    /// Get mutable configuration
-    pub fn config_mut(&mut self) -> &mut DebugConfig<C> {
-        &mut self.config
+    /// Get the action log.
+    pub fn action_log(&self) -> &ActionLog {
+        &self.action_log
     }
 
-    /// Render with automatic debug handling (primary API)
+    /// Render with automatic debug handling.
     ///
-    /// When debug mode is disabled (or layer is inactive), simply calls `render_fn`
-    /// with the full frame area.
-    ///
-    /// When debug mode is enabled:
-    /// - Reserves 1 line at bottom for the debug banner
-    /// - Captures the frame on first render or when requested
-    /// - Paints the frozen snapshot with dimming
-    /// - Renders debug overlay (banner + modal if open)
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// terminal.draw(|frame| {
-    ///     app.debug.render(frame, |f, area| {
-    ///         render_main_ui(f, area, &app.state);
-    ///     });
-    /// })?;
-    /// ```
+    /// When debug mode is disabled, simply calls `render_fn` with the full frame area.
+    /// When enabled, captures/paints the frozen snapshot and renders debug overlay.
     pub fn render<F>(&mut self, frame: &mut Frame, render_fn: F)
     where
         F: FnOnce(&mut Frame, Rect),
@@ -186,7 +214,6 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         if self.freeze.pending_capture || self.freeze.snapshot.is_none() {
             // Capture mode: render app, then capture
             render_fn(frame, app_area);
-            // Clone the buffer for capture (buffer_mut is available, buffer is not public)
             let buffer_clone = frame.buffer_mut().clone();
             self.freeze.capture(&buffer_clone);
         } else if let Some(ref snapshot) = self.freeze.snapshot {
@@ -198,27 +225,7 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         self.render_debug_overlay(frame, app_area, banner_area);
     }
 
-    /// Split area for manual layout control (escape hatch)
-    ///
-    /// Returns (app_area, debug_banner_area). When debug mode is disabled,
-    /// returns the full area and an empty rect.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let (app_area, banner_area) = debug.split_area(frame.area());
-    ///
-    /// // Custom layout
-    /// let chunks = Layout::vertical([...]).split(app_area);
-    /// app.render_main(frame, chunks[0]);
-    /// app.render_status(frame, chunks[1]);
-    ///
-    /// // Let debug layer render its UI
-    /// if debug.is_enabled() {
-    ///     debug.render_overlay(frame, app_area);
-    ///     debug.render_banner(frame, banner_area);
-    /// }
-    /// ```
+    /// Split area for manual layout control.
     pub fn split_area(&self, area: Rect) -> (Rect, Rect) {
         if !self.freeze.enabled {
             return (area, Rect::ZERO);
@@ -226,202 +233,251 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         self.split_for_banner(area)
     }
 
-    /// Render just the debug overlay (modal + dimming)
+    /// Check if debug layer intercepts an event.
     ///
-    /// Use this with `split_area` for manual layout control.
-    pub fn render_overlay(&self, frame: &mut Frame, app_area: Rect) {
-        if !self.freeze.enabled {
-            return;
+    /// Call this before your normal event handling. If it returns `true`,
+    /// the event was consumed by the debug layer.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if debug.intercepts(&event) {
+    ///     continue;
+    /// }
+    /// // Normal event handling
+    /// ```
+    pub fn intercepts(&mut self, event: &crate::EventKind) -> bool {
+        self.intercepts_with_effects(event).is_some()
+    }
+
+    /// Check if debug layer intercepts an event, returning any side effects.
+    ///
+    /// Returns `None` if the event was not consumed, `Some(effects)` if it was.
+    pub fn intercepts_with_effects(
+        &mut self,
+        event: &crate::EventKind,
+    ) -> Option<Vec<DebugSideEffect<A>>> {
+        if !self.active {
+            return None;
         }
 
-        // Dim the background
-        dim_buffer(frame.buffer_mut(), self.config.style.dim_factor);
+        use crate::EventKind;
 
-        // Render overlay if present
-        if let Some(ref overlay) = self.freeze.overlay {
-            match overlay {
-                DebugOverlay::Inspect(table) | DebugOverlay::State(table) => {
-                    self.render_table_modal(frame, app_area, table);
+        match event {
+            EventKind::Key(key) => self.handle_key_event(*key),
+            EventKind::Mouse(mouse) => {
+                if !self.freeze.enabled {
+                    return None;
                 }
-                DebugOverlay::ActionLog(log) => {
-                    self.render_action_log_modal(frame, app_area, log);
+
+                // Only capture mouse when mouse_capture_enabled (toggle with 'i')
+                // When disabled, let terminal handle mouse (allows text selection)
+                if !self.freeze.mouse_capture_enabled {
+                    return None;
                 }
+
+                // Handle click for cell inspection
+                if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                    let effect = self.handle_action(DebugAction::InspectCell {
+                        column: mouse.column,
+                        row: mouse.row,
+                    });
+                    return Some(effect.into_iter().collect());
+                }
+
+                // Consume mouse events when capturing
+                Some(vec![])
             }
-        }
-    }
+            EventKind::Scroll { delta, .. } => {
+                if !self.freeze.enabled {
+                    return None;
+                }
 
-    /// Render just the debug banner
-    ///
-    /// Use this with `split_area` for manual layout control.
-    pub fn render_banner(&self, frame: &mut Frame, banner_area: Rect) {
-        if !self.freeze.enabled || banner_area.height == 0 {
-            return;
-        }
-
-        let style = &self.config.style;
-        let mut banner = DebugBanner::new()
-            .title("DEBUG")
-            .title_style(style.title_style)
-            .label_style(style.label_style)
-            .background(style.banner_bg);
-
-        // Add standard debug commands with distinct colors
-        let keys = &style.key_styles;
-        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume", keys.toggle);
-        self.add_banner_item(
-            &mut banner,
-            DebugAction::CMD_TOGGLE_ACTION_LOG,
-            "actions",
-            keys.actions,
-        );
-        self.add_banner_item(
-            &mut banner,
-            DebugAction::CMD_TOGGLE_STATE,
-            "state",
-            keys.state,
-        );
-        self.add_banner_item(&mut banner, DebugAction::CMD_COPY_FRAME, "copy", keys.copy);
-
-        if self.freeze.mouse_capture_enabled {
-            banner = banner.item(BannerItem::new("click", "inspect", keys.mouse));
-        } else {
-            self.add_banner_item(
-                &mut banner,
-                DebugAction::CMD_TOGGLE_MOUSE,
-                "mouse",
-                keys.mouse,
-            );
-        }
-
-        // Add message if present
-        if let Some(ref msg) = self.freeze.message {
-            banner = banner.item(BannerItem::new("", msg, style.value_style));
-        }
-
-        // Note: Custom status items from config.status_items() require owned strings
-        // but BannerItem uses borrowed &str. For now, use render_banner_with_status()
-        // if you need custom status items.
-
-        frame.render_widget(banner, banner_area);
-    }
-
-    /// Render the debug banner with custom status items
-    ///
-    /// Use this if you need to add dynamic status items to the banner.
-    /// The status_items slice must outlive this call.
-    pub fn render_banner_with_status(
-        &self,
-        frame: &mut Frame,
-        banner_area: Rect,
-        status_items: &[(&str, &str)],
-    ) {
-        if !self.freeze.enabled || banner_area.height == 0 {
-            return;
-        }
-
-        let style = &self.config.style;
-        let mut banner = DebugBanner::new()
-            .title("DEBUG")
-            .title_style(style.title_style)
-            .label_style(style.label_style)
-            .background(style.banner_bg);
-
-        // Add standard debug commands with distinct colors
-        let keys = &style.key_styles;
-        self.add_banner_item(&mut banner, DebugAction::CMD_TOGGLE, "resume", keys.toggle);
-        self.add_banner_item(
-            &mut banner,
-            DebugAction::CMD_TOGGLE_ACTION_LOG,
-            "actions",
-            keys.actions,
-        );
-        self.add_banner_item(
-            &mut banner,
-            DebugAction::CMD_TOGGLE_STATE,
-            "state",
-            keys.state,
-        );
-        self.add_banner_item(&mut banner, DebugAction::CMD_COPY_FRAME, "copy", keys.copy);
-
-        if self.freeze.mouse_capture_enabled {
-            banner = banner.item(BannerItem::new("click", "inspect", keys.mouse));
-        } else {
-            self.add_banner_item(
-                &mut banner,
-                DebugAction::CMD_TOGGLE_MOUSE,
-                "mouse",
-                keys.mouse,
-            );
-        }
-
-        // Add message if present
-        if let Some(ref msg) = self.freeze.message {
-            banner = banner.item(BannerItem::new("", msg, style.value_style));
-        }
-
-        // Add custom status items
-        for (label, value) in status_items {
-            banner = banner.item(BannerItem::new(label, value, style.value_style));
-        }
-
-        frame.render_widget(banner, banner_area);
-    }
-
-    /// Handle a debug action
-    ///
-    /// Returns a side effect if the app needs to take action (clipboard, mouse capture, etc).
-    pub fn handle_action(&mut self, action: DebugAction) -> Option<DebugSideEffect<A>> {
-        match action {
-            DebugAction::Toggle => {
-                if self.freeze.enabled {
-                    let queued = self.freeze.take_queued();
-                    self.freeze.disable();
-                    if queued.is_empty() {
-                        None
+                // Handle scrolling in action log overlay
+                if let Some(DebugOverlay::ActionLog(_)) = self.freeze.overlay {
+                    let action = if *delta > 0 {
+                        DebugAction::ActionLogScrollUp
                     } else {
-                        Some(DebugSideEffect::ProcessQueuedActions(queued))
-                    }
-                } else {
-                    self.freeze.enable();
-                    None
+                        DebugAction::ActionLogScrollDown
+                    };
+                    self.handle_action(action);
+                }
+
+                Some(vec![])
+            }
+            // Don't intercept resize or tick events
+            EventKind::Resize(_, _) | EventKind::Tick => None,
+        }
+    }
+
+    /// Show state overlay using a DebugState implementor.
+    pub fn show_state_overlay<S: DebugState>(&mut self, state: &S) {
+        let table = state.build_debug_table("Application State");
+        self.freeze.set_overlay(DebugOverlay::State(table));
+    }
+
+    /// Show action log overlay.
+    pub fn show_action_log(&mut self) {
+        let overlay = ActionLogOverlay::from_log(&self.action_log, "Action Log");
+        self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
+    }
+
+    /// Queue an action to be processed when debug mode is disabled.
+    pub fn queue_action(&mut self, action: A) {
+        self.freeze.queue(action);
+    }
+
+    /// Take any queued actions (from task manager resume).
+    ///
+    /// Call this after `intercepts()` returns effects to get queued actions
+    /// that should be dispatched.
+    pub fn take_queued_actions(&mut self) -> Vec<A> {
+        std::mem::take(&mut self.freeze.queued_actions)
+    }
+
+    // =========================================================================
+    // Private helpers
+    // =========================================================================
+
+    fn handle_key_event(&mut self, key: KeyEvent) -> Option<Vec<DebugSideEffect<A>>> {
+        // Toggle key always works (even when disabled)
+        if key.code == self.toggle_key && key.modifiers.is_empty() {
+            let effect = self.toggle();
+            return Some(effect.into_iter().collect());
+        }
+
+        // Esc also toggles off when enabled
+        if self.freeze.enabled && key.code == KeyCode::Esc {
+            let effect = self.toggle();
+            return Some(effect.into_iter().collect());
+        }
+
+        // Other commands only work when enabled
+        if !self.freeze.enabled {
+            return None;
+        }
+
+        // Handle internal debug commands (hardcoded keys)
+        let action = match key.code {
+            KeyCode::Char('s') | KeyCode::Char('S') => Some(DebugAction::ToggleState),
+            KeyCode::Char('a') | KeyCode::Char('A') => Some(DebugAction::ToggleActionLog),
+            KeyCode::Char('y') | KeyCode::Char('Y') => Some(DebugAction::CopyFrame),
+            KeyCode::Char('i') | KeyCode::Char('I') => Some(DebugAction::ToggleMouseCapture),
+            KeyCode::Char('q') | KeyCode::Char('Q') => Some(DebugAction::CloseOverlay),
+            _ => None,
+        };
+
+        if let Some(action) = action {
+            let effect = self.handle_action(action);
+            return Some(effect.into_iter().collect());
+        }
+
+        // Handle overlay-specific navigation
+        match &self.freeze.overlay {
+            Some(DebugOverlay::ActionLog(_)) => {
+                let action = match key.code {
+                    KeyCode::Char('j') | KeyCode::Down => Some(DebugAction::ActionLogScrollDown),
+                    KeyCode::Char('k') | KeyCode::Up => Some(DebugAction::ActionLogScrollUp),
+                    KeyCode::Char('g') => Some(DebugAction::ActionLogScrollTop),
+                    KeyCode::Char('G') => Some(DebugAction::ActionLogScrollBottom),
+                    KeyCode::PageDown => Some(DebugAction::ActionLogPageDown),
+                    KeyCode::PageUp => Some(DebugAction::ActionLogPageUp),
+                    KeyCode::Enter => Some(DebugAction::ActionLogShowDetail),
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    self.handle_action(action);
+                    return Some(vec![]);
                 }
             }
+            Some(DebugOverlay::ActionDetail(_)) => {
+                // Back to action log on Esc, Backspace, or Enter
+                if matches!(key.code, KeyCode::Esc | KeyCode::Backspace | KeyCode::Enter) {
+                    self.handle_action(DebugAction::ActionLogBackToList);
+                    return Some(vec![]);
+                }
+            }
+            _ => {}
+        }
+
+        // Consume all key events when debug is enabled
+        Some(vec![])
+    }
+
+    fn toggle(&mut self) -> Option<DebugSideEffect<A>> {
+        if self.freeze.enabled {
+            // Disable: resume tasks/subs
+            #[cfg(feature = "subscriptions")]
+            if let Some(ref handle) = self.sub_handle {
+                handle.resume();
+            }
+
+            #[cfg(feature = "tasks")]
+            let task_queued = if let Some(ref handle) = self.task_handle {
+                handle.resume()
+            } else {
+                vec![]
+            };
+            #[cfg(not(feature = "tasks"))]
+            let task_queued: Vec<A> = vec![];
+
+            let queued = self.freeze.take_queued();
+            self.freeze.disable();
+
+            // Combine queued actions from freeze and task manager
+            let mut all_queued = queued;
+            all_queued.extend(task_queued);
+
+            if all_queued.is_empty() {
+                None
+            } else {
+                Some(DebugSideEffect::ProcessQueuedActions(all_queued))
+            }
+        } else {
+            // Enable: pause tasks/subs
+            #[cfg(feature = "tasks")]
+            if let Some(ref handle) = self.task_handle {
+                handle.pause();
+            }
+            #[cfg(feature = "subscriptions")]
+            if let Some(ref handle) = self.sub_handle {
+                handle.pause();
+            }
+            self.freeze.enable();
+            None
+        }
+    }
+
+    fn handle_action(&mut self, action: DebugAction) -> Option<DebugSideEffect<A>> {
+        match action {
+            DebugAction::Toggle => self.toggle(),
             DebugAction::CopyFrame => {
-                let text = self.freeze.snapshot_text.clone();
+                let text = &self.freeze.snapshot_text;
+                // Use OSC52 escape sequence to copy to clipboard
+                let encoded = BASE64_STANDARD.encode(text);
+                print!("\x1b]52;c;{}\x07", encoded);
+                std::io::stdout().flush().ok();
                 self.freeze.set_message("Copied to clipboard");
-                Some(DebugSideEffect::CopyToClipboard(text))
+                None
             }
             DebugAction::ToggleState => {
-                // Toggle between no overlay and state overlay
                 if matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
                     self.freeze.clear_overlay();
                 } else {
-                    // App should call show_state_overlay() with their state
-                    // For now, just show a placeholder
+                    // Show placeholder - user should call show_state_overlay()
                     let table = DebugTableBuilder::new()
                         .section("State")
-                        .entry("hint", "Call show_state_overlay() with your state")
+                        .entry("hint", "Press 's' after calling show_state_overlay()")
                         .finish("Application State");
                     self.freeze.set_overlay(DebugOverlay::State(table));
                 }
                 None
             }
             DebugAction::ToggleActionLog => {
-                // Toggle between no overlay and action log overlay
                 if matches!(self.freeze.overlay, Some(DebugOverlay::ActionLog(_))) {
                     self.freeze.clear_overlay();
                 } else {
-                    // App should call show_action_log() with their log
-                    // For now, just show a placeholder
-                    let overlay = ActionLogOverlay {
-                        title: "Action Log".to_string(),
-                        entries: vec![],
-                        selected: 0,
-                        scroll_offset: 0,
-                    };
-                    self.freeze
-                        .set_message("Call show_action_log() with your ActionLog");
-                    self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
+                    self.show_action_log();
                 }
                 None
             }
@@ -449,13 +505,36 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
                 }
                 None
             }
+            DebugAction::ActionLogPageUp => {
+                if let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay {
+                    log.page_up(10);
+                }
+                None
+            }
+            DebugAction::ActionLogPageDown => {
+                if let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay {
+                    log.page_down(10);
+                }
+                None
+            }
+            DebugAction::ActionLogShowDetail => {
+                if let Some(DebugOverlay::ActionLog(ref log)) = self.freeze.overlay {
+                    if let Some(detail) = log.selected_detail() {
+                        self.freeze.set_overlay(DebugOverlay::ActionDetail(detail));
+                    }
+                }
+                None
+            }
+            DebugAction::ActionLogBackToList => {
+                // Go back to action log from detail view
+                if matches!(self.freeze.overlay, Some(DebugOverlay::ActionDetail(_))) {
+                    self.show_action_log();
+                }
+                None
+            }
             DebugAction::ToggleMouseCapture => {
                 self.freeze.toggle_mouse_capture();
-                if self.freeze.mouse_capture_enabled {
-                    Some(DebugSideEffect::EnableMouseCapture)
-                } else {
-                    Some(DebugSideEffect::DisableMouseCapture)
-                }
+                None
             }
             DebugAction::InspectCell { column, row } => {
                 if let Some(ref snapshot) = self.freeze.snapshot {
@@ -463,7 +542,7 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
                     self.freeze.set_overlay(DebugOverlay::Inspect(overlay));
                 }
                 self.freeze.mouse_capture_enabled = false;
-                Some(DebugSideEffect::DisableMouseCapture)
+                None
             }
             DebugAction::CloseOverlay => {
                 self.freeze.clear_overlay();
@@ -475,224 +554,6 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             }
         }
     }
-
-    /// Handle a mouse event in debug mode
-    ///
-    /// Returns `true` if the event was consumed by debug handling.
-    pub fn handle_mouse(&mut self, mouse: MouseEvent) -> Option<DebugSideEffect<A>> {
-        if !self.freeze.enabled {
-            return None;
-        }
-
-        // Ignore scroll events
-        if matches!(
-            mouse.kind,
-            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-        ) {
-            return None;
-        }
-
-        // Handle click in capture mode
-        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
-            && self.freeze.mouse_capture_enabled
-        {
-            return self.handle_action(DebugAction::InspectCell {
-                column: mouse.column,
-                row: mouse.row,
-            });
-        }
-
-        None
-    }
-
-    /// Show state overlay using a DebugState implementor
-    pub fn show_state_overlay<S: DebugState>(&mut self, state: &S) {
-        let table = state.build_debug_table("Application State");
-        self.freeze.set_overlay(DebugOverlay::State(table));
-    }
-
-    /// Show state overlay with custom title
-    pub fn show_state_overlay_with_title<S: DebugState>(&mut self, state: &S, title: &str) {
-        let table = state.build_debug_table(title);
-        self.freeze.set_overlay(DebugOverlay::State(table));
-    }
-
-    /// Show action log overlay
-    ///
-    /// Displays recent actions from the provided ActionLog.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // If using ActionLoggerMiddleware with storage
-    /// if let Some(log) = middleware.log() {
-    ///     debug_layer.show_action_log(log);
-    /// }
-    /// ```
-    pub fn show_action_log(&mut self, log: &ActionLog) {
-        let overlay = ActionLogOverlay::from_log(log, "Action Log");
-        self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
-    }
-
-    /// Show action log overlay with custom title
-    pub fn show_action_log_with_title(&mut self, log: &ActionLog, title: &str) {
-        let overlay = ActionLogOverlay::from_log(log, title);
-        self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
-    }
-
-    /// Queue an action to be processed when debug mode is disabled
-    pub fn queue_action(&mut self, action: A) {
-        self.freeze.queue(action);
-    }
-
-    /// Check if debug layer intercepts an event.
-    ///
-    /// This is the primary API for integrating the debug layer into your event loop.
-    /// Call this before your normal event handling - if it returns `true`, the event
-    /// was consumed by the debug layer and should be skipped.
-    ///
-    /// Handles:
-    /// - Toggle key (F12/Esc by default) - works even when debug is disabled
-    /// - All debug commands when enabled (state, actions, copy, mouse, close)
-    /// - Mouse events for cell inspection when enabled
-    /// - Action log scrolling when overlay is open
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use tui_dispatch::debug::DebugLayer;
-    ///
-    /// let mut debug = DebugLayer::<Action>::simple();
-    ///
-    /// loop {
-    ///     // ... poll event ...
-    ///
-    ///     // Debug layer gets first chance at events
-    ///     if debug.intercepts(&event, &state) {
-    ///         continue;
-    ///     }
-    ///
-    ///     // Normal event handling
-    ///     handle_event(&event, &mut state);
-    /// }
-    /// ```
-    pub fn intercepts<S: DebugState>(&mut self, event: &crate::EventKind, state: &S) -> bool {
-        self.intercepts_with_effects(event, state).is_some()
-    }
-
-    /// Check if debug layer intercepts an event, returning any side effects.
-    ///
-    /// Like [`intercepts`](Self::intercepts), but returns side effects for advanced use cases
-    /// (clipboard operations, mouse capture control).
-    ///
-    /// Returns `None` if the event was not consumed, `Some(effects)` if it was.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// if let Some(effects) = debug.intercepts_with_effects(&event, &state) {
-    ///     for effect in effects {
-    ///         match effect {
-    ///             DebugSideEffect::CopyToClipboard(text) => { /* ... */ }
-    ///             DebugSideEffect::EnableMouseCapture => { /* ... */ }
-    ///             DebugSideEffect::DisableMouseCapture => { /* ... */ }
-    ///             _ => {}
-    ///         }
-    ///     }
-    ///     continue;
-    /// }
-    /// ```
-    pub fn intercepts_with_effects<S: DebugState>(
-        &mut self,
-        event: &crate::EventKind,
-        state: &S,
-    ) -> Option<Vec<DebugSideEffect<A>>> {
-        // Inactive: don't intercept anything
-        if !self.active {
-            return None;
-        }
-
-        use crate::EventKind;
-        use crossterm::event::{MouseButton, MouseEventKind};
-
-        match event {
-            EventKind::Key(key) => {
-                // Look up command from keybindings
-                let cmd = self
-                    .config
-                    .keybindings
-                    .get_command(*key, self.config.debug_context);
-
-                // Toggle always works (even when disabled)
-                if cmd.as_deref() == Some(DebugAction::CMD_TOGGLE) {
-                    let effect = self.handle_action(DebugAction::Toggle);
-                    return Some(effect.into_iter().collect());
-                }
-
-                // Other commands only work when enabled
-                if !self.freeze.enabled {
-                    return None;
-                }
-
-                // Handle debug commands
-                if let Some(ref cmd) = cmd {
-                    // State command needs special handling to show state overlay
-                    if cmd == DebugAction::CMD_TOGGLE_STATE {
-                        self.show_state_overlay(state);
-                        return Some(vec![]);
-                    }
-
-                    if let Some(action) = DebugAction::from_command(cmd) {
-                        let effect = self.handle_action(action);
-                        return Some(effect.into_iter().collect());
-                    }
-                }
-
-                // Consume all key events when debug is enabled
-                Some(vec![])
-            }
-            EventKind::Mouse(mouse) => {
-                if !self.freeze.enabled {
-                    return None;
-                }
-
-                // Handle click for cell inspection
-                if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
-                    && self.freeze.mouse_capture_enabled
-                {
-                    let effect = self.handle_action(DebugAction::InspectCell {
-                        column: mouse.column,
-                        row: mouse.row,
-                    });
-                    return Some(effect.into_iter().collect());
-                }
-
-                // Consume all mouse events when debug is enabled
-                Some(vec![])
-            }
-            EventKind::Scroll { delta, .. } => {
-                if !self.freeze.enabled {
-                    return None;
-                }
-
-                // Handle scrolling in action log overlay
-                if let Some(DebugOverlay::ActionLog(_)) = self.freeze.overlay {
-                    let action = if *delta > 0 {
-                        DebugAction::ActionLogScrollUp
-                    } else {
-                        DebugAction::ActionLogScrollDown
-                    };
-                    self.handle_action(action);
-                }
-
-                Some(vec![])
-            }
-            // Don't intercept resize or tick events
-            EventKind::Resize(_, _) | EventKind::Tick => None,
-        }
-    }
-
-    // --- Private helpers ---
 
     fn split_for_banner(&self, area: Rect) -> (Rect, Rect) {
         let banner_height = 1;
@@ -709,17 +570,19 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
     }
 
     fn render_debug_overlay(&self, frame: &mut Frame, app_area: Rect, banner_area: Rect) {
-        // Dim the background
-        dim_buffer(frame.buffer_mut(), self.config.style.dim_factor);
-
-        // Render overlay if present
+        // Only dim when there's an overlay open
         if let Some(ref overlay) = self.freeze.overlay {
+            dim_buffer(frame.buffer_mut(), self.style.dim_factor);
+
             match overlay {
                 DebugOverlay::Inspect(table) | DebugOverlay::State(table) => {
                     self.render_table_modal(frame, app_area, table);
                 }
                 DebugOverlay::ActionLog(log) => {
                     self.render_action_log_modal(frame, app_area, log);
+                }
+                DebugOverlay::ActionDetail(detail) => {
+                    self.render_action_detail_modal(frame, app_area, detail);
                 }
             }
         }
@@ -728,8 +591,40 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         self.render_banner(frame, banner_area);
     }
 
+    fn render_banner(&self, frame: &mut Frame, banner_area: Rect) {
+        if banner_area.height == 0 {
+            return;
+        }
+
+        let keys = &self.style.key_styles;
+        let toggle_key_str = format_key(self.toggle_key);
+        let mut banner = DebugBanner::new()
+            .title("DEBUG")
+            .title_style(self.style.title_style)
+            .label_style(self.style.label_style)
+            .background(self.style.banner_bg);
+
+        // Add standard debug commands with hardcoded keys
+        banner = banner.item(BannerItem::new(&toggle_key_str, "resume", keys.toggle));
+        banner = banner.item(BannerItem::new("a", "actions", keys.actions));
+        banner = banner.item(BannerItem::new("s", "state", keys.state));
+        banner = banner.item(BannerItem::new("y", "copy", keys.copy));
+
+        if self.freeze.mouse_capture_enabled {
+            banner = banner.item(BannerItem::new("click", "inspect", keys.mouse));
+        } else {
+            banner = banner.item(BannerItem::new("i", "mouse", keys.mouse));
+        }
+
+        // Add message if present
+        if let Some(ref msg) = self.freeze.message {
+            banner = banner.item(BannerItem::new("", msg, self.style.value_style));
+        }
+
+        frame.render_widget(banner, banner_area);
+    }
+
     fn render_table_modal(&self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
-        // Calculate modal size (80% width, 60% height, with min/max)
         let modal_width = (app_area.width * 80 / 100)
             .clamp(30, 120)
             .min(app_area.width);
@@ -737,27 +632,25 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             .clamp(8, 40)
             .min(app_area.height);
 
-        // Center the modal
         let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
         let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
 
         let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
 
-        // Clear and render modal background
         frame.render_widget(Clear, modal_area);
 
         let block = Block::default()
             .borders(Borders::ALL)
             .title(format!(" {} ", table.title))
-            .style(self.config.style.banner_bg);
+            .style(self.style.banner_bg);
 
         let inner = block.inner(modal_area);
         frame.render_widget(block, modal_area);
 
-        // Cell preview on top (if present), table below
+        // Cell preview on top if present
         if let Some(ref preview) = table.cell_preview {
             if inner.height > 3 {
-                let preview_height = 2u16; // 1 line + 1 spacing
+                let preview_height = 2u16;
                 let preview_area = Rect {
                     x: inner.x,
                     y: inner.y,
@@ -771,26 +664,22 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
                     height: inner.height.saturating_sub(preview_height),
                 };
 
-                // Render cell preview with neon colors
                 let preview_widget = CellPreviewWidget::new(preview)
                     .label_style(Style::default().fg(DebugStyle::text_secondary()))
                     .value_style(Style::default().fg(DebugStyle::text_primary()));
                 frame.render_widget(preview_widget, preview_area);
 
-                // Render table below
                 let table_widget = DebugTableWidget::new(table);
                 frame.render_widget(table_widget, table_area);
                 return;
             }
         }
 
-        // No cell preview or not enough space - just render table
         let table_widget = DebugTableWidget::new(table);
         frame.render_widget(table_widget, inner);
     }
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
-        // Calculate modal size (larger for action log - 90% width, 70% height)
         let modal_width = (app_area.width * 90 / 100)
             .clamp(40, 140)
             .min(app_area.width);
@@ -798,13 +687,11 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
             .clamp(10, 50)
             .min(app_area.height);
 
-        // Center the modal
         let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
         let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
 
         let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
 
-        // Clear and render modal background
         frame.render_widget(Clear, modal_area);
 
         let entry_count = log.entries.len();
@@ -817,33 +704,95 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .style(self.config.style.banner_bg);
+            .style(self.style.banner_bg);
 
         let inner = block.inner(modal_area);
         frame.render_widget(block, modal_area);
 
-        // Render action log widget
         let widget = ActionLogWidget::new(log);
         frame.render_widget(widget, inner);
     }
 
-    fn add_banner_item(
+    fn render_action_detail_modal(
         &self,
-        banner: &mut DebugBanner<'_>,
-        command: &str,
-        label: &'static str,
-        style: Style,
+        frame: &mut Frame,
+        app_area: Rect,
+        detail: &super::table::ActionDetailOverlay,
     ) {
-        if let Some(key) = self
-            .config
-            .keybindings
-            .get_first_keybinding(command, self.config.debug_context)
-        {
-            let formatted = format_key_for_display(&key);
-            // We need to leak the string for the lifetime - this is fine for debug UI
-            let key_str: &'static str = Box::leak(formatted.into_boxed_str());
-            *banner = std::mem::take(banner).item(BannerItem::new(key_str, label, style));
+        let modal_width = (app_area.width * 80 / 100)
+            .clamp(40, 120)
+            .min(app_area.width);
+        let modal_height = (app_area.height * 50 / 100)
+            .clamp(8, 30)
+            .min(app_area.height);
+
+        let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
+        let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
+
+        let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
+
+        frame.render_widget(Clear, modal_area);
+
+        let title = format!(" Action #{} - {} ", detail.sequence, detail.name);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .style(self.style.banner_bg);
+
+        let inner = block.inner(modal_area);
+        frame.render_widget(block, modal_area);
+
+        // Build detail content
+        use ratatui::text::{Line, Span};
+        use ratatui::widgets::Paragraph;
+
+        let label_style = Style::default().fg(DebugStyle::text_secondary());
+        let value_style = Style::default().fg(DebugStyle::text_primary());
+
+        let mut lines = vec![
+            // Name
+            Line::from(vec![
+                Span::styled("Name: ", label_style),
+                Span::styled(&detail.name, value_style),
+            ]),
+            // Sequence
+            Line::from(vec![
+                Span::styled("Sequence: ", label_style),
+                Span::styled(detail.sequence.to_string(), value_style),
+            ]),
+            // Elapsed
+            Line::from(vec![
+                Span::styled("Elapsed: ", label_style),
+                Span::styled(&detail.elapsed, value_style),
+            ]),
+            // Empty line before params
+            Line::from(""),
+            // Parameters header
+            Line::from(Span::styled("Parameters:", label_style)),
+        ];
+
+        // Parameters content (potentially multi-line)
+        if detail.params.is_empty() {
+            lines.push(Line::from(Span::styled("  (none)", value_style)));
+        } else {
+            for param_line in detail.params.lines() {
+                lines.push(Line::from(Span::styled(
+                    format!("  {}", param_line),
+                    value_style,
+                )));
+            }
         }
+
+        // Footer hint
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Press Enter/Esc/Backspace to go back",
+            label_style,
+        )));
+
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, inner);
     }
 
     fn build_inspect_overlay(&self, column: u16, row: u16, snapshot: &Buffer) -> DebugTableOverlay {
@@ -861,123 +810,27 @@ impl<A, C: BindingContext> DebugLayer<A, C> {
     }
 }
 
-/// Builder for DebugLayer with ergonomic configuration
-pub struct DebugLayerBuilder<A, C: BindingContext> {
-    config: DebugConfig<C>,
-    _marker: PhantomData<A>,
-}
-
-impl<A, C: BindingContext> DebugLayerBuilder<A, C> {
-    /// Create a new builder
-    pub fn new(config: DebugConfig<C>) -> Self {
-        Self {
-            config,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Set status provider
-    pub fn with_status_provider<F>(mut self, provider: F) -> Self
-    where
-        F: Fn() -> Vec<StatusItem> + Send + Sync + 'static,
-    {
-        self.config = self.config.with_status_provider(provider);
-        self
-    }
-
-    /// Build the DebugLayer
-    pub fn build(self) -> DebugLayer<A, C> {
-        DebugLayer::new(self.config)
-    }
-}
-
-// ============================================================================
-// Simple API - Zero-configuration debug layer
-// ============================================================================
-
-impl<A> DebugLayer<A, SimpleDebugContext> {
-    /// Create a debug layer with sensible defaults - no configuration needed.
-    ///
-    /// This is the recommended way to add debug capabilities to your app.
-    ///
-    /// # Default Keybindings (when debug mode is active)
-    ///
-    /// - `F12` / `Esc`: Toggle debug mode
-    /// - `S`: Show/hide state overlay
-    /// - `Y`: Copy frozen frame to clipboard
-    /// - `I`: Toggle mouse capture for cell inspection
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use tui_dispatch::debug::DebugLayer;
-    ///
-    /// // One line setup:
-    /// let mut debug = DebugLayer::<MyAction>::simple();
-    ///
-    /// // In render loop:
-    /// terminal.draw(|frame| {
-    ///     debug.render(frame, |f, area| {
-    ///         render_my_app(f, area, &state);
-    ///     });
-    /// })?;
-    ///
-    /// // Handle F12 to toggle (before normal event handling):
-    /// if matches!(event, KeyEvent { code: KeyCode::F(12), .. }) {
-    ///     debug.handle_action(DebugAction::Toggle);
-    /// }
-    /// ```
-    pub fn simple() -> Self {
-        let keybindings = default_debug_keybindings();
-        let config = DebugConfig::new(keybindings, SimpleDebugContext::Debug);
-        Self::new(config)
-    }
-
-    /// Create a debug layer with custom toggle key(s).
-    ///
-    /// Same as [`simple()`](Self::simple) but uses the provided key(s)
-    /// for toggling debug mode instead of `F12`/`Esc`.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use tui_dispatch::debug::DebugLayer;
-    ///
-    /// // Use F11 instead of F12:
-    /// let debug = DebugLayer::<MyAction>::simple_with_toggle_key(&["F11"]);
-    ///
-    /// // Multiple toggle keys:
-    /// let debug = DebugLayer::<MyAction>::simple_with_toggle_key(&["F11", "Ctrl+D"]);
-    /// ```
-    pub fn simple_with_toggle_key(keys: &[&str]) -> Self {
-        let keybindings = default_debug_keybindings_with_toggle(keys);
-        let config = DebugConfig::new(keybindings, SimpleDebugContext::Debug);
-        Self::new(config)
+/// Format a KeyCode for display in the banner.
+fn format_key(key: KeyCode) -> String {
+    match key {
+        KeyCode::F(n) => format!("F{}", n),
+        KeyCode::Char(c) => c.to_string(),
+        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        KeyCode::Backspace => "Bksp".to_string(),
+        KeyCode::Delete => "Del".to_string(),
+        KeyCode::Up => "↑".to_string(),
+        KeyCode::Down => "↓".to_string(),
+        KeyCode::Left => "←".to_string(),
+        KeyCode::Right => "→".to_string(),
+        _ => format!("{:?}", key),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keybindings::Keybindings;
-
-    // Minimal test context
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-    enum TestContext {
-        Debug,
-    }
-
-    impl BindingContext for TestContext {
-        fn name(&self) -> &'static str {
-            "debug"
-        }
-        fn from_name(name: &str) -> Option<Self> {
-            (name == "debug").then_some(TestContext::Debug)
-        }
-        fn all() -> &'static [Self] {
-            &[TestContext::Debug]
-        }
-    }
 
     #[derive(Debug, Clone)]
     enum TestAction {
@@ -985,42 +838,52 @@ mod tests {
         Bar,
     }
 
-    fn make_layer() -> DebugLayer<TestAction, TestContext> {
-        let config = DebugConfig::new(Keybindings::new(), TestContext::Debug);
-        DebugLayer::new(config)
+    impl crate::Action for TestAction {
+        fn name(&self) -> &'static str {
+            match self {
+                TestAction::Foo => "Foo",
+                TestAction::Bar => "Bar",
+            }
+        }
+    }
+
+    impl crate::ActionParams for TestAction {
+        fn params(&self) -> String {
+            String::new()
+        }
     }
 
     #[test]
     fn test_debug_layer_creation() {
-        let layer = make_layer();
+        let layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
         assert!(!layer.is_enabled());
         assert!(layer.freeze().snapshot.is_none());
     }
 
     #[test]
     fn test_toggle() {
-        let mut layer = make_layer();
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
 
         // Enable
-        let effect = layer.handle_action(DebugAction::Toggle);
+        let effect = layer.toggle();
         assert!(effect.is_none());
         assert!(layer.is_enabled());
 
         // Disable
-        let effect = layer.handle_action(DebugAction::Toggle);
+        let effect = layer.toggle();
         assert!(effect.is_none()); // No queued actions
         assert!(!layer.is_enabled());
     }
 
     #[test]
     fn test_queued_actions_returned_on_disable() {
-        let mut layer = make_layer();
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
 
-        layer.handle_action(DebugAction::Toggle); // Enable
+        layer.toggle(); // Enable
         layer.queue_action(TestAction::Foo);
         layer.queue_action(TestAction::Bar);
 
-        let effect = layer.handle_action(DebugAction::Toggle); // Disable
+        let effect = layer.toggle(); // Disable
 
         match effect {
             Some(DebugSideEffect::ProcessQueuedActions(actions)) => {
@@ -1032,7 +895,7 @@ mod tests {
 
     #[test]
     fn test_split_area() {
-        let layer = make_layer();
+        let layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
 
         // Disabled: full area returned
         let area = Rect::new(0, 0, 80, 24);
@@ -1043,8 +906,8 @@ mod tests {
 
     #[test]
     fn test_split_area_enabled() {
-        let mut layer = make_layer();
-        layer.handle_action(DebugAction::Toggle);
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
+        layer.toggle();
 
         let area = Rect::new(0, 0, 80, 24);
         let (app, banner) = layer.split_area(area);
@@ -1055,226 +918,20 @@ mod tests {
     }
 
     #[test]
-    fn test_mouse_capture_toggle() {
-        let mut layer = make_layer();
-        layer.handle_action(DebugAction::Toggle); // Enable debug
+    fn test_inactive_layer() {
+        let layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12)).active(false);
 
-        let effect = layer.handle_action(DebugAction::ToggleMouseCapture);
-        assert!(matches!(effect, Some(DebugSideEffect::EnableMouseCapture)));
-        assert!(layer.freeze().mouse_capture_enabled);
-
-        let effect = layer.handle_action(DebugAction::ToggleMouseCapture);
-        assert!(matches!(effect, Some(DebugSideEffect::DisableMouseCapture)));
-        assert!(!layer.freeze().mouse_capture_enabled);
-    }
-
-    // Tests for simple() API
-    #[test]
-    fn test_simple_creation() {
-        let layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-        assert!(!layer.is_enabled());
-        assert!(layer.freeze().snapshot.is_none());
-
-        // Verify config uses SimpleDebugContext::Debug
-        assert_eq!(layer.config().debug_context, SimpleDebugContext::Debug);
-    }
-
-    #[test]
-    fn test_simple_toggle_works() {
-        let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-
-        // Enable
-        layer.handle_action(DebugAction::Toggle);
-        assert!(layer.is_enabled());
-
-        // Disable
-        layer.handle_action(DebugAction::Toggle);
+        assert!(!layer.is_active());
         assert!(!layer.is_enabled());
     }
 
     #[test]
-    fn test_simple_with_toggle_key() {
-        let layer: DebugLayer<TestAction, SimpleDebugContext> =
-            DebugLayer::simple_with_toggle_key(&["F11"]);
+    fn test_action_log() {
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
 
-        assert!(!layer.is_enabled());
+        layer.log_action(&TestAction::Foo);
+        layer.log_action(&TestAction::Bar);
 
-        // Check that F11 is registered (by checking keybindings)
-        let keybindings = &layer.config().keybindings;
-        let toggle_keys = keybindings.get_context_bindings(SimpleDebugContext::Debug);
-        assert!(toggle_keys.is_some());
-
-        if let Some(bindings) = toggle_keys {
-            let keys = bindings.get("debug.toggle");
-            assert!(keys.is_some());
-            assert!(keys.unwrap().contains(&"F11".to_string()));
-        }
-    }
-
-    #[test]
-    fn test_simple_has_default_keybindings() {
-        let layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-        let keybindings = &layer.config().keybindings;
-
-        // Check all default bindings are present
-        let bindings = keybindings
-            .get_context_bindings(SimpleDebugContext::Debug)
-            .unwrap();
-
-        assert!(bindings.contains_key("debug.toggle"));
-        assert!(bindings.contains_key("debug.state"));
-        assert!(bindings.contains_key("debug.copy"));
-        assert!(bindings.contains_key("debug.mouse"));
-
-        // Check toggle has F12 and Esc
-        let toggle_keys = bindings.get("debug.toggle").unwrap();
-        assert!(toggle_keys.contains(&"F12".to_string()));
-        assert!(toggle_keys.contains(&"Esc".to_string()));
-    }
-
-    // Tests for intercepts() API
-    mod intercepts_tests {
-        use super::*;
-        use crate::debug::state::DebugSection;
-        use crate::EventKind;
-        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
-        // Simple DebugState implementation for tests
-        struct TestState {
-            value: i32,
-        }
-
-        impl DebugState for TestState {
-            fn debug_sections(&self) -> Vec<DebugSection> {
-                vec![DebugSection::new("Test").entry("value", self.value.to_string())]
-            }
-        }
-
-        fn make_key_event(code: KeyCode) -> KeyEvent {
-            KeyEvent {
-                code,
-                modifiers: KeyModifiers::empty(),
-                kind: crossterm::event::KeyEventKind::Press,
-                state: crossterm::event::KeyEventState::empty(),
-            }
-        }
-
-        #[test]
-        fn test_intercepts_toggle_when_disabled() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            assert!(!layer.is_enabled());
-
-            // F12 should toggle even when disabled
-            let event = EventKind::Key(make_key_event(KeyCode::F(12)));
-            assert!(layer.intercepts(&event, &state));
-            assert!(layer.is_enabled());
-        }
-
-        #[test]
-        fn test_intercepts_toggle_when_enabled() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            layer.handle_action(DebugAction::Toggle); // Enable
-            assert!(layer.is_enabled());
-
-            // Esc should toggle off
-            let event = EventKind::Key(make_key_event(KeyCode::Esc));
-            assert!(layer.intercepts(&event, &state));
-            assert!(!layer.is_enabled());
-        }
-
-        #[test]
-        fn test_intercepts_ignores_normal_keys_when_disabled() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            // Random key should not be intercepted when disabled
-            let event = EventKind::Key(make_key_event(KeyCode::Char('x')));
-            assert!(!layer.intercepts(&event, &state));
-        }
-
-        #[test]
-        fn test_intercepts_consumes_all_keys_when_enabled() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            layer.handle_action(DebugAction::Toggle); // Enable
-
-            // Any key should be consumed when debug is enabled
-            let event = EventKind::Key(make_key_event(KeyCode::Char('x')));
-            assert!(layer.intercepts(&event, &state));
-        }
-
-        #[test]
-        fn test_intercepts_state_key_shows_overlay() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            layer.handle_action(DebugAction::Toggle); // Enable
-            assert!(layer.freeze().overlay.is_none());
-
-            // 's' key should show state overlay
-            let event = EventKind::Key(make_key_event(KeyCode::Char('s')));
-            assert!(layer.intercepts(&event, &state));
-            assert!(layer.freeze().overlay.is_some());
-        }
-
-        #[test]
-        fn test_intercepts_does_not_consume_resize() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            layer.handle_action(DebugAction::Toggle); // Enable
-
-            // Resize should not be consumed even when debug is enabled
-            let event = EventKind::Resize(80, 24);
-            assert!(!layer.intercepts(&event, &state));
-        }
-
-        #[test]
-        fn test_intercepts_does_not_consume_tick() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> = DebugLayer::simple();
-            let state = TestState { value: 42 };
-
-            layer.handle_action(DebugAction::Toggle); // Enable
-
-            // Tick should not be consumed even when debug is enabled
-            let event = EventKind::Tick;
-            assert!(!layer.intercepts(&event, &state));
-        }
-
-        #[test]
-        fn test_inactive_layer_does_not_intercept() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> =
-                DebugLayer::simple().active(false);
-            let state = TestState { value: 42 };
-
-            assert!(!layer.is_active());
-            assert!(!layer.is_enabled());
-
-            // F12 should NOT toggle when layer is inactive
-            let event = EventKind::Key(make_key_event(KeyCode::F(12)));
-            assert!(!layer.intercepts(&event, &state));
-
-            // Debug mode should still be off
-            assert!(!layer.is_enabled());
-        }
-
-        #[test]
-        fn test_active_layer_intercepts() {
-            let mut layer: DebugLayer<TestAction, SimpleDebugContext> =
-                DebugLayer::simple().active(true);
-            let state = TestState { value: 42 };
-
-            assert!(layer.is_active());
-
-            // F12 should toggle when layer is active
-            let event = EventKind::Key(make_key_event(KeyCode::F(12)));
-            assert!(layer.intercepts(&event, &state));
-            assert!(layer.is_enabled());
-        }
+        assert_eq!(layer.action_log().entries().count(), 2);
     }
 }

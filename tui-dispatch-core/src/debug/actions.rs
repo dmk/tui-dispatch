@@ -30,6 +30,14 @@ pub enum DebugAction {
     ActionLogScrollTop,
     /// Scroll action log to bottom
     ActionLogScrollBottom,
+    /// Page up in action log
+    ActionLogPageUp,
+    /// Page down in action log
+    ActionLogPageDown,
+    /// Show detail for selected action
+    ActionLogShowDetail,
+    /// Go back from detail view to action log
+    ActionLogBackToList,
 }
 
 impl DebugAction {
@@ -69,7 +77,11 @@ impl DebugAction {
             | Self::ActionLogScrollUp
             | Self::ActionLogScrollDown
             | Self::ActionLogScrollTop
-            | Self::ActionLogScrollBottom => None,
+            | Self::ActionLogScrollBottom
+            | Self::ActionLogPageUp
+            | Self::ActionLogPageDown
+            | Self::ActionLogShowDetail
+            | Self::ActionLogBackToList => None,
         }
     }
 }
@@ -77,7 +89,7 @@ impl DebugAction {
 /// Side effects that the app needs to handle after debug actions
 ///
 /// The `DebugLayer` returns these when processing actions that require
-/// app-level handling (clipboard access, mouse capture mode, etc).
+/// app-level handling (clipboard access, queued action processing).
 #[derive(Debug)]
 pub enum DebugSideEffect<A> {
     /// Process queued actions (when exiting debug mode)
@@ -90,16 +102,6 @@ pub enum DebugSideEffect<A> {
     ///
     /// The app should use its preferred clipboard mechanism (OSC52, etc).
     CopyToClipboard(String),
-
-    /// Enable terminal mouse capture
-    ///
-    /// The app should enable mouse event capture for cell inspection.
-    EnableMouseCapture,
-
-    /// Disable terminal mouse capture
-    ///
-    /// The app should disable mouse capture and return to normal mode.
-    DisableMouseCapture,
 }
 
 #[cfg(test)]

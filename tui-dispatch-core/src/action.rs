@@ -50,6 +50,33 @@ pub trait ActionCategory: Action {
     fn category_enum(&self) -> Self::Category;
 }
 
+/// Trait for getting action parameters without the variant name.
+///
+/// Auto-implemented by `#[derive(Action)]`. Returns just the field values
+/// as a string, suitable for display in action logs where the action name
+/// is already shown separately.
+///
+/// # Example
+///
+/// ```ignore
+/// #[derive(Action, Clone, Debug)]
+/// enum MyAction {
+///     SetFilter { query: String, limit: usize },
+///     Tick,
+/// }
+///
+/// let action = MyAction::SetFilter { query: "foo".into(), limit: 10 };
+/// assert_eq!(action.name(), "SetFilter");
+/// assert_eq!(action.params(), r#""foo", 10"#);
+///
+/// let tick = MyAction::Tick;
+/// assert_eq!(tick.params(), "");
+/// ```
+pub trait ActionParams: Action {
+    /// Get just the action parameters as a string (no variant name)
+    fn params(&self) -> String;
+}
+
 /// Trait for actions that provide a summary representation for logging
 ///
 /// The default implementation uses the Debug representation. Override
@@ -70,6 +97,7 @@ pub trait ActionCategory: Action {
 ///     }
 /// }
 /// ```
+#[deprecated(since = "0.3.0", note = "use ActionParams::params() instead")]
 pub trait ActionSummary: Action {
     /// Get a summary representation of this action for logging
     ///

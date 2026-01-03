@@ -107,7 +107,8 @@ pub mod tasks;
 pub mod testing;
 
 // Core trait exports
-pub use action::{Action, ActionCategory, ActionSummary};
+#[allow(deprecated)]
+pub use action::{Action, ActionCategory, ActionParams, ActionSummary};
 pub use component::Component;
 pub use features::{DynamicFeatures, FeatureFlags};
 
@@ -129,11 +130,11 @@ pub use effect::{DispatchResult, EffectReducer, EffectStore, EffectStoreWithMidd
 
 // Task exports (requires "tasks" feature)
 #[cfg(feature = "tasks")]
-pub use tasks::{TaskKey, TaskManager};
+pub use tasks::{TaskKey, TaskManager, TaskPauseHandle};
 
 // Subscription exports (requires "subscriptions" feature)
 #[cfg(feature = "subscriptions")]
-pub use subscriptions::{SubKey, Subscriptions};
+pub use subscriptions::{SubKey, SubPauseHandle, Subscriptions};
 
 // Re-export ratatui types for convenience
 pub use ratatui::{
@@ -155,7 +156,7 @@ pub use testing::{advance_time, pause_time, resume_time};
 
 /// Prelude module for convenient imports
 pub mod prelude {
-    pub use crate::action::{Action, ActionCategory};
+    pub use crate::action::{Action, ActionCategory, ActionParams};
     pub use crate::bus::{process_raw_event, spawn_event_poller, EventBus, RawEvent};
     pub use crate::component::Component;
     pub use crate::effect::{
@@ -173,9 +174,9 @@ pub mod prelude {
         StoreWithMiddleware,
     };
     #[cfg(feature = "subscriptions")]
-    pub use crate::subscriptions::{SubKey, Subscriptions};
+    pub use crate::subscriptions::{SubKey, SubPauseHandle, Subscriptions};
     #[cfg(feature = "tasks")]
-    pub use crate::tasks::{TaskKey, TaskManager};
+    pub use crate::tasks::{TaskKey, TaskManager, TaskPauseHandle};
 
     // Re-export ratatui types
     pub use ratatui::{

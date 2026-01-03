@@ -27,6 +27,8 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -63,6 +65,35 @@ impl From<String> for SubKey {
     }
 }
 
+/// Handle for pausing/resuming Subscriptions.
+///
+/// This is a lightweight, cloneable handle that can be used to pause and resume
+/// subscription emission without needing mutable access to the Subscriptions manager.
+/// Useful for debug layer integration.
+#[derive(Clone)]
+pub struct SubPauseHandle {
+    paused: Arc<AtomicBool>,
+}
+
+impl SubPauseHandle {
+    /// Pause all subscriptions.
+    ///
+    /// When paused, subscriptions skip emitting actions (ticks are lost, not queued).
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+    }
+
+    /// Resume all subscriptions.
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+    }
+
+    /// Check if subscriptions are paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+}
+
 /// Manages declarative subscriptions that continuously emit actions.
 ///
 /// Subscriptions are long-lived sources of actions, unlike one-shot tasks.
@@ -71,12 +102,17 @@ impl From<String> for SubKey {
 /// - Periodic refresh intervals
 /// - External event streams (websockets, file watchers, etc.)
 ///
+/// Supports pause/resume for debug mode - when paused, subscriptions skip
+/// emitting actions (ticks are lost, not queued).
+///
 /// # Type Parameters
 ///
 /// - `A`: The action type that subscriptions produce
 pub struct Subscriptions<A> {
     handles: HashMap<SubKey, JoinHandle<()>>,
     action_tx: mpsc::UnboundedSender<A>,
+    /// Whether subscriptions are paused (skip emitting)
+    paused: Arc<AtomicBool>,
 }
 
 impl<A> Subscriptions<A>
@@ -90,6 +126,34 @@ where
         Self {
             handles: HashMap::new(),
             action_tx,
+            paused: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Pause all subscriptions.
+    ///
+    /// When paused, subscriptions skip emitting actions (ticks are lost, not queued).
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+    }
+
+    /// Resume all subscriptions.
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+    }
+
+    /// Check if subscriptions are paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    /// Get a pause handle for this subscription manager.
+    ///
+    /// The handle can be used to pause/resume subscriptions from elsewhere
+    /// (e.g., from a debug layer) without needing mutable access.
+    pub fn pause_handle(&self) -> SubPauseHandle {
+        SubPauseHandle {
+            paused: self.paused.clone(),
         }
     }
 
@@ -122,6 +186,7 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
+        let paused = self.paused.clone();
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(duration);
             // Skip the first immediate tick
@@ -129,6 +194,10 @@ where
 
             loop {
                 interval.tick().await;
+                // Skip if paused
+                if paused.load(Ordering::SeqCst) {
+                    continue;
+                }
                 let action = action_fn();
                 if tx.send(action).is_err() {
                     // Channel closed, stop the subscription
@@ -167,11 +236,16 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
+        let paused = self.paused.clone();
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(duration);
 
             loop {
                 interval.tick().await;
+                // Skip if paused
+                if paused.load(Ordering::SeqCst) {
+                    continue;
+                }
                 let action = action_fn();
                 if tx.send(action).is_err() {
                     // Channel closed, stop the subscription
@@ -208,9 +282,14 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
+        let paused = self.paused.clone();
         let handle = tokio::spawn(async move {
             tokio::pin!(stream);
             while let Some(action) = stream.next().await {
+                // Skip if paused
+                if paused.load(Ordering::SeqCst) {
+                    continue;
+                }
                 if tx.send(action).is_err() {
                     // Channel closed, stop the subscription
                     break;
@@ -245,10 +324,15 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
+        let paused = self.paused.clone();
         let handle = tokio::spawn(async move {
             let stream = stream_fn.await;
             tokio::pin!(stream);
             while let Some(action) = stream.next().await {
+                // Skip if paused
+                if paused.load(Ordering::SeqCst) {
+                    continue;
+                }
                 if tx.send(action).is_err() {
                     break;
                 }
@@ -493,5 +577,68 @@ mod tests {
 
         assert!(subs.is_empty());
         assert_eq!(subs.len(), 0);
+    }
+
+    #[test]
+    fn test_pause_handle_basic() {
+        let (tx, _rx) = mpsc::unbounded_channel::<TestAction>();
+        let subs = Subscriptions::new(tx);
+        let handle = subs.pause_handle();
+
+        assert!(!handle.is_paused());
+
+        handle.pause();
+        assert!(handle.is_paused());
+
+        handle.resume();
+        assert!(!handle.is_paused());
+    }
+
+    #[tokio::test]
+    async fn test_pause_suppresses_interval() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<TestAction>();
+        let mut subs = Subscriptions::new(tx);
+        let handle = subs.pause_handle();
+
+        // Start interval
+        subs.interval("tick", Duration::from_millis(10), || TestAction::Tick);
+
+        // Wait for at least one tick
+        let _ = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+
+        // Pause
+        handle.pause();
+
+        // Allow any in-flight tick to arrive (one may have passed the check before pause)
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Clear any pending (including possible in-flight tick)
+        while rx.try_recv().is_ok() {}
+
+        // Wait and verify no new ticks come through
+        let result = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+        assert!(result.is_err(), "should timeout - subscription is paused");
+
+        // Resume
+        handle.resume();
+
+        // Should receive ticks again
+        let result = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await;
+        assert!(result.is_ok(), "should receive tick after resume");
+    }
+
+    #[test]
+    fn test_pause_handle_clone() {
+        let (tx, _rx) = mpsc::unbounded_channel::<TestAction>();
+        let subs = Subscriptions::new(tx);
+        let handle1 = subs.pause_handle();
+        let handle2 = handle1.clone();
+
+        // Both handles share the same state
+        handle1.pause();
+        assert!(handle2.is_paused());
+
+        handle2.resume();
+        assert!(!handle1.is_paused());
     }
 }

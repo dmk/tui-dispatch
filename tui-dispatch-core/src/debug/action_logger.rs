@@ -20,12 +20,12 @@
 //! // Access the action log
 //! if let Some(log) = middleware.log() {
 //!     for entry in log.recent(10) {
-//!         println!("{}: {}", entry.elapsed_display(), entry.summary);
+//!         println!("{}: {}", entry.elapsed, entry.params);
 //!     }
 //! }
 //! ```
 
-use crate::action::ActionSummary;
+use crate::action::ActionParams;
 use crate::store::Middleware;
 use std::collections::VecDeque;
 use std::time::Instant;
@@ -132,41 +132,35 @@ impl ActionLoggerConfig {
 pub struct ActionLogEntry {
     /// Action name (from Action::name())
     pub name: &'static str,
-    /// Summary representation (from ActionSummary::summary())
-    pub summary: String,
+    /// Action parameters (from ActionParams::params())
+    pub params: String,
     /// Timestamp when the action was logged
     pub timestamp: Instant,
+    /// Elapsed time display, frozen at creation time
+    pub elapsed: String,
     /// Sequence number for ordering
     pub sequence: u64,
-    /// Whether the action caused a state change (set after reducer runs)
-    pub state_changed: Option<bool>,
 }
 
 impl ActionLogEntry {
     /// Create a new log entry
-    pub fn new(name: &'static str, summary: String, sequence: u64) -> Self {
+    pub fn new(name: &'static str, params: String, sequence: u64) -> Self {
         Self {
             name,
-            summary,
+            params,
             timestamp: Instant::now(),
+            elapsed: "0ms".to_string(),
             sequence,
-            state_changed: None,
         }
     }
+}
 
-    /// Time since this action was logged
-    pub fn elapsed(&self) -> std::time::Duration {
-        self.timestamp.elapsed()
-    }
-
-    /// Format the elapsed time for display (e.g., "2.3s", "150ms")
-    pub fn elapsed_display(&self) -> String {
-        let elapsed = self.elapsed();
-        if elapsed.as_secs() >= 1 {
-            format!("{:.1}s", elapsed.as_secs_f64())
-        } else {
-            format!("{}ms", elapsed.as_millis())
-        }
+/// Format elapsed time for display (e.g., "2.3s", "150ms")
+fn format_elapsed(elapsed: std::time::Duration) -> String {
+    if elapsed.as_secs() >= 1 {
+        format!("{:.1}s", elapsed.as_secs_f64())
+    } else {
+        format!("{}ms", elapsed.as_millis())
     }
 }
 
@@ -205,13 +199,15 @@ impl ActionLogConfig {
 
 /// In-memory ring buffer for storing recent actions
 ///
-/// Stores actions with timestamps and summaries for display in debug overlays.
+/// Stores actions with timestamps and parameters for display in debug overlays.
 /// Older entries are automatically discarded when capacity is reached.
 #[derive(Debug, Clone)]
 pub struct ActionLog {
     entries: VecDeque<ActionLogEntry>,
     config: ActionLogConfig,
     next_sequence: u64,
+    /// Time when the log was created (for relative elapsed times)
+    start_time: Instant,
 }
 
 impl Default for ActionLog {
@@ -227,21 +223,24 @@ impl ActionLog {
             entries: VecDeque::with_capacity(config.capacity),
             config,
             next_sequence: 0,
+            start_time: Instant::now(),
         }
     }
 
     /// Log an action (if it passes the filter)
     ///
     /// Returns the entry if it was logged, None if filtered out.
-    pub fn log<A: ActionSummary>(&mut self, action: &A) -> Option<&ActionLogEntry> {
+    pub fn log<A: ActionParams>(&mut self, action: &A) -> Option<&ActionLogEntry> {
         let name = action.name();
 
         if !self.config.filter.should_log(name) {
             return None;
         }
 
-        let summary = action.summary();
-        let entry = ActionLogEntry::new(name, summary, self.next_sequence);
+        let params = action.params();
+        let mut entry = ActionLogEntry::new(name, params, self.next_sequence);
+        // Freeze the elapsed time at creation
+        entry.elapsed = format_elapsed(self.start_time.elapsed());
         self.next_sequence += 1;
 
         // Maintain capacity
@@ -251,13 +250,6 @@ impl ActionLog {
 
         self.entries.push_back(entry);
         self.entries.back()
-    }
-
-    /// Update the last entry with state_changed info (called after reducer)
-    pub fn update_last_state_changed(&mut self, changed: bool) {
-        if let Some(entry) = self.entries.back_mut() {
-            entry.state_changed = Some(changed);
-        }
     }
 
     /// Get all entries (oldest first)
@@ -326,7 +318,7 @@ impl ActionLog {
 /// // Access the log for display
 /// if let Some(log) = middleware.log() {
 ///     for entry in log.recent(10) {
-///         println!("{}", entry.summary);
+///         println!("{}", entry.params);
 ///     }
 /// }
 /// ```
@@ -334,8 +326,6 @@ impl ActionLog {
 pub struct ActionLoggerMiddleware {
     config: ActionLoggerConfig,
     log: Option<ActionLog>,
-    /// Tracks whether the last action was logged (for state_changed updates)
-    last_action_logged: bool,
     /// Whether the middleware is active (processes actions)
     /// When false, all methods become no-ops for zero overhead.
     active: bool,
@@ -347,7 +337,6 @@ impl ActionLoggerMiddleware {
         Self {
             config,
             log: None,
-            last_action_logged: false,
             active: true,
         }
     }
@@ -357,7 +346,6 @@ impl ActionLoggerMiddleware {
         Self {
             config: config.filter.clone(),
             log: Some(ActionLog::new(config)),
-            last_action_logged: false,
             active: true,
         }
     }
@@ -419,7 +407,7 @@ impl ActionLoggerMiddleware {
     }
 }
 
-impl<A: ActionSummary> Middleware<A> for ActionLoggerMiddleware {
+impl<A: ActionParams> Middleware<A> for ActionLoggerMiddleware {
     fn before(&mut self, action: &A) {
         // Inactive: no-op
         if !self.active {
@@ -434,26 +422,13 @@ impl<A: ActionSummary> Middleware<A> for ActionLoggerMiddleware {
         }
 
         // Log to in-memory buffer if enabled
-        self.last_action_logged = false;
         if let Some(ref mut log) = self.log {
-            if log.log(action).is_some() {
-                self.last_action_logged = true;
-            }
+            log.log(action);
         }
     }
 
-    fn after(&mut self, _action: &A, state_changed: bool) {
-        // Inactive: no-op
-        if !self.active {
-            return;
-        }
-
-        // Only update state_changed if this action was actually logged
-        if self.last_action_logged {
-            if let Some(ref mut log) = self.log {
-                log.update_last_state_changed(state_changed);
-            }
-        }
+    fn after(&mut self, _action: &A, _state_changed: bool) {
+        // No-op - we no longer track state_changed
     }
 }
 
@@ -590,8 +565,11 @@ mod tests {
         }
     }
 
-    // Use default summary (Debug)
-    impl crate::ActionSummary for TestAction {}
+    impl crate::ActionParams for TestAction {
+        fn params(&self) -> String {
+            String::new()
+        }
+    }
 
     #[test]
     fn test_action_log_basic() {
@@ -638,17 +616,6 @@ mod tests {
     }
 
     #[test]
-    fn test_action_log_state_changed() {
-        let mut log = ActionLog::default();
-
-        log.log(&TestAction::Connect);
-        log.update_last_state_changed(true);
-
-        let entry = log.entries().next().unwrap();
-        assert_eq!(entry.state_changed, Some(true));
-    }
-
-    #[test]
     fn test_action_log_recent() {
         let config = ActionLogConfig::new(10, ActionLoggerConfig::with_patterns(vec![], vec![]));
         let mut log = ActionLog::new(config);
@@ -666,28 +633,26 @@ mod tests {
     }
 
     #[test]
-    fn test_action_log_entry_elapsed_display() {
-        let entry = ActionLogEntry::new("Test", "Test".to_string(), 0);
-        // Should show "0ms" or similar for a fresh entry
-        let display = entry.elapsed_display();
-        assert!(display.ends_with("ms") || display.ends_with("s"));
+    fn test_action_log_entry_elapsed() {
+        let entry = ActionLogEntry::new("Test", "test_params".to_string(), 0);
+        // Should have "0ms" as default elapsed
+        assert_eq!(entry.elapsed, "0ms");
     }
 
     #[test]
-    fn test_middleware_filtered_action_does_not_update_state_changed() {
+    fn test_middleware_filtering() {
         use crate::store::Middleware;
 
         // Default config filters out "Tick"
         let mut middleware = ActionLoggerMiddleware::with_default_log();
 
-        // Log a Connect action first
+        // Log a Connect action
         middleware.before(&TestAction::Connect);
         middleware.after(&TestAction::Connect, true);
 
-        // Verify Connect was logged with state_changed = true
+        // Verify Connect was logged
         let log = middleware.log().unwrap();
         assert_eq!(log.len(), 1);
-        assert_eq!(log.entries().next().unwrap().state_changed, Some(true));
 
         // Now dispatch a Tick (filtered out by default)
         middleware.before(&TestAction::Tick);
@@ -696,9 +661,5 @@ mod tests {
         // Log should still have only 1 entry (Tick was filtered)
         let log = middleware.log().unwrap();
         assert_eq!(log.len(), 1);
-
-        // The Connect entry's state_changed should still be true
-        // (not overwritten by the filtered Tick's state_changed=false)
-        assert_eq!(log.entries().next().unwrap().state_changed, Some(true));
     }
 }

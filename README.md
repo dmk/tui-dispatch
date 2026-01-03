@@ -91,19 +91,15 @@ enum Context { Default, Search, Modal }
 F12 to freeze UI and inspect state. One-line setup:
 
 ```rust
-let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
+let mut debug = DebugLayer::<Action>::new(KeyCode::F(12));
+
+// In event loop - handles F12 toggle, overlays, etc.
+if debug.intercepts(&event) {
+    continue;
+}
 
 // In render loop
-terminal.draw(|frame| {
-    debug.render(frame, |f, area| {
-        render_app(f, area, &state);
-    });
-})?;
-
-// Handle F12
-if key.code == KeyCode::F(12) {
-    debug.handle_action(DebugAction::Toggle);
-}
+debug.render(frame, |f, area| render_app(f, area, &state));
 ```
 
 Debug mode keys: `S` state overlay, `A` action log, `Y` copy frame, `I` cell inspect.

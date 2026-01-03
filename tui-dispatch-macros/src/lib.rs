@@ -209,6 +209,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Get the original syn variants for field info (darling loses field names)
+    let syn_variants = match &input.data {
+        syn::Data::Enum(data) => &data.variants,
+        _ => unreachable!(), // Already checked above
+    };
+
     // Generate basic name() implementation
     let name_arms = variants.iter().map(|v| {
         let variant_name = &v.ident;
@@ -227,11 +233,58 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
         }
     });
 
+    // Generate params() implementation - outputs field values without variant name
+    let params_arms = syn_variants.iter().map(|v| {
+        let variant_name = &v.ident;
+
+        match &v.fields {
+            syn::Fields::Unit => quote! {
+                #name::#variant_name => ::std::string::String::new()
+            },
+            syn::Fields::Unnamed(fields) => {
+                let field_count = fields.unnamed.len();
+                let field_names: Vec<_> = (0..field_count)
+                    .map(|i| format_ident!("_{}", i))
+                    .collect();
+                let format_str = (0..field_count).map(|_| "{:?}").collect::<Vec<_>>().join(", ");
+                quote! {
+                    #name::#variant_name(#(#field_names),*) => ::std::format!(#format_str, #(#field_names),*)
+                }
+            },
+            syn::Fields::Named(fields) => {
+                let field_names: Vec<_> = fields.named.iter()
+                    .filter_map(|f| f.ident.as_ref())
+                    .collect();
+                if field_names.is_empty() {
+                    quote! {
+                        #name::#variant_name { .. } => ::std::string::String::new()
+                    }
+                } else {
+                    let format_str = field_names.iter()
+                        .map(|n| format!("{}: {{:?}}", n))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    quote! {
+                        #name::#variant_name { #(#field_names),*, .. } => ::std::format!(#format_str, #(#field_names),*)
+                    }
+                }
+            },
+        }
+    });
+
     let mut expanded = quote! {
         impl tui_dispatch::Action for #name {
             fn name(&self) -> &'static str {
                 match self {
                     #(#name_arms),*
+                }
+            }
+        }
+
+        impl tui_dispatch::ActionParams for #name {
+            fn params(&self) -> ::std::string::String {
+                match self {
+                    #(#params_arms),*
                 }
             }
         }

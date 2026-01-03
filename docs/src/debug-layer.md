@@ -4,13 +4,23 @@ The debug layer provides powerful debugging tools for TUI applications: frame fr
 
 ## Quick Start
 
-One-line setup with sensible defaults:
+Simple setup with a toggle key:
 
 ```rust
 use tui_dispatch::debug::DebugLayer;
+use crossterm::event::KeyCode;
 
-// Create debug layer (F12/Esc to toggle)
-let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
+// Create debug layer with F12 as toggle key
+let mut debug = DebugLayer::<Action>::new(KeyCode::F(12));
+
+// In event loop - handles toggle key, overlays, etc.
+if debug.intercepts(&event) {
+    // Refresh state overlay if visible
+    if debug.is_state_overlay_visible() {
+        debug.show_state_overlay(store.state());
+    }
+    continue;
+}
 
 // In render loop:
 debug.render(frame, |f, area| {
@@ -19,19 +29,21 @@ debug.render(frame, |f, area| {
 ```
 
 Default keybindings (when debug mode is active):
-- `F12` / `Esc` - Toggle debug mode
+- Toggle key (e.g., `F12`) - Toggle debug mode
 - `S` - Show/hide state overlay
+- `A` - Show/hide action log
 - `Y` - Copy frozen frame to clipboard
 - `I` - Toggle mouse capture for cell inspection
+- `Esc` / `Q` - Close overlay
 
 ## Custom Toggle Key
 
 ```rust
 // Use F11 instead of F12
-let debug = DebugLayer::<Action>::simple_with_toggle_key(&["F11"]);
+let debug = DebugLayer::<Action>::new(KeyCode::F(11));
 
-// Multiple keys
-let debug = DebugLayer::<Action>::simple_with_toggle_key(&["F11", "Ctrl+D"]);
+// Use Escape key
+let debug = DebugLayer::<Action>::new(KeyCode::Esc);
 ```
 
 ## State Inspection

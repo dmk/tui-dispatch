@@ -129,7 +129,7 @@ pub use config::{
     default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
     KeyStyles, StatusItem,
 };
-pub use layer::{DebugLayer, DebugLayerBuilder};
+pub use layer::DebugLayer;
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging
@@ -281,12 +281,14 @@ impl<A> DebugFreeze<A> {
             self.snapshot = None;
             self.snapshot_text.clear();
             self.overlay = None;
+            self.message = None;
             // Note: queued_actions should be processed by the app before clearing
         } else {
             // Enable
             self.enabled = true;
             self.pending_capture = true;
             self.queued_actions.clear();
+            self.message = None;
         }
     }
 

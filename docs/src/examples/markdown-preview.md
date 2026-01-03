@@ -14,12 +14,20 @@ cargo run -p markdown-preview -- path/to/file.md
 
 ## What It Shows
 
-### Debug Layer (One-Line Setup)
+### Debug Layer Setup
 
-The debug layer is set up with a single line:
+The debug layer is set up with a toggle key:
 
 ```rust
-let mut debug: DebugLayer<Action, _> = DebugLayer::simple();
+let mut debug = DebugLayer::<Action>::new(KeyCode::F(12)).active(args.debug);
+
+// In event loop
+if debug.intercepts(&event) {
+    if debug.is_state_overlay_visible() {
+        debug.show_state_overlay(store.state());
+    }
+    continue;
+}
 ```
 
 Press **F12** to enter debug mode. The debug layer freezes the frame and provides inspection tools:
@@ -27,9 +35,10 @@ Press **F12** to enter debug mode. The debug layer freezes the frame and provide
 | Key | Action |
 |-----|--------|
 | `s` / `S` | Show state overlay (document stats, view metrics) |
+| `a` / `A` | Show action log |
 | `y` / `Y` | Copy frame to clipboard (via OSC52) |
 | `i` / `I` | Enable mouse capture for cell inspection |
-| `F12` / `Esc` | Exit debug mode |
+| `Esc` / `Q` | Close overlay |
 
 When mouse capture is enabled, click any cell to inspect its styling (symbol, foreground, background, modifiers).
 

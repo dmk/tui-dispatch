@@ -58,20 +58,146 @@ pub fn paint_snapshot(f: &mut Frame, snapshot: &Buffer) {
     }
 }
 
-/// Dim a buffer by blending with a darker shade
+/// Dim a buffer by scaling colors towards black
 ///
-/// `factor` ranges from 0.0 (no change) to 1.0 (fully dimmed)
+/// `factor` ranges from 0.0 (no change) to 1.0 (fully dimmed/black)
+/// Handles RGB, indexed, and named colors.
+/// Emoji characters are replaced with spaces (they can't be dimmed).
 pub fn dim_buffer(buffer: &mut Buffer, factor: f32) {
     let factor = factor.clamp(0.0, 1.0);
-    let dim_amount = (255.0 * factor) as u8;
+    let scale = 1.0 - factor; // 0.7 factor = 0.3 scale (30% brightness)
 
     for cell in buffer.content.iter_mut() {
-        if let ratatui::style::Color::Rgb(r, g, b) = cell.bg {
-            cell.bg = ratatui::style::Color::Rgb(
-                r.saturating_sub(dim_amount),
-                g.saturating_sub(dim_amount),
-                b.saturating_sub(dim_amount),
-            );
+        // Replace emoji with space - they're pre-colored and can't be dimmed
+        if contains_emoji(cell.symbol()) {
+            cell.set_symbol(" ");
+        }
+        cell.fg = dim_color(cell.fg, scale);
+        cell.bg = dim_color(cell.bg, scale);
+    }
+}
+
+/// Check if a string contains emoji characters
+fn contains_emoji(s: &str) -> bool {
+    for c in s.chars() {
+        if is_emoji(c) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a character is a colored emoji (picture emoji that can't be styled)
+///
+/// Note: This intentionally excludes Dingbats (0x2700-0x27BF) and Miscellaneous
+/// Symbols (0x2600-0x26FF) because those include common TUI glyphs like
+/// checkmarks, arrows, and stars that can be styled normally.
+fn is_emoji(c: char) -> bool {
+    let cp = c as u32;
+    // Only match true "picture emoji" that are pre-colored
+    matches!(cp,
+        // Miscellaneous Symbols and Pictographs (🌀-🗿)
+        0x1F300..=0x1F5FF |
+        // Emoticons (😀-🙏)
+        0x1F600..=0x1F64F |
+        // Transport and Map Symbols (🚀-🛿)
+        0x1F680..=0x1F6FF |
+        // Supplemental Symbols and Pictographs (🤀-🧿)
+        0x1F900..=0x1F9FF |
+        // Symbols and Pictographs Extended-A (🩠-🩿)
+        0x1FA00..=0x1FA6F |
+        // Symbols and Pictographs Extended-B (🪀-🫿)
+        0x1FA70..=0x1FAFF |
+        // Regional Indicator Symbols for flags (🇦-🇿)
+        0x1F1E0..=0x1F1FF
+    )
+}
+
+/// Dim a single color by scaling towards black
+fn dim_color(color: ratatui::style::Color, scale: f32) -> ratatui::style::Color {
+    use ratatui::style::Color;
+
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            ((r as f32) * scale) as u8,
+            ((g as f32) * scale) as u8,
+            ((b as f32) * scale) as u8,
+        ),
+        Color::Indexed(idx) => {
+            // Convert indexed colors to RGB, dim, then back
+            // Standard 16 colors (0-15) and grayscale (232-255) are common
+            if let Some((r, g, b)) = indexed_to_rgb(idx) {
+                Color::Rgb(
+                    ((r as f32) * scale) as u8,
+                    ((g as f32) * scale) as u8,
+                    ((b as f32) * scale) as u8,
+                )
+            } else {
+                color // Keep as-is if can't convert
+            }
+        }
+        // Named colors - convert to RGB approximations
+        Color::Black => Color::Black,
+        Color::Red => dim_named_color(205, 0, 0, scale),
+        Color::Green => dim_named_color(0, 205, 0, scale),
+        Color::Yellow => dim_named_color(205, 205, 0, scale),
+        Color::Blue => dim_named_color(0, 0, 238, scale),
+        Color::Magenta => dim_named_color(205, 0, 205, scale),
+        Color::Cyan => dim_named_color(0, 205, 205, scale),
+        Color::Gray => dim_named_color(229, 229, 229, scale),
+        Color::DarkGray => dim_named_color(127, 127, 127, scale),
+        Color::LightRed => dim_named_color(255, 0, 0, scale),
+        Color::LightGreen => dim_named_color(0, 255, 0, scale),
+        Color::LightYellow => dim_named_color(255, 255, 0, scale),
+        Color::LightBlue => dim_named_color(92, 92, 255, scale),
+        Color::LightMagenta => dim_named_color(255, 0, 255, scale),
+        Color::LightCyan => dim_named_color(0, 255, 255, scale),
+        Color::White => dim_named_color(255, 255, 255, scale),
+        Color::Reset => Color::Reset,
+    }
+}
+
+fn dim_named_color(r: u8, g: u8, b: u8, scale: f32) -> ratatui::style::Color {
+    ratatui::style::Color::Rgb(
+        ((r as f32) * scale) as u8,
+        ((g as f32) * scale) as u8,
+        ((b as f32) * scale) as u8,
+    )
+}
+
+/// Convert 256-color index to RGB (approximate)
+fn indexed_to_rgb(idx: u8) -> Option<(u8, u8, u8)> {
+    match idx {
+        // Standard 16 colors
+        0 => Some((0, 0, 0)),        // Black
+        1 => Some((128, 0, 0)),      // Red
+        2 => Some((0, 128, 0)),      // Green
+        3 => Some((128, 128, 0)),    // Yellow
+        4 => Some((0, 0, 128)),      // Blue
+        5 => Some((128, 0, 128)),    // Magenta
+        6 => Some((0, 128, 128)),    // Cyan
+        7 => Some((192, 192, 192)),  // White/Gray
+        8 => Some((128, 128, 128)),  // Bright Black/Dark Gray
+        9 => Some((255, 0, 0)),      // Bright Red
+        10 => Some((0, 255, 0)),     // Bright Green
+        11 => Some((255, 255, 0)),   // Bright Yellow
+        12 => Some((0, 0, 255)),     // Bright Blue
+        13 => Some((255, 0, 255)),   // Bright Magenta
+        14 => Some((0, 255, 255)),   // Bright Cyan
+        15 => Some((255, 255, 255)), // Bright White
+        // 216 color cube (16-231)
+        16..=231 => {
+            let idx = idx - 16;
+            let r = (idx / 36) % 6;
+            let g = (idx / 6) % 6;
+            let b = idx % 6;
+            let to_rgb = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
+            Some((to_rgb(r), to_rgb(g), to_rgb(b)))
+        }
+        // Grayscale (232-255)
+        232..=255 => {
+            let gray = 8 + (idx - 232) * 10;
+            Some((gray, gray, gray))
         }
     }
 }
@@ -406,14 +532,10 @@ pub struct ActionLogStyle {
     pub sequence: Style,
     /// Style for action names
     pub name: Style,
-    /// Style for summaries
-    pub summary: Style,
+    /// Style for action parameters
+    pub params: Style,
     /// Style for elapsed time
     pub elapsed: Style,
-    /// Style for state_changed = true
-    pub changed_yes: Style,
-    /// Style for state_changed = false
-    pub changed_no: Style,
     /// Selected row style
     pub selected: Style,
     /// Alternating row styles (even, odd)
@@ -431,10 +553,8 @@ impl Default for ActionLogStyle {
             name: Style::default()
                 .fg(DebugStyle::neon_amber())
                 .add_modifier(Modifier::BOLD),
-            summary: Style::default().fg(DebugStyle::text_primary()),
+            params: Style::default().fg(DebugStyle::text_primary()),
             elapsed: Style::default().fg(DebugStyle::text_secondary()),
-            changed_yes: Style::default().fg(DebugStyle::neon_green()),
-            changed_no: Style::default().fg(DebugStyle::text_secondary()),
             selected: Style::default()
                 .bg(DebugStyle::bg_highlight())
                 .add_modifier(Modifier::BOLD),
@@ -451,9 +571,8 @@ impl Default for ActionLogStyle {
 /// Displays recent actions in a scrollable table format with:
 /// - Sequence number
 /// - Action name
-/// - Summary (truncated if necessary)
+/// - Parameters (truncated if necessary)
 /// - Elapsed time since action
-/// - State change indicator
 pub struct ActionLogWidget<'a> {
     log: &'a ActionLogOverlay,
     style: ActionLogStyle,
@@ -493,22 +612,20 @@ impl Widget for ActionLogWidget<'_> {
         // Reserve 1 row for header
         let visible_rows = (area.height.saturating_sub(1)) as usize;
 
-        // Column layout: [#] [Action] [Summary] [Elapsed] [Chg]
+        // Column layout: [#] [Action] [Params] [Elapsed]
         let constraints = [
             Constraint::Length(5),  // Sequence #
-            Constraint::Length(24), // Action name
-            Constraint::Min(20),    // Summary (flexible)
+            Constraint::Length(20), // Action name
+            Constraint::Min(30),    // Params (flexible)
             Constraint::Length(8),  // Elapsed
-            Constraint::Length(3),  // Changed indicator
         ];
 
         // Header row
         let header = Row::new(vec![
             Cell::from("#").style(self.style.header),
             Cell::from("Action").style(self.style.header),
-            Cell::from("Summary").style(self.style.header),
+            Cell::from("Params").style(self.style.header),
             Cell::from("Elapsed").style(self.style.header),
-            Cell::from("Chg").style(self.style.header),
         ]);
 
         // Calculate scroll offset to keep selected row visible
@@ -536,26 +653,19 @@ impl Widget for ActionLogWidget<'_> {
                     self.style.row_styles.1
                 };
 
-                let changed_cell = match entry.state_changed {
-                    Some(true) => Cell::from("Y").style(self.style.changed_yes),
-                    Some(false) => Cell::from("N").style(self.style.changed_no),
-                    None => Cell::from("-").style(self.style.elapsed),
-                };
-
-                // Truncate summary if needed (char-aware to avoid UTF-8 panic)
-                let summary = if entry.summary.chars().count() > 60 {
-                    let truncated: String = entry.summary.chars().take(57).collect();
+                // Truncate params if needed (char-aware to avoid UTF-8 panic)
+                let params = if entry.params.chars().count() > 60 {
+                    let truncated: String = entry.params.chars().take(57).collect();
                     format!("{}...", truncated)
                 } else {
-                    entry.summary.clone()
+                    entry.params.clone()
                 };
 
                 Row::new(vec![
                     Cell::from(format!("{}", entry.sequence)).style(self.style.sequence),
                     Cell::from(entry.name.clone()).style(self.style.name),
-                    Cell::from(summary).style(self.style.summary),
+                    Cell::from(params).style(self.style.params),
                     Cell::from(entry.elapsed.clone()).style(self.style.elapsed),
-                    changed_cell,
                 ])
                 .style(base_style)
             })

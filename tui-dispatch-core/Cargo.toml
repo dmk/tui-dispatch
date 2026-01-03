@@ -27,3 +27,4 @@ bitflags.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+base64 = "0.22"

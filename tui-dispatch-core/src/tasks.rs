@@ -35,6 +35,8 @@
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -73,11 +75,47 @@ impl From<String> for TaskKey {
     }
 }
 
+/// Handle for pausing/resuming a TaskManager.
+///
+/// This is a lightweight, cloneable handle that can be used to pause and resume
+/// task action delivery without needing mutable access to the TaskManager.
+/// Useful for debug layer integration.
+#[derive(Clone)]
+pub struct TaskPauseHandle<A> {
+    paused: Arc<AtomicBool>,
+    queued_actions: Arc<Mutex<Vec<A>>>,
+}
+
+impl<A> TaskPauseHandle<A> {
+    /// Pause the task manager.
+    ///
+    /// When paused, completed tasks queue their actions instead of sending them.
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+    }
+
+    /// Resume the task manager and drain queued actions.
+    ///
+    /// Returns all actions that were queued while paused.
+    pub fn resume(&self) -> Vec<A> {
+        self.paused.store(false, Ordering::SeqCst);
+        std::mem::take(&mut *self.queued_actions.lock().unwrap())
+    }
+
+    /// Check if the task manager is paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+}
+
 /// Manages async task lifecycle with automatic cancellation.
 ///
 /// The task manager maintains a registry of running tasks by key.
 /// When a new task is spawned with a key that already exists,
 /// the existing task is automatically cancelled before the new one starts.
+///
+/// Supports pause/resume for debug mode - when paused, completed tasks
+/// queue their actions instead of sending them.
 ///
 /// # Type Parameters
 ///
@@ -85,6 +123,10 @@ impl From<String> for TaskKey {
 pub struct TaskManager<A> {
     tasks: HashMap<TaskKey, AbortHandle>,
     action_tx: mpsc::UnboundedSender<A>,
+    /// Whether the task manager is paused (actions are queued instead of sent)
+    paused: Arc<AtomicBool>,
+    /// Actions queued while paused
+    queued_actions: Arc<Mutex<Vec<A>>>,
 }
 
 impl<A> TaskManager<A>
@@ -99,6 +141,41 @@ where
         Self {
             tasks: HashMap::new(),
             action_tx,
+            paused: Arc::new(AtomicBool::new(false)),
+            queued_actions: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Pause the task manager.
+    ///
+    /// When paused, completed tasks queue their actions instead of sending them.
+    /// In-flight tasks continue to completion but their results are queued.
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+    }
+
+    /// Resume the task manager and drain queued actions.
+    ///
+    /// Returns all actions that were queued while paused.
+    /// The caller should dispatch these through the normal action pipeline.
+    pub fn resume(&self) -> Vec<A> {
+        self.paused.store(false, Ordering::SeqCst);
+        std::mem::take(&mut *self.queued_actions.lock().unwrap())
+    }
+
+    /// Check if the task manager is paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    /// Get a pause handle for this task manager.
+    ///
+    /// The handle can be used to pause/resume the task manager from elsewhere
+    /// (e.g., from a debug layer) without needing mutable access.
+    pub fn pause_handle(&self) -> TaskPauseHandle<A> {
+        TaskPauseHandle {
+            paused: self.paused.clone(),
+            queued_actions: self.queued_actions.clone(),
         }
     }
 
@@ -128,9 +205,16 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
+        let paused = self.paused.clone();
+        let queued = self.queued_actions.clone();
         let handle: JoinHandle<()> = tokio::spawn(async move {
             let action = future.await;
-            let _ = tx.send(action);
+            // Check if paused - if so, queue instead of send
+            if paused.load(Ordering::SeqCst) {
+                queued.lock().unwrap().push(action);
+            } else {
+                let _ = tx.send(action);
+            }
         });
 
         self.tasks.insert(key, handle.abort_handle());
@@ -168,10 +252,17 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
+        let paused = self.paused.clone();
+        let queued = self.queued_actions.clone();
         let handle: JoinHandle<()> = tokio::spawn(async move {
             tokio::time::sleep(duration).await;
             let action = future.await;
-            let _ = tx.send(action);
+            // Check if paused - if so, queue instead of send
+            if paused.load(Ordering::SeqCst) {
+                queued.lock().unwrap().push(action);
+            } else {
+                let _ = tx.send(action);
+            }
         });
 
         self.tasks.insert(key, handle.abort_handle());
@@ -399,5 +490,60 @@ mod tests {
         // Can't spawn without runtime, but can test the structure
         assert!(tasks.is_empty());
         assert_eq!(tasks.len(), 0);
+    }
+
+    #[test]
+    fn test_pause_handle_basic() {
+        let (tx, _rx) = mpsc::unbounded_channel::<TestAction>();
+        let tasks = TaskManager::new(tx);
+        let handle = tasks.pause_handle();
+
+        assert!(!handle.is_paused());
+
+        handle.pause();
+        assert!(handle.is_paused());
+
+        let queued = handle.resume();
+        assert!(!handle.is_paused());
+        assert!(queued.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_pause_queues_actions() {
+        let (tx, mut rx) = mpsc::unbounded_channel::<TestAction>();
+        let mut tasks = TaskManager::new(tx);
+        let handle = tasks.pause_handle();
+
+        // Pause before spawning
+        handle.pause();
+
+        // Spawn a task that completes immediately
+        tasks.spawn("test", async { TestAction::Done(42) });
+
+        // Wait a bit for the task to complete
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Channel should be empty (action was queued, not sent)
+        assert!(rx.try_recv().is_err());
+
+        // Resume and get queued actions
+        let queued = handle.resume();
+        assert_eq!(queued.len(), 1);
+        assert!(matches!(queued[0], TestAction::Done(42)));
+    }
+
+    #[tokio::test]
+    async fn test_pause_handle_clone() {
+        let (tx, _rx) = mpsc::unbounded_channel::<TestAction>();
+        let tasks = TaskManager::new(tx);
+        let handle1 = tasks.pause_handle();
+        let handle2 = handle1.clone();
+
+        // Both handles share the same state
+        handle1.pause();
+        assert!(handle2.is_paused());
+
+        handle2.resume();
+        assert!(!handle1.is_paused());
     }
 }

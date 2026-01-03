@@ -29,7 +29,9 @@ pub use tui_dispatch_macros::{Action, BindingContext, ComponentId, DebugState, F
 /// Prelude for convenient imports
 pub mod prelude {
     // Traits
-    pub use tui_dispatch_core::{Action, ActionCategory, BindingContext, Component, ComponentId};
+    pub use tui_dispatch_core::{
+        Action, ActionCategory, ActionParams, BindingContext, Component, ComponentId,
+    };
 
     // Event system
     pub use tui_dispatch_core::{

@@ -60,6 +60,21 @@ pub enum DebugOverlay {
     State(DebugTableOverlay),
     /// Action log overlay - shows recent actions with timestamps
     ActionLog(ActionLogOverlay),
+    /// Action detail overlay - shows full details of a single action
+    ActionDetail(ActionDetailOverlay),
+}
+
+/// Overlay for displaying detailed action information
+#[derive(Debug, Clone)]
+pub struct ActionDetailOverlay {
+    /// Sequence number
+    pub sequence: u64,
+    /// Action name
+    pub name: String,
+    /// Full action parameters
+    pub params: String,
+    /// Elapsed time display
+    pub elapsed: String,
 }
 
 impl DebugOverlay {
@@ -67,7 +82,7 @@ impl DebugOverlay {
     pub fn table(&self) -> Option<&DebugTableOverlay> {
         match self {
             DebugOverlay::Inspect(table) | DebugOverlay::State(table) => Some(table),
-            DebugOverlay::ActionLog(_) => None,
+            DebugOverlay::ActionLog(_) | DebugOverlay::ActionDetail(_) => None,
         }
     }
 
@@ -93,6 +108,7 @@ impl DebugOverlay {
             DebugOverlay::Inspect(_) => "inspect",
             DebugOverlay::State(_) => "state",
             DebugOverlay::ActionLog(_) => "action_log",
+            DebugOverlay::ActionDetail(_) => "action_detail",
         }
     }
 }
@@ -108,12 +124,10 @@ pub struct ActionLogDisplayEntry {
     pub sequence: u64,
     /// Action name
     pub name: String,
-    /// Summary text
-    pub summary: String,
+    /// Action parameters (without the action name)
+    pub params: String,
     /// Elapsed time display (e.g., "2.3s")
     pub elapsed: String,
-    /// Whether state changed (if known)
-    pub state_changed: Option<bool>,
 }
 
 /// Overlay for displaying the action log
@@ -137,9 +151,8 @@ impl ActionLogOverlay {
             .map(|e| ActionLogDisplayEntry {
                 sequence: e.sequence,
                 name: e.name.to_string(),
-                summary: e.summary.clone(),
-                elapsed: e.elapsed_display(),
-                state_changed: e.state_changed,
+                params: e.params.clone(),
+                elapsed: e.elapsed.clone(),
             })
             .collect();
 
@@ -185,6 +198,21 @@ impl ActionLogOverlay {
     /// Page down
     pub fn page_down(&mut self, page_size: usize) {
         self.selected = (self.selected + page_size).min(self.entries.len().saturating_sub(1));
+    }
+
+    /// Get the currently selected entry
+    pub fn get_selected(&self) -> Option<&ActionLogDisplayEntry> {
+        self.entries.get(self.selected)
+    }
+
+    /// Create a detail overlay from the selected entry
+    pub fn selected_detail(&self) -> Option<ActionDetailOverlay> {
+        self.get_selected().map(|entry| ActionDetailOverlay {
+            sequence: entry.sequence,
+            name: entry.name.clone(),
+            params: entry.params.clone(),
+            elapsed: entry.elapsed.clone(),
+        })
     }
 }
 
@@ -347,23 +375,20 @@ mod tests {
                 ActionLogDisplayEntry {
                     sequence: 0,
                     name: "A".to_string(),
-                    summary: "A".to_string(),
+                    params: "".to_string(),
                     elapsed: "0ms".to_string(),
-                    state_changed: None,
                 },
                 ActionLogDisplayEntry {
                     sequence: 1,
                     name: "B".to_string(),
-                    summary: "B".to_string(),
+                    params: "x: 1".to_string(),
                     elapsed: "1ms".to_string(),
-                    state_changed: Some(true),
                 },
                 ActionLogDisplayEntry {
                     sequence: 2,
                     name: "C".to_string(),
-                    summary: "C".to_string(),
+                    params: "y: 2".to_string(),
                     elapsed: "2ms".to_string(),
-                    state_changed: Some(false),
                 },
             ],
             selected: 0,
