@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-01-04
+
+Effects, TaskManager, and Subscriptions for declarative async handling.
+
+### Added
+
+- `EffectStore` - reducer returns effects alongside state changes
+- `EffectStoreWithMiddleware` - effect store with middleware support
+- `DispatchResult<E>` - result type with `changed` flag and `effects` vec
+- `TaskManager` - spawn/cancel async tasks that produce actions
+  - `spawn(key, future)` - run task, cancel previous with same key
+  - `debounce(key, duration, future)` - debounced task execution
+  - `cancel(key)` / `cancel_all()` - task cancellation
+  - `pause()` / `resume()` - pause/resume task output
+- `Subscriptions` - interval and stream-based action sources
+  - `interval(key, duration, action_fn)` - periodic action emission
+  - `interval_immediate(key, duration, action_fn)` - emit immediately then periodically
+  - `stream(key, stream, map_fn)` - forward stream items as actions
+  - `cancel(key)` / `cancel_all()` - subscription cancellation
+  - `pause()` / `resume()` - pause/resume subscriptions
+- `DebugLayer::with_task_manager()` - auto-pause tasks in debug mode
+- `DebugLayer::with_subscriptions()` - auto-pause subscriptions in debug mode
+- Weather example: multi-color sprite layers (sun=yellow, cloud=gray, etc.)
+- Weather example: loading indicator in title bar (sprite stays visible during refresh)
+
+### Changed
+
+- Weather example now uses `EffectStore` with `TaskManager` and `Subscriptions`
+
 ## [0.2.2] - 2025-01-01
 
 In-memory action logging with debug overlay integration.
