@@ -14,16 +14,16 @@ use crossterm::event::KeyCode;
 let mut debug = DebugLayer::<Action>::new(KeyCode::F(12));
 
 // In event loop - handles toggle key, overlays, etc.
-if debug.intercepts(&event) {
-    // Refresh state overlay if visible
-    if debug.is_state_overlay_visible() {
-        debug.show_state_overlay(store.state());
+let outcome = debug.handle_event(&event.kind);
+if outcome.consumed {
+    for action in outcome.queued_actions {
+        dispatch(action);
     }
     continue;
 }
 
 // In render loop:
-debug.render(frame, |f, area| {
+debug.render_state(frame, &state, |f, area| {
     render_your_app(f, area, state);
 });
 ```
@@ -31,7 +31,9 @@ debug.render(frame, |f, area| {
 Default keybindings (when debug mode is active):
 - Toggle key (e.g., `F12`) - Toggle debug mode
 - `S` - Show/hide state overlay
+- `B` - Toggle banner position (top/bottom)
 - `A` - Show/hide action log
+- `J/K`, arrows, `PgUp/PgDn`, `g/G`, mouse wheel - Scroll tables
 - `Y` - Copy frozen frame to clipboard
 - `I` - Toggle mouse capture for cell inspection
 - `Esc` / `Q` - Close overlay
@@ -122,10 +124,13 @@ struct ComplexState {
 ## Showing the State Overlay
 
 ```rust
-// In your debug event handling:
-if key == 's' {
-    debug.show_state_overlay(&app_state);
-}
+// Provide state data during render (recommended):
+debug.render_state(frame, &app_state, |f, area| {
+    render_your_app(f, area, &app_state);
+});
+
+// Or trigger it manually:
+debug.show_state_overlay(&app_state);
 ```
 
 ## Cell Inspection

@@ -152,15 +152,11 @@ let mut debug = DebugLayer::<Action>::new(KeyCode::F(12)).active(args.debug);
 
 // In event loop - handles F12 toggle, overlays, etc.
 if debug.intercepts(&event) {
-    // Refresh state overlay if visible
-    if debug.is_state_overlay_visible() {
-        debug.show_state_overlay(store.state());
-    }
     continue;
 }
 
 // In render
-debug.render(frame, |f, area| render_app(f, area, state));
+debug.render_state(frame, &state, |f, area| render_app(f, area, state));
 ```
 
 ## Next Steps

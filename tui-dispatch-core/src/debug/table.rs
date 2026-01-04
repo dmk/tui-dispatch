@@ -200,6 +200,18 @@ impl ActionLogOverlay {
         self.selected = (self.selected + page_size).min(self.entries.len().saturating_sub(1));
     }
 
+    /// Calculate the scroll offset to keep the selected row visible.
+    pub fn scroll_offset_for(&self, visible_rows: usize) -> usize {
+        if visible_rows == 0 {
+            return 0;
+        }
+        if self.selected >= visible_rows {
+            self.selected - visible_rows + 1
+        } else {
+            0
+        }
+    }
+
     /// Get the currently selected entry
     pub fn get_selected(&self) -> Option<&ActionLogDisplayEntry> {
         self.entries.get(self.selected)

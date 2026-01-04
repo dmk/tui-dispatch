@@ -10,7 +10,7 @@ use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Clear};
+use ratatui::widgets::{Block, Borders, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::Frame;
 
 use super::action_logger::{ActionLog, ActionLogConfig};
@@ -29,6 +29,62 @@ use crate::subscriptions::SubPauseHandle;
 #[cfg(feature = "tasks")]
 use crate::tasks::TaskPauseHandle;
 use crate::Action;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BannerPosition {
+    Bottom,
+    Top,
+}
+
+impl BannerPosition {
+    fn toggle(self) -> Self {
+        match self {
+            Self::Bottom => Self::Top,
+            Self::Top => Self::Bottom,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Bottom => "bar:bottom",
+            Self::Top => "bar:top",
+        }
+    }
+}
+
+/// Result of handling a debug event.
+pub struct DebugOutcome<A> {
+    /// Whether the debug layer consumed the event.
+    pub consumed: bool,
+    /// Actions queued while debug was active (e.g., from pause/resume).
+    pub queued_actions: Vec<A>,
+    /// Whether a re-render is needed.
+    pub needs_render: bool,
+}
+
+impl<A> DebugOutcome<A> {
+    fn ignored() -> Self {
+        Self {
+            consumed: false,
+            queued_actions: Vec::new(),
+            needs_render: false,
+        }
+    }
+
+    fn consumed(queued_actions: Vec<A>) -> Self {
+        Self {
+            consumed: true,
+            queued_actions,
+            needs_render: true,
+        }
+    }
+}
+
+impl<A> Default for DebugOutcome<A> {
+    fn default() -> Self {
+        Self::ignored()
+    }
+}
 
 /// High-level debug layer with minimal configuration.
 ///
@@ -64,12 +120,20 @@ pub struct DebugLayer<A> {
     toggle_key: KeyCode,
     /// Internal freeze state
     freeze: DebugFreeze<A>,
+    /// Where the debug banner is rendered
+    banner_position: BannerPosition,
     /// Style configuration
     style: DebugStyle,
     /// Whether the debug layer is active (can be disabled for release builds)
     active: bool,
     /// Action log for display
     action_log: ActionLog,
+    /// Cached state snapshot for the state overlay
+    state_snapshot: Option<DebugTableOverlay>,
+    /// Scroll offset for state/inspect table overlays
+    table_scroll_offset: usize,
+    /// Cached page size for table overlay scrolling
+    table_page_size: usize,
     /// Handle to pause/resume task manager
     #[cfg(feature = "tasks")]
     task_handle: Option<TaskPauseHandle<A>>,
@@ -85,6 +149,9 @@ impl<A> std::fmt::Debug for DebugLayer<A> {
             .field("active", &self.active)
             .field("enabled", &self.freeze.enabled)
             .field("has_snapshot", &self.freeze.snapshot.is_some())
+            .field("has_state_snapshot", &self.state_snapshot.is_some())
+            .field("banner_position", &self.banner_position)
+            .field("table_scroll_offset", &self.table_scroll_offset)
             .field("queued_actions", &self.freeze.queued_actions.len())
             .finish()
     }
@@ -104,9 +171,13 @@ impl<A: Action> DebugLayer<A> {
         Self {
             toggle_key,
             freeze: DebugFreeze::new(),
+            banner_position: BannerPosition::Bottom,
             style: DebugStyle::default(),
             active: true,
             action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
+            state_snapshot: None,
+            table_scroll_offset: 0,
+            table_page_size: 1,
             #[cfg(feature = "tasks")]
             task_handle: None,
             #[cfg(feature = "subscriptions")]
@@ -200,20 +271,41 @@ impl<A: Action> DebugLayer<A> {
     where
         F: FnOnce(&mut Frame, Rect),
     {
+        self.render_with_state(frame, |frame, area, _wants_state| {
+            render_fn(frame, area);
+            None
+        });
+    }
+
+    /// Render with optional state capture for the state overlay.
+    ///
+    /// `render_fn` receives the frame, app area, and a `wants_state` hint that
+    /// is `true` when debug mode is active and state data may be requested.
+    /// Return `Some(DebugTableOverlay)` to update the cached state overlay.
+    pub fn render_with_state<F>(&mut self, frame: &mut Frame, render_fn: F)
+    where
+        F: FnOnce(&mut Frame, Rect, bool) -> Option<DebugTableOverlay>,
+    {
         let screen = frame.area();
 
         // Inactive or not in debug mode: just render normally
         if !self.active || !self.freeze.enabled {
-            render_fn(frame, screen);
+            let _ = render_fn(frame, screen, false);
             return;
         }
 
-        // Debug mode: reserve bottom line for banner
+        // Debug mode: reserve line for banner
         let (app_area, banner_area) = self.split_for_banner(screen);
 
         if self.freeze.pending_capture || self.freeze.snapshot.is_none() {
             // Capture mode: render app, then capture
-            render_fn(frame, app_area);
+            let state_snapshot = render_fn(frame, app_area, true);
+            self.state_snapshot = state_snapshot;
+            if let Some(ref table) = self.state_snapshot {
+                if self.is_state_overlay_visible() {
+                    self.set_state_overlay(table.clone());
+                }
+            }
             let buffer_clone = frame.buffer_mut().clone();
             self.freeze.capture(&buffer_clone);
         } else if let Some(ref snapshot) = self.freeze.snapshot {
@@ -223,6 +315,23 @@ impl<A: Action> DebugLayer<A> {
 
         // Render debug overlay
         self.render_debug_overlay(frame, app_area, banner_area);
+    }
+
+    /// Render with a DebugState reference and automatic state table generation.
+    ///
+    /// This is a convenience wrapper around `render_with_state`.
+    pub fn render_state<S: DebugState, F>(&mut self, frame: &mut Frame, state: &S, render_fn: F)
+    where
+        F: FnOnce(&mut Frame, Rect),
+    {
+        self.render_with_state(frame, |frame, area, wants_state| {
+            render_fn(frame, area);
+            if wants_state {
+                Some(state.build_debug_table("Application State"))
+            } else {
+                None
+            }
+        });
     }
 
     /// Split area for manual layout control.
@@ -250,12 +359,75 @@ impl<A: Action> DebugLayer<A> {
         self.intercepts_with_effects(event).is_some()
     }
 
+    /// Handle a debug event with a single call and return a summary outcome.
+    pub fn handle_event(&mut self, event: &crate::EventKind) -> DebugOutcome<A> {
+        self.handle_event_internal::<()>(event, None)
+    }
+
+    /// Handle a debug event with access to state (for the state overlay).
+    pub fn handle_event_with_state<S: DebugState>(
+        &mut self,
+        event: &crate::EventKind,
+        state: &S,
+    ) -> DebugOutcome<A> {
+        self.handle_event_internal(event, Some(state))
+    }
+
     /// Check if debug layer intercepts an event, returning any side effects.
     ///
     /// Returns `None` if the event was not consumed, `Some(effects)` if it was.
     pub fn intercepts_with_effects(
         &mut self,
         event: &crate::EventKind,
+    ) -> Option<Vec<DebugSideEffect<A>>> {
+        self.intercepts_with_effects_internal::<()>(event, None)
+    }
+
+    /// Check if debug layer intercepts an event with access to app state.
+    ///
+    /// Use this to populate the state overlay when `S` is pressed.
+    pub fn intercepts_with_effects_and_state<S: DebugState>(
+        &mut self,
+        event: &crate::EventKind,
+        state: &S,
+    ) -> Option<Vec<DebugSideEffect<A>>> {
+        self.intercepts_with_effects_internal(event, Some(state))
+    }
+
+    /// Check if debug layer intercepts an event with access to app state.
+    pub fn intercepts_with_state<S: DebugState>(
+        &mut self,
+        event: &crate::EventKind,
+        state: &S,
+    ) -> bool {
+        self.intercepts_with_effects_internal(event, Some(state))
+            .is_some()
+    }
+
+    fn handle_event_internal<S: DebugState>(
+        &mut self,
+        event: &crate::EventKind,
+        state: Option<&S>,
+    ) -> DebugOutcome<A> {
+        let effects = self.intercepts_with_effects_internal(event, state);
+        let Some(effects) = effects else {
+            return DebugOutcome::ignored();
+        };
+
+        let mut queued_actions = Vec::new();
+        for effect in effects {
+            if let DebugSideEffect::ProcessQueuedActions(actions) = effect {
+                queued_actions.extend(actions);
+            }
+        }
+
+        DebugOutcome::consumed(queued_actions)
+    }
+
+    fn intercepts_with_effects_internal<S: DebugState>(
+        &mut self,
+        event: &crate::EventKind,
+        state: Option<&S>,
     ) -> Option<Vec<DebugSideEffect<A>>> {
         if !self.active {
             return None;
@@ -264,7 +436,7 @@ impl<A: Action> DebugLayer<A> {
         use crate::EventKind;
 
         match event {
-            EventKind::Key(key) => self.handle_key_event(*key),
+            EventKind::Key(key) => self.handle_key_event(*key, state),
             EventKind::Mouse(mouse) => {
                 if !self.freeze.enabled {
                     return None;
@@ -293,14 +465,23 @@ impl<A: Action> DebugLayer<A> {
                     return None;
                 }
 
-                // Handle scrolling in action log overlay
-                if let Some(DebugOverlay::ActionLog(_)) = self.freeze.overlay {
-                    let action = if *delta > 0 {
-                        DebugAction::ActionLogScrollUp
-                    } else {
-                        DebugAction::ActionLogScrollDown
-                    };
-                    self.handle_action(action);
+                match self.freeze.overlay.as_ref() {
+                    Some(DebugOverlay::ActionLog(_)) => {
+                        let action = if *delta > 0 {
+                            DebugAction::ActionLogScrollUp
+                        } else {
+                            DebugAction::ActionLogScrollDown
+                        };
+                        self.handle_action(action);
+                    }
+                    Some(DebugOverlay::State(table)) | Some(DebugOverlay::Inspect(table)) => {
+                        if *delta > 0 {
+                            self.scroll_table_up();
+                        } else {
+                            self.scroll_table_down(table.rows.len());
+                        }
+                    }
+                    _ => {}
                 }
 
                 Some(vec![])
@@ -313,7 +494,7 @@ impl<A: Action> DebugLayer<A> {
     /// Show state overlay using a DebugState implementor.
     pub fn show_state_overlay<S: DebugState>(&mut self, state: &S) {
         let table = state.build_debug_table("Application State");
-        self.freeze.set_overlay(DebugOverlay::State(table));
+        self.set_state_overlay(table);
     }
 
     /// Show action log overlay.
@@ -339,7 +520,115 @@ impl<A: Action> DebugLayer<A> {
     // Private helpers
     // =========================================================================
 
-    fn handle_key_event(&mut self, key: KeyEvent) -> Option<Vec<DebugSideEffect<A>>> {
+    fn set_state_overlay(&mut self, table: DebugTableOverlay) {
+        if !matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
+            self.table_scroll_offset = 0;
+        }
+        self.state_snapshot = Some(table.clone());
+        self.freeze.set_overlay(DebugOverlay::State(table));
+    }
+
+    fn update_table_scroll(&mut self, table: &DebugTableOverlay, table_area: Rect) {
+        let visible_rows = table_area.height.saturating_sub(1) as usize;
+        self.table_page_size = visible_rows.max(1);
+        let max_offset = table.rows.len().saturating_sub(visible_rows);
+        self.table_scroll_offset = self.table_scroll_offset.min(max_offset);
+    }
+
+    fn build_scrollbar(&self, orientation: ScrollbarOrientation) -> Scrollbar<'static> {
+        let mut scrollbar = Scrollbar::new(orientation)
+            .thumb_style(self.style.scrollbar.thumb)
+            .track_style(self.style.scrollbar.track)
+            .begin_style(self.style.scrollbar.begin)
+            .end_style(self.style.scrollbar.end);
+
+        if let Some(symbol) = self.style.scrollbar.thumb_symbol {
+            scrollbar = scrollbar.thumb_symbol(symbol);
+        }
+        if let Some(symbol) = self.style.scrollbar.track_symbol {
+            scrollbar = scrollbar.track_symbol(Some(symbol));
+        }
+        if let Some(symbol) = self.style.scrollbar.begin_symbol {
+            scrollbar = scrollbar.begin_symbol(Some(symbol));
+        }
+        if let Some(symbol) = self.style.scrollbar.end_symbol {
+            scrollbar = scrollbar.end_symbol(Some(symbol));
+        }
+
+        scrollbar
+    }
+
+    fn table_page_size_value(&self) -> usize {
+        self.table_page_size.max(1)
+    }
+
+    fn table_max_offset(&self, rows_len: usize) -> usize {
+        rows_len.saturating_sub(self.table_page_size_value())
+    }
+
+    fn scroll_table_up(&mut self) {
+        self.table_scroll_offset = self.table_scroll_offset.saturating_sub(1);
+    }
+
+    fn scroll_table_down(&mut self, rows_len: usize) {
+        let max_offset = self.table_max_offset(rows_len);
+        self.table_scroll_offset = (self.table_scroll_offset + 1).min(max_offset);
+    }
+
+    fn scroll_table_to_top(&mut self) {
+        self.table_scroll_offset = 0;
+    }
+
+    fn scroll_table_to_bottom(&mut self, rows_len: usize) {
+        self.table_scroll_offset = self.table_max_offset(rows_len);
+    }
+
+    fn scroll_table_page_up(&mut self) {
+        let page_size = self.table_page_size_value();
+        self.table_scroll_offset = self.table_scroll_offset.saturating_sub(page_size);
+    }
+
+    fn scroll_table_page_down(&mut self, rows_len: usize) {
+        let page_size = self.table_page_size_value();
+        let max_offset = self.table_max_offset(rows_len);
+        self.table_scroll_offset = (self.table_scroll_offset + page_size).min(max_offset);
+    }
+
+    fn handle_table_scroll_key(&mut self, key: KeyCode, rows_len: usize) -> bool {
+        match key {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.scroll_table_down(rows_len);
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.scroll_table_up();
+                true
+            }
+            KeyCode::Char('g') => {
+                self.scroll_table_to_top();
+                true
+            }
+            KeyCode::Char('G') => {
+                self.scroll_table_to_bottom(rows_len);
+                true
+            }
+            KeyCode::PageDown => {
+                self.scroll_table_page_down(rows_len);
+                true
+            }
+            KeyCode::PageUp => {
+                self.scroll_table_page_up();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_key_event<S: DebugState>(
+        &mut self,
+        key: KeyEvent,
+        state: Option<&S>,
+    ) -> Option<Vec<DebugSideEffect<A>>> {
         // Toggle key always works (even when disabled)
         if key.code == self.toggle_key && key.modifiers.is_empty() {
             let effect = self.toggle();
@@ -357,9 +646,37 @@ impl<A: Action> DebugLayer<A> {
             return None;
         }
 
+        match key.code {
+            KeyCode::Char('b') | KeyCode::Char('B') => {
+                self.banner_position = self.banner_position.toggle();
+                self.freeze.request_capture();
+                return Some(vec![]);
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') => {
+                if matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
+                    self.freeze.clear_overlay();
+                } else if let Some(state) = state {
+                    let table = state.build_debug_table("Application State");
+                    self.set_state_overlay(table);
+                } else if let Some(ref table) = self.state_snapshot {
+                    self.set_state_overlay(table.clone());
+                } else {
+                    let table = DebugTableBuilder::new()
+                        .section("State")
+                        .entry(
+                            "hint",
+                            "Press 's' after providing state via render_with_state() or show_state_overlay()",
+                        )
+                        .finish("Application State");
+                    self.freeze.set_overlay(DebugOverlay::State(table));
+                }
+                return Some(vec![]);
+            }
+            _ => {}
+        }
+
         // Handle internal debug commands (hardcoded keys)
         let action = match key.code {
-            KeyCode::Char('s') | KeyCode::Char('S') => Some(DebugAction::ToggleState),
             KeyCode::Char('a') | KeyCode::Char('A') => Some(DebugAction::ToggleActionLog),
             KeyCode::Char('y') | KeyCode::Char('Y') => Some(DebugAction::CopyFrame),
             KeyCode::Char('i') | KeyCode::Char('I') => Some(DebugAction::ToggleMouseCapture),
@@ -387,6 +704,11 @@ impl<A: Action> DebugLayer<A> {
                 };
                 if let Some(action) = action {
                     self.handle_action(action);
+                    return Some(vec![]);
+                }
+            }
+            Some(DebugOverlay::State(table)) | Some(DebugOverlay::Inspect(table)) => {
+                if self.handle_table_scroll_key(key.code, table.rows.len()) {
                     return Some(vec![]);
                 }
             }
@@ -423,6 +745,9 @@ impl<A: Action> DebugLayer<A> {
 
             let queued = self.freeze.take_queued();
             self.freeze.disable();
+            self.state_snapshot = None;
+            self.table_scroll_offset = 0;
+            self.table_page_size = 1;
 
             // Combine queued actions from freeze and task manager
             let mut all_queued = queued;
@@ -444,6 +769,9 @@ impl<A: Action> DebugLayer<A> {
                 handle.pause();
             }
             self.freeze.enable();
+            self.state_snapshot = None;
+            self.table_scroll_offset = 0;
+            self.table_page_size = 1;
             None
         }
     }
@@ -463,11 +791,16 @@ impl<A: Action> DebugLayer<A> {
             DebugAction::ToggleState => {
                 if matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
                     self.freeze.clear_overlay();
+                } else if let Some(ref table) = self.state_snapshot {
+                    self.set_state_overlay(table.clone());
                 } else {
                     // Show placeholder - user should call show_state_overlay()
                     let table = DebugTableBuilder::new()
                         .section("State")
-                        .entry("hint", "Press 's' after calling show_state_overlay()")
+                        .entry(
+                            "hint",
+                            "Press 's' after providing state via render_with_state() or show_state_overlay()",
+                        )
                         .finish("Application State");
                     self.freeze.set_overlay(DebugOverlay::State(table));
                 }
@@ -539,6 +872,7 @@ impl<A: Action> DebugLayer<A> {
             DebugAction::InspectCell { column, row } => {
                 if let Some(ref snapshot) = self.freeze.snapshot {
                     let overlay = self.build_inspect_overlay(column, row, snapshot);
+                    self.table_scroll_offset = 0;
                     self.freeze.set_overlay(DebugOverlay::Inspect(overlay));
                 }
                 self.freeze.mouse_capture_enabled = false;
@@ -556,22 +890,41 @@ impl<A: Action> DebugLayer<A> {
     }
 
     fn split_for_banner(&self, area: Rect) -> (Rect, Rect) {
-        let banner_height = 1;
-        let app_area = Rect {
-            height: area.height.saturating_sub(banner_height),
-            ..area
-        };
-        let banner_area = Rect {
-            y: area.y.saturating_add(app_area.height),
-            height: banner_height.min(area.height),
-            ..area
-        };
-        (app_area, banner_area)
+        let banner_height = area.height.min(1);
+        match self.banner_position {
+            BannerPosition::Bottom => {
+                let app_area = Rect {
+                    height: area.height.saturating_sub(banner_height),
+                    ..area
+                };
+                let banner_area = Rect {
+                    y: area.y.saturating_add(app_area.height),
+                    height: banner_height,
+                    ..area
+                };
+                (app_area, banner_area)
+            }
+            BannerPosition::Top => {
+                let banner_area = Rect {
+                    y: area.y,
+                    height: banner_height,
+                    ..area
+                };
+                let app_area = Rect {
+                    y: area.y.saturating_add(banner_height),
+                    height: area.height.saturating_sub(banner_height),
+                    ..area
+                };
+                (app_area, banner_area)
+            }
+        }
     }
 
-    fn render_debug_overlay(&self, frame: &mut Frame, app_area: Rect, banner_area: Rect) {
+    fn render_debug_overlay(&mut self, frame: &mut Frame, app_area: Rect, banner_area: Rect) {
+        let overlay = self.freeze.overlay.clone();
+
         // Only dim when there's an overlay open
-        if let Some(ref overlay) = self.freeze.overlay {
+        if let Some(ref overlay) = overlay {
             dim_buffer(frame.buffer_mut(), self.style.dim_factor);
 
             match overlay {
@@ -608,6 +961,11 @@ impl<A: Action> DebugLayer<A> {
         banner = banner.item(BannerItem::new(&toggle_key_str, "resume", keys.toggle));
         banner = banner.item(BannerItem::new("a", "actions", keys.actions));
         banner = banner.item(BannerItem::new("s", "state", keys.state));
+        banner = banner.item(BannerItem::new(
+            "b",
+            self.banner_position.label(),
+            keys.actions,
+        ));
         banner = banner.item(BannerItem::new("y", "copy", keys.copy));
 
         if self.freeze.mouse_capture_enabled {
@@ -624,7 +982,7 @@ impl<A: Action> DebugLayer<A> {
         frame.render_widget(banner, banner_area);
     }
 
-    fn render_table_modal(&self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
+    fn render_table_modal(&mut self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
         let modal_width = (app_area.width * 80 / 100)
             .clamp(30, 120)
             .min(app_area.width);
@@ -647,8 +1005,7 @@ impl<A: Action> DebugLayer<A> {
         let inner = block.inner(modal_area);
         frame.render_widget(block, modal_area);
 
-        // Cell preview on top if present
-        if let Some(ref preview) = table.cell_preview {
+        let mut table_area = if let Some(ref preview) = table.cell_preview {
             if inner.height > 3 {
                 let preview_height = 2u16;
                 let preview_area = Rect {
@@ -668,15 +1025,45 @@ impl<A: Action> DebugLayer<A> {
                     .label_style(Style::default().fg(DebugStyle::text_secondary()))
                     .value_style(Style::default().fg(DebugStyle::text_primary()));
                 frame.render_widget(preview_widget, preview_area);
-
-                let table_widget = DebugTableWidget::new(table);
-                frame.render_widget(table_widget, table_area);
-                return;
+                table_area
+            } else {
+                inner
             }
-        }
+        } else {
+            inner
+        };
 
-        let table_widget = DebugTableWidget::new(table);
-        frame.render_widget(table_widget, inner);
+        let visible_rows = table_area.height.saturating_sub(1) as usize;
+        let show_scrollbar =
+            visible_rows > 0 && table.rows.len() > visible_rows && table_area.width > 11;
+        let scrollbar_area = if show_scrollbar {
+            let scrollbar_area = Rect {
+                x: table_area.x + table_area.width.saturating_sub(1),
+                width: 1,
+                ..table_area
+            };
+            table_area.width = table_area.width.saturating_sub(1);
+            Some(Rect {
+                y: scrollbar_area.y.saturating_add(1),
+                height: scrollbar_area.height.saturating_sub(1),
+                ..scrollbar_area
+            })
+        } else {
+            None
+        };
+
+        self.update_table_scroll(table, table_area);
+        let table_widget = DebugTableWidget::new(table).scroll_offset(self.table_scroll_offset);
+        frame.render_widget(table_widget, table_area);
+
+        if let Some(scrollbar_area) = scrollbar_area {
+            let content_length = self.table_max_offset(table.rows.len()).saturating_add(1);
+            let mut scrollbar_state = ScrollbarState::new(content_length)
+                .position(self.table_scroll_offset)
+                .viewport_content_length(self.table_page_size_value());
+            let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        }
     }
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
@@ -706,11 +1093,45 @@ impl<A: Action> DebugLayer<A> {
             .title(title)
             .style(self.style.banner_bg);
 
-        let inner = block.inner(modal_area);
+        let mut log_area = block.inner(modal_area);
         frame.render_widget(block, modal_area);
 
+        let visible_rows = log_area.height.saturating_sub(1) as usize;
+        let show_scrollbar =
+            visible_rows > 0 && log.entries.len() > visible_rows && log_area.width > 31;
+        let scrollbar_area = if show_scrollbar {
+            let scrollbar_area = Rect {
+                x: log_area.x + log_area.width.saturating_sub(1),
+                width: 1,
+                ..log_area
+            };
+            log_area.width = log_area.width.saturating_sub(1);
+            Some(Rect {
+                y: scrollbar_area.y.saturating_add(1),
+                height: scrollbar_area.height.saturating_sub(1),
+                ..scrollbar_area
+            })
+        } else {
+            None
+        };
+
         let widget = ActionLogWidget::new(log);
-        frame.render_widget(widget, inner);
+        frame.render_widget(widget, log_area);
+
+        if let Some(scrollbar_area) = scrollbar_area {
+            let visible_rows = log_area.height.saturating_sub(1) as usize;
+            let scroll_offset = log.scroll_offset_for(visible_rows);
+            let content_length = log
+                .entries
+                .len()
+                .saturating_sub(visible_rows)
+                .saturating_add(1);
+            let mut scrollbar_state = ScrollbarState::new(content_length)
+                .position(scroll_offset)
+                .viewport_content_length(visible_rows);
+            let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        }
     }
 
     fn render_action_detail_modal(
@@ -915,6 +1336,21 @@ mod tests {
         assert_eq!(app.height, 23);
         assert_eq!(banner.height, 1);
         assert_eq!(banner.y, 23);
+    }
+
+    #[test]
+    fn test_split_area_enabled_top() {
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
+        layer.toggle();
+        layer.banner_position = BannerPosition::Top;
+
+        let area = Rect::new(0, 0, 80, 24);
+        let (app, banner) = layer.split_area(area);
+
+        assert_eq!(banner.y, 0);
+        assert_eq!(banner.height, 1);
+        assert_eq!(app.y, 1);
+        assert_eq!(app.height, 23);
     }
 
     #[test]

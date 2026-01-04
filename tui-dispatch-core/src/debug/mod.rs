@@ -8,37 +8,40 @@
 //! - **Cell Inspection**: Examine individual buffer cells
 //! - **Debug Widgets**: Render debug overlays and tables
 //!
-//! # Quick Start (Simple API - Recommended)
+//! # Quick Start (Recommended)
 //!
 //! ```ignore
-//! use tui_dispatch::debug::DebugLayer;
+//! use crossterm::event::KeyCode;
+//! use tui_dispatch_core::debug::DebugLayer;
 //!
-//! // One line setup with sensible defaults:
-//! let debug = DebugLayer::<MyAction>::simple();
+//! // Minimal setup - just pick a toggle key
+//! let debug = DebugLayer::<MyAction>::new(KeyCode::F(12))
+//!     .active(args.debug);
 //!
 //! // In render loop:
-//! debug.render(frame, |f, area| {
+//! debug.render_state(frame, &state, |f, area| {
 //!     render_main_ui(f, area, &state);
 //! });
 //!
-//! // Default keybindings (when debug mode is active):
-//! // - F12/Esc: Toggle debug mode
+//! // Built-in keybindings (when debug mode is active):
+//! // - Toggle key (e.g., F12): Toggle debug mode
 //! // - S: Show/hide state overlay
+//! // - B: Toggle debug banner position
+//! // - J/K, arrows, PgUp/PgDn, g/G: Scroll overlays
 //! // - Y: Copy frozen frame to clipboard
 //! // - I: Toggle mouse capture for cell inspection
 //! ```
 //!
-//! # Custom Configuration
+//! # Customization
 //!
 //! ```ignore
-//! use tui_dispatch::debug::{DebugLayer, DebugConfig, DebugAction};
+//! use crossterm::event::KeyCode;
+//! use tui_dispatch_core::debug::{DebugLayer, DebugStyle};
 //!
-//! // Use custom toggle key:
-//! let debug = DebugLayer::<MyAction>::simple_with_toggle_key(&["F11"]);
-//!
-//! // Or full control with custom context:
-//! let config = DebugConfig::new(keybindings, MyContext::Debug);
-//! let debug: DebugLayer<MyAction, MyContext> = DebugLayer::new(config);
+//! let debug = DebugLayer::<MyAction>::new(KeyCode::F(11))
+//!     .with_action_log_capacity(500)
+//!     .with_style(DebugStyle::default())
+//!     .active(args.debug);
 //! ```
 //!
 //! # Manual Control (Escape Hatch)
@@ -127,9 +130,9 @@ pub mod widgets;
 pub use actions::{DebugAction, DebugSideEffect};
 pub use config::{
     default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
-    KeyStyles, StatusItem,
+    KeyStyles, ScrollbarStyle, StatusItem,
 };
-pub use layer::DebugLayer;
+pub use layer::{DebugLayer, DebugOutcome};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging
@@ -158,17 +161,18 @@ use ratatui::buffer::Buffer;
 // SimpleDebugContext - Built-in context for simple debug layer usage
 // ============================================================================
 
-/// Built-in context for simple debug layer usage.
+/// Built-in context for default debug keybindings.
 ///
-/// Use this with [`DebugLayer::simple()`] for zero-configuration debug layer setup.
+/// Use this with [`default_debug_keybindings`] or
+/// [`default_debug_keybindings_with_toggle`] when wiring debug commands into
+/// your own keybinding system.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch::debug::DebugLayer;
+/// use tui_dispatch_core::debug::default_debug_keybindings;
 ///
-/// // Uses SimpleDebugContext internally:
-/// let debug = DebugLayer::<MyAction>::simple();
+/// let keybindings = default_debug_keybindings();
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum SimpleDebugContext {

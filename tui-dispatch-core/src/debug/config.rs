@@ -30,12 +30,35 @@ pub struct DebugStyle {
     pub title_style: Style,
     /// Key styles for different actions (toggle, state, copy, mouse)
     pub key_styles: KeyStyles,
+    /// Scrollbar styling for debug overlays
+    pub scrollbar: ScrollbarStyle,
     /// Label style (e.g., "resume")
     pub label_style: Style,
     /// Value style for status items
     pub value_style: Style,
     /// Dim factor for background (0.0-1.0)
     pub dim_factor: f32,
+}
+
+/// Style and symbol overrides for debug scrollbars
+#[derive(Debug, Clone, Default)]
+pub struct ScrollbarStyle {
+    /// Style for the scrollbar thumb
+    pub thumb: Style,
+    /// Style for the scrollbar track
+    pub track: Style,
+    /// Style for the begin symbol
+    pub begin: Style,
+    /// Style for the end symbol
+    pub end: Style,
+    /// Override for the thumb symbol
+    pub thumb_symbol: Option<&'static str>,
+    /// Override for the track symbol
+    pub track_symbol: Option<&'static str>,
+    /// Override for the begin symbol
+    pub begin_symbol: Option<&'static str>,
+    /// Override for the end symbol
+    pub end_symbol: Option<&'static str>,
 }
 
 /// Styles for different debug key hints
@@ -80,6 +103,7 @@ impl Default for DebugStyle {
                 .bg(NEON_PURPLE)
                 .add_modifier(Modifier::BOLD),
             key_styles: KeyStyles::default(),
+            scrollbar: ScrollbarStyle::default(),
             label_style: Style::default().fg(TEXT_SECONDARY),
             value_style: Style::default().fg(TEXT_PRIMARY),
             dim_factor: 0.7,

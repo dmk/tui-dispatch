@@ -7,7 +7,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Clear, Paragraph, Row, Table, Widget};
+use ratatui::widgets::{Cell, Clear, Paragraph, Row, Table, Widget};
 use ratatui::Frame;
 
 use super::cell::{format_color_compact, format_modifier_compact, CellPreview};
@@ -300,8 +300,15 @@ impl Widget for DebugBanner<'_> {
             return;
         }
 
-        // Fill background
-        Block::default().style(self.background).render(area, buf);
+        // Clear the entire line so the banner overrides any previous content.
+        for y in area.y..area.y.saturating_add(area.height) {
+            for x in area.x..area.x.saturating_add(area.width) {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_symbol(" ");
+                    cell.set_style(self.background);
+                }
+            }
+        }
 
         let mut spans = Vec::new();
 
@@ -363,6 +370,7 @@ impl Default for DebugTableStyle {
 pub struct DebugTableWidget<'a> {
     table: &'a DebugTableOverlay,
     style: DebugTableStyle,
+    scroll_offset: usize,
 }
 
 impl<'a> DebugTableWidget<'a> {
@@ -371,12 +379,19 @@ impl<'a> DebugTableWidget<'a> {
         Self {
             table,
             style: DebugTableStyle::default(),
+            scroll_offset: 0,
         }
     }
 
     /// Set the style configuration
     pub fn style(mut self, style: DebugTableStyle) -> Self {
         self.style = style;
+        self
+    }
+
+    /// Set the scroll offset for the table body
+    pub fn scroll_offset(mut self, scroll_offset: usize) -> Self {
+        self.scroll_offset = scroll_offset;
         self
     }
 }
@@ -410,10 +425,15 @@ impl Widget for DebugTableWidget<'_> {
         ]);
 
         // Build rows
+        let visible_rows = area.height.saturating_sub(1) as usize;
+        let max_offset = self.table.rows.len().saturating_sub(visible_rows);
+        let scroll_offset = self.scroll_offset.min(max_offset);
+
         let rows: Vec<Row> = self
             .table
             .rows
             .iter()
+            .skip(scroll_offset)
             .enumerate()
             .map(|(idx, row)| match row {
                 DebugTableRow::Section(title) => Row::new(vec![
@@ -421,7 +441,8 @@ impl Widget for DebugTableWidget<'_> {
                     Cell::from(""),
                 ]),
                 DebugTableRow::Entry { key, value } => {
-                    let row_style = if idx % 2 == 0 {
+                    let row_index = idx + scroll_offset;
+                    let row_style = if row_index % 2 == 0 {
                         self.style.row_styles.0
                     } else {
                         self.style.row_styles.1
@@ -629,11 +650,7 @@ impl Widget for ActionLogWidget<'_> {
         ]);
 
         // Calculate scroll offset to keep selected row visible
-        let scroll_offset = if self.log.selected >= visible_rows {
-            self.log.selected - visible_rows + 1
-        } else {
-            0
-        };
+        let scroll_offset = self.log.scroll_offset_for(visible_rows);
 
         // Build visible rows
         let rows: Vec<Row> = self

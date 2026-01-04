@@ -34,6 +34,30 @@ struct AppState {
 
 ---
 
+## Debug Layer Ergonomics
+
+- `DebugLayer::render_state(frame, state, |f, area| ...)` convenience that auto-builds the state table only when active.
+- `DebugLayer::handle_event(&event) -> DebugOutcome { consumed, queued_actions, needs_render }` to replace ad-hoc intercept/effect plumbing.
+- `DebugLayer::middleware()` or `ActionLoggerMiddleware::for_debug(&mut DebugLayer)` to avoid manual `log_action()` calls.
+- Expose scrollbar styles/symbols in `DebugStyle` for the state/action overlays.
+- Docs: make `render_with_state` the default pattern and list scroll keys + banner toggle.
+
+---
+
+## Runtime / Wiring Helpers
+
+Reduce boilerplate in app `main` by bundling tasks/subscriptions/debug/action routing.
+
+- `DispatchRuntime<A>`: owns `TaskManager`, `Subscriptions`, `DebugLayer`, and an action queue.
+  - `handle_event(&EventKind) -> DebugOutcome<A>` (consumed + queued actions + render hint)
+  - `next_action()` (from tasks/subs/async)
+  - optional `log_action()` or auto‑log on dispatch
+- `EffectRuntime<S, A, E>`: wraps `EffectStore` (or with middleware) plus tasks/subs/debug.
+  - `dispatch(action, |effect, ctx| handle_effect(effect, ctx)) -> needs_render`
+  - `state()` for render, `handle_event()` for input
+
+---
+
 ## Centralized Theme System
 
 Like keybindings, but for styling. Apps define themes once, components reference them.
