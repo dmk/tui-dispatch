@@ -8,10 +8,9 @@ Simple setup with a toggle key:
 
 ```rust
 use tui_dispatch::debug::DebugLayer;
-use crossterm::event::KeyCode;
 
-// Create debug layer with F12 as toggle key
-let mut debug = DebugLayer::<Action>::new(KeyCode::F(12));
+// Create debug layer with sensible defaults (F12 toggle key)
+let mut debug = DebugLayer::<Action>::simple();
 
 // In event loop - handles toggle key, overlays, etc.
 let outcome = debug.handle_event(&event.kind);
@@ -41,11 +40,26 @@ Default keybindings (when debug mode is active):
 ## Custom Toggle Key
 
 ```rust
+use crossterm::event::KeyCode;
+
 // Use F11 instead of F12
-let debug = DebugLayer::<Action>::new(KeyCode::F(11));
+let debug = DebugLayer::<Action>::simple_with_toggle_key(KeyCode::F(11));
 
 // Use Escape key
-let debug = DebugLayer::<Action>::new(KeyCode::Esc);
+let debug = DebugLayer::<Action>::simple_with_toggle_key(KeyCode::Esc);
+```
+
+## Programmatic Control
+
+```rust
+use tui_dispatch::debug::{BannerPosition, DebugLayer};
+
+let mut debug = DebugLayer::<Action>::simple()
+    .with_banner_position(BannerPosition::Top);
+
+if let Some(effect) = debug.set_enabled(true) {
+    handle_debug_effect(effect);
+}
 ```
 
 ## State Inspection

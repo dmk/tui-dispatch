@@ -12,7 +12,7 @@ Future directions and experiments. Not committed to any of these.
 
 ```rust
 let debug = DebugLayer::<Action>::simple();  // F12 toggle, sensible defaults
-let debug = DebugLayer::<Action>::simple_with_toggle_key(&["F11"]);  // Custom toggle
+let debug = DebugLayer::<Action>::simple_with_toggle_key(KeyCode::F(11));  // Custom toggle
 ```
 
 **`#[derive(DebugState)]`** - Auto-derive with field attributes:

@@ -11,12 +11,10 @@
 //! # Quick Start (Recommended)
 //!
 //! ```ignore
-//! use crossterm::event::KeyCode;
 //! use tui_dispatch_core::debug::DebugLayer;
 //!
-//! // Minimal setup - just pick a toggle key
-//! let debug = DebugLayer::<MyAction>::new(KeyCode::F(12))
-//!     .active(args.debug);
+//! // Minimal setup with sensible defaults (F12 toggle key)
+//! let debug = DebugLayer::<MyAction>::simple().active(args.debug);
 //!
 //! // In render loop:
 //! debug.render_state(frame, &state, |f, area| {
@@ -36,9 +34,10 @@
 //!
 //! ```ignore
 //! use crossterm::event::KeyCode;
-//! use tui_dispatch_core::debug::{DebugLayer, DebugStyle};
+//! use tui_dispatch_core::debug::{BannerPosition, DebugLayer, DebugStyle};
 //!
 //! let debug = DebugLayer::<MyAction>::new(KeyCode::F(11))
+//!     .with_banner_position(BannerPosition::Top)
 //!     .with_action_log_capacity(500)
 //!     .with_style(DebugStyle::default())
 //!     .active(args.debug);
@@ -132,7 +131,7 @@ pub use config::{
     default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
     KeyStyles, ScrollbarStyle, StatusItem,
 };
-pub use layer::{DebugLayer, DebugOutcome};
+pub use layer::{BannerPosition, DebugLayer, DebugOutcome};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging

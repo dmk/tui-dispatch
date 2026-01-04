@@ -148,7 +148,7 @@ Add debug overlay with zero overhead when disabled:
 debug: bool,
 
 // Setup (only active when --debug passed)
-let mut debug = DebugLayer::<Action>::new(KeyCode::F(12)).active(args.debug);
+let mut debug = DebugLayer::<Action>::simple().active(args.debug);
 
 // In event loop - handles F12 toggle, overlays, etc.
 if debug.intercepts(&event) {

@@ -30,14 +30,16 @@ use crate::subscriptions::SubPauseHandle;
 use crate::tasks::TaskPauseHandle;
 use crate::Action;
 
+/// Location of the debug banner relative to the app area.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BannerPosition {
+pub enum BannerPosition {
     Bottom,
     Top,
 }
 
 impl BannerPosition {
-    fn toggle(self) -> Self {
+    /// Toggle between top and bottom.
+    pub fn toggle(self) -> Self {
         match self {
             Self::Bottom => Self::Top,
             Self::Top => Self::Bottom,
@@ -185,11 +187,27 @@ impl<A: Action> DebugLayer<A> {
         }
     }
 
+    /// Create a debug layer with sensible defaults (F12 toggle key).
+    pub fn simple() -> Self {
+        Self::new(KeyCode::F(12))
+    }
+
+    /// Create a debug layer with a custom toggle key.
+    pub fn simple_with_toggle_key(toggle_key: KeyCode) -> Self {
+        Self::new(toggle_key)
+    }
+
     /// Set whether the debug layer is active.
     ///
     /// When inactive (`false`), all methods become no-ops with zero overhead.
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
+        self
+    }
+
+    /// Set the initial banner position.
+    pub fn with_banner_position(mut self, position: BannerPosition) -> Self {
+        self.banner_position = position;
         self
     }
 
@@ -232,6 +250,36 @@ impl<A: Action> DebugLayer<A> {
     /// Check if debug mode is enabled (and layer is active).
     pub fn is_enabled(&self) -> bool {
         self.active && self.freeze.enabled
+    }
+
+    /// Toggle debug mode on/off and return any side effects.
+    ///
+    /// Returns `None` when the layer is inactive or no side effects are needed.
+    pub fn toggle_enabled(&mut self) -> Option<DebugSideEffect<A>> {
+        if !self.active {
+            return None;
+        }
+        self.toggle()
+    }
+
+    /// Set debug mode on/off and return any side effects.
+    ///
+    /// Returns `None` when the layer is inactive or already in the requested state.
+    pub fn set_enabled(&mut self, enabled: bool) -> Option<DebugSideEffect<A>> {
+        if !self.active || enabled == self.freeze.enabled {
+            return None;
+        }
+        self.toggle()
+    }
+
+    /// Update the banner position (top/bottom) and request a new capture.
+    pub fn set_banner_position(&mut self, position: BannerPosition) {
+        if self.banner_position != position {
+            self.banner_position = position;
+            if self.freeze.enabled {
+                self.freeze.request_capture();
+            }
+        }
     }
 
     /// Check if the state overlay is currently visible.
@@ -1297,6 +1345,23 @@ mod tests {
     }
 
     #[test]
+    fn test_set_enabled() {
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
+
+        layer.set_enabled(true);
+        assert!(layer.is_enabled());
+
+        layer.set_enabled(false);
+        assert!(!layer.is_enabled());
+    }
+
+    #[test]
+    fn test_simple_constructor() {
+        let layer: DebugLayer<TestAction> = DebugLayer::simple();
+        assert!(!layer.is_enabled());
+    }
+
+    #[test]
     fn test_queued_actions_returned_on_disable() {
         let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
 
@@ -1342,7 +1407,7 @@ mod tests {
     fn test_split_area_enabled_top() {
         let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
         layer.toggle();
-        layer.banner_position = BannerPosition::Top;
+        layer.set_banner_position(BannerPosition::Top);
 
         let area = Rect::new(0, 0, 80, 24);
         let (app, banner) = layer.split_area(area);
