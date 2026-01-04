@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.3] - 2025-01-04
+
+Fix some info in LICENSE and Cargo.toml.
+
 ## [0.3.2] - 2025-01-04
 
 I'll stop messing up tags at some point, I promise. See changelog for [0.3.1](#031---2025-01-04).
