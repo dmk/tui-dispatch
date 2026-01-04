@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.1] - 2025-01-04
+
+### Added
+
+- `DebugLayer::simple()` and `DebugLayer::simple_with_toggle_key()` constructors
+- `DebugLayer::set_enabled()` and `DebugLayer::toggle_enabled()` for programmatic control
+- `BannerPosition` plus `with_banner_position()` / `set_banner_position()` helpers
+- `DebugOutcome::dispatch_queued()` to streamline event-loop wiring
+
+### Fixed
+
+- Debug table/action log scrollbar positions now use full content length
 
 ## [0.3.0] - 2025-01-04
 
