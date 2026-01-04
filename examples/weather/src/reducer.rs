@@ -1,7 +1,7 @@
 //! Reducer - pure function: (state, action) -> DispatchResult
 //!
 //! FRAMEWORK PATTERN: Effect Reducer
-//! - fn(state: &mut S, action: A) -> DispatchResult<E>
+//! - fn(state: &mut S, action: A) -> `DispatchResult<E>`
 //! - Returns changed flag and any effects to execute
 //! - All state mutations happen here
 //! - Effects are declarative - executed by main loop
