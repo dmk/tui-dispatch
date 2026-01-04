@@ -80,6 +80,24 @@ impl<A> DebugOutcome<A> {
             needs_render: true,
         }
     }
+
+    /// Dispatch queued actions if the debug layer consumed the event.
+    ///
+    /// Returns `Some(needs_render)` when consumed, otherwise `None`.
+    pub fn dispatch_queued<F>(self, mut dispatch: F) -> Option<bool>
+    where
+        F: FnMut(A),
+    {
+        if !self.consumed {
+            return None;
+        }
+
+        for action in self.queued_actions {
+            dispatch(action);
+        }
+
+        Some(self.needs_render)
+    }
 }
 
 impl<A> Default for DebugOutcome<A> {
@@ -95,11 +113,10 @@ impl<A> Default for DebugOutcome<A> {
 /// # Example
 ///
 /// ```ignore
-/// use crossterm::event::KeyCode;
 /// use tui_dispatch::debug::DebugLayer;
 ///
-/// // Minimal setup - just the toggle key
-/// let mut debug = DebugLayer::new(KeyCode::F(12))
+/// // Minimal setup with sensible defaults (F12 toggle key)
+/// let mut debug = DebugLayer::simple()
 ///     .with_task_manager(&tasks)
 ///     .with_subscriptions(&subs)
 ///     .active(args.debug);
@@ -1105,7 +1122,7 @@ impl<A: Action> DebugLayer<A> {
         frame.render_widget(table_widget, table_area);
 
         if let Some(scrollbar_area) = scrollbar_area {
-            let content_length = self.table_max_offset(table.rows.len()).saturating_add(1);
+            let content_length = table.rows.len();
             let mut scrollbar_state = ScrollbarState::new(content_length)
                 .position(self.table_scroll_offset)
                 .viewport_content_length(self.table_page_size_value());
@@ -1169,11 +1186,7 @@ impl<A: Action> DebugLayer<A> {
         if let Some(scrollbar_area) = scrollbar_area {
             let visible_rows = log_area.height.saturating_sub(1) as usize;
             let scroll_offset = log.scroll_offset_for(visible_rows);
-            let content_length = log
-                .entries
-                .len()
-                .saturating_sub(visible_rows)
-                .saturating_add(1);
+            let content_length = log.entries.len();
             let mut scrollbar_state = ScrollbarState::new(content_length)
                 .position(scroll_offset)
                 .viewport_content_length(visible_rows);

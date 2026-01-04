@@ -25,13 +25,15 @@ use ratatui::{
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tui_dispatch::{process_raw_event, spawn_event_poller, Action, EventKind, RawEvent, Store};
+use tui_dispatch::{
+    debug::DebugLayer, process_raw_event, spawn_event_poller, Action, EventKind, RawEvent, Store,
+};
 
 // ============================================================================
 // State - What the app knows
 // ============================================================================
 
-#[derive(Default)]
+#[derive(Default, tui_dispatch::DebugState)]
 struct AppState {
     count: i32,
 }
@@ -96,6 +98,9 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io
     // Store = state + reducer
     let mut store = Store::new(AppState::default(), reducer);
 
+    // Debug layer (F12 to toggle)
+    let mut debug: DebugLayer<AppAction> = DebugLayer::simple();
+
     // Event poller
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
     let cancel_token = CancellationToken::new();
@@ -112,43 +117,44 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io
         // Render if state changed
         if should_render {
             terminal.draw(|frame| {
-                let area = frame.area();
+                let state = store.state();
+                debug.render_state(frame, state, |frame, area| {
+                    // Center the counter vertically and horizontally
+                    let [_, center, _] = Layout::vertical([
+                        Constraint::Fill(1),
+                        Constraint::Length(5),
+                        Constraint::Fill(1),
+                    ])
+                    .areas(area);
 
-                // Center the counter vertically and horizontally
-                let [_, center, _] = Layout::vertical([
-                    Constraint::Fill(1),
-                    Constraint::Length(5),
-                    Constraint::Fill(1),
-                ])
-                .areas(area);
+                    let [_, center, _] = Layout::horizontal([
+                        Constraint::Fill(1),
+                        Constraint::Length(30),
+                        Constraint::Fill(1),
+                    ])
+                    .flex(Flex::Center)
+                    .areas(center);
 
-                let [_, center, _] = Layout::horizontal([
-                    Constraint::Fill(1),
-                    Constraint::Length(30),
-                    Constraint::Fill(1),
-                ])
-                .flex(Flex::Center)
-                .areas(center);
+                    let block = Block::default()
+                        .title(" Counter ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan));
 
-                let block = Block::default()
-                    .title(" Counter ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan));
+                    let text = format!("{}", state.count);
+                    let paragraph = Paragraph::new(text)
+                        .alignment(Alignment::Center)
+                        .block(block);
 
-                let text = format!("{}", store.state().count);
-                let paragraph = Paragraph::new(text)
-                    .alignment(Alignment::Center)
-                    .block(block);
+                    frame.render_widget(paragraph, center);
 
-                frame.render_widget(paragraph, center);
-
-                // Help text at bottom
-                let [_, help_area] =
-                    Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
-                let help = Paragraph::new("k/Up: +1  j/Down: -1  q: quit")
-                    .alignment(Alignment::Center)
-                    .style(Style::default().fg(Color::DarkGray));
-                frame.render_widget(help, help_area);
+                    // Help text at bottom
+                    let [_, help_area] =
+                        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+                    let help = Paragraph::new("k/Up: +1  j/Down: -1  q: quit  F12: debug")
+                        .alignment(Alignment::Center)
+                        .style(Style::default().fg(Color::DarkGray));
+                    frame.render_widget(help, help_area);
+                });
             })?;
             should_render = false;
         }
@@ -157,6 +163,16 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io
         tokio::select! {
             Some(raw_event) = event_rx.recv() => {
                 let event = process_raw_event(raw_event);
+
+                if let Some(needs_render) = debug
+                    .handle_event_with_state(&event, store.state())
+                    .dispatch_queued(|action| {
+                        let _ = action_tx.send(action);
+                    })
+                {
+                    should_render = needs_render;
+                    continue;
+                }
 
                 // Map events to actions
                 if let EventKind::Key(key) = event {
@@ -177,6 +193,7 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io
                 if matches!(action, AppAction::Quit) {
                     break;
                 }
+                debug.log_action(&action);
                 should_render = store.dispatch(action);
             }
         }

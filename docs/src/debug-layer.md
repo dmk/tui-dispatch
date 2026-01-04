@@ -13,11 +13,11 @@ use tui_dispatch::debug::DebugLayer;
 let mut debug = DebugLayer::<Action>::simple();
 
 // In event loop - handles toggle key, overlays, etc.
-let outcome = debug.handle_event(&event.kind);
-if outcome.consumed {
-    for action in outcome.queued_actions {
-        dispatch(action);
-    }
+if let Some(needs_render) = debug
+    .handle_event(&event.kind)
+    .dispatch_queued(|action| dispatch(action))
+{
+    should_render = needs_render;
     continue;
 }
 

@@ -43,14 +43,14 @@ use std::time::Duration;
 
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, KeyCode},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tui_dispatch::debug::{DebugLayer, DebugSideEffect};
+use tui_dispatch::debug::DebugLayer;
 use tui_dispatch::{
     EffectStoreWithMiddleware, EventKind, RawEvent, Subscriptions, TaskManager, process_raw_event,
     spawn_event_poller,
@@ -157,7 +157,7 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     // Debug layer for inspection (F12) - only active when --debug
     // Automatically pauses tasks/subs when debug mode is enabled
-    let mut debug = DebugLayer::new(KeyCode::F(12))
+    let mut debug = DebugLayer::simple()
         .with_task_manager(&tasks)
         .with_subscriptions(&subs)
         .active(debug_enabled);
@@ -199,11 +199,9 @@ async fn run_app<B: ratatui::backend::Backend>(
         if should_render {
             let is_focused = !debug.is_enabled();
             terminal.draw(|frame| {
-                debug.render(frame, |f, area| {
-                    let props = WeatherDisplayProps {
-                        state: store.state(),
-                        is_focused,
-                    };
+                let state = store.state();
+                debug.render_state(frame, state, |f, area| {
+                    let props = WeatherDisplayProps { state, is_focused };
                     weather_display.render(f, area, props);
                 });
             })?;
@@ -224,15 +222,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
 
                 // Debug layer handles F12, state overlay, action log, etc.
-                if let Some(effects) = debug.intercepts_with_effects(&event_kind) {
-                    for effect in effects {
-                        handle_debug_side_effect(effect, &action_tx);
-                    }
-                    // Refresh state overlay if it's currently shown
-                    if debug.is_state_overlay_visible() {
-                        debug.show_state_overlay(store.state());
-                    }
-                    should_render = true;
+                if let Some(needs_render) = debug
+                    .handle_event_with_state(&event_kind, store.state())
+                    .dispatch_queued(|action| {
+                        let _ = action_tx.send(action);
+                    })
+                {
+                    should_render = needs_render;
                     continue;
                 }
 
@@ -290,23 +286,6 @@ fn handle_effect(effect: Effect, tasks: &mut TaskManager<Action>) {
                     Err(e) => Action::WeatherDidError(e),
                 }
             });
-        }
-    }
-}
-
-/// Handle debug side effects
-fn handle_debug_side_effect(
-    side_effect: DebugSideEffect<Action>,
-    action_tx: &mpsc::UnboundedSender<Action>,
-) {
-    match side_effect {
-        DebugSideEffect::ProcessQueuedActions(actions) => {
-            for action in actions {
-                let _ = action_tx.send(action);
-            }
-        }
-        DebugSideEffect::CopyToClipboard(_text) => {
-            // Could integrate with clipboard crate
         }
     }
 }

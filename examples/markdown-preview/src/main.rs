@@ -165,7 +165,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     store.state_mut().terminal_height = size.height;
 
     // Debug layer - only active when --debug flag passed
-    let mut debug: DebugLayer<Action> = DebugLayer::new(KeyCode::F(12)).active(debug_enabled);
+    let mut debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
 
     // Event poller
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
@@ -184,7 +184,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         if should_render {
             terminal.draw(|frame| {
                 let state = store.state();
-                debug.render(frame, |f, area| {
+                debug.render_state(frame, state, |f, area| {
                     render_app(f, area, state, &features);
                 });
             })?;
@@ -204,12 +204,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
 
                 // Debug layer intercepts events (toggle key, debug commands, etc.)
-                if debug.intercepts(&event_kind) {
-                    // Refresh state overlay if it's currently shown
-                    if debug.is_state_overlay_visible() {
-                        debug.show_state_overlay(store.state());
-                    }
-                    should_render = true;
+                if let Some(needs_render) = debug
+                    .handle_event_with_state(&event_kind, store.state())
+                    .dispatch_queued(|action| {
+                        let _ = action_tx.send(action);
+                    })
+                {
+                    should_render = needs_render;
                     continue;
                 }
 

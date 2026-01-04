@@ -16,16 +16,17 @@ cargo run -p markdown-preview -- path/to/file.md
 
 ### Debug Layer Setup
 
-The debug layer is set up with a toggle key:
+The debug layer is set up with sensible defaults (F12 toggle key):
 
 ```rust
-let mut debug = DebugLayer::<Action>::new(KeyCode::F(12)).active(args.debug);
+let mut debug = DebugLayer::<Action>::simple().active(args.debug);
 
 // In event loop
-if debug.intercepts(&event) {
-    if debug.is_state_overlay_visible() {
-        debug.show_state_overlay(store.state());
-    }
+if let Some(needs_render) = debug
+    .handle_event_with_state(&event, store.state())
+    .dispatch_queued(|action| dispatch(action))
+{
+    should_render = needs_render;
     continue;
 }
 ```
