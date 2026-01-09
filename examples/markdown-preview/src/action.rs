@@ -42,6 +42,10 @@ pub enum Action {
     /// Jump to previous match
     SearchPrev,
 
+    // ===== UI =====
+    /// Update terminal height (for page scrolling)
+    UiTerminalResize(u16),
+
     // ===== App =====
     /// Exit the application
     Quit,

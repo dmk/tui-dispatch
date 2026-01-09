@@ -42,52 +42,47 @@ pub enum Action {
 Weather fetching follows the intent → result pattern:
 
 1. `WeatherFetch` - Intent action triggers async task
-2. API call runs in a spawned tokio task
+2. API call runs in a TaskManager task via the effect handler
 3. `WeatherDidLoad` or `WeatherDidError` - Result action updates state
 
 ```rust
-// In the main loop
-if matches!(action, Action::WeatherFetch) {
-    let tx = action_tx.clone();
-    tokio::spawn(async move {
-        match api::fetch_weather(lat, lon).await {
-            Ok(data) => tx.send(Action::WeatherDidLoad(data)),
-            Err(e) => tx.send(Action::WeatherDidError(e.to_string())),
+fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
+    match effect {
+        Effect::FetchWeather { lat, lon } => {
+            ctx.tasks().spawn("weather", async move {
+                match api::fetch_weather(lat, lon).await {
+                    Ok(data) => Action::WeatherDidLoad(data),
+                    Err(e) => Action::WeatherDidError(e.to_string()),
+                }
+            });
         }
-    });
+    }
 }
 ```
 
 ### Main Loop Structure
 
-The example shows the standard tui-dispatch main loop:
+The example uses the `EffectRuntime` helper:
 
 ```rust
-loop {
-    // 1. Render if state changed
-    if should_render {
-        terminal.draw(|frame| {
-            weather_display.render(frame, frame.area(), props);
-        })?;
-        should_render = false;
-    }
+let mut runtime = EffectRuntime::from_store(store)
+    .with_debug(DebugLayer::simple().active(debug_enabled));
 
-    // 2. Wait for events or actions
-    tokio::select! {
-        Some(raw_event) = event_rx.recv() => {
-            // Convert to actions via component
-            let actions = component.handle_event(&event_kind, props);
-            for action in actions {
-                action_tx.send(action);
+runtime
+    .run(
+        terminal,
+        |frame, area, state, render_ctx| render(frame, area, state, render_ctx),
+        |event, state| {
+            if let EventKind::Resize(width, height) = event {
+                return EventOutcome::action(Action::UiTerminalResize(*width, *height))
+                    .with_render();
             }
-        }
-        Some(action) = action_rx.recv() => {
-            // Dispatch to store
-            let state_changed = store.dispatch(action);
-            should_render = state_changed;
-        }
-    }
-}
+            EventOutcome::from(component.handle_event(event, props))
+        },
+        |action| matches!(action, Action::Quit),
+        |effect, ctx| handle_effect(effect, ctx),
+    )
+    .await?;
 ```
 
 ## Keybindings

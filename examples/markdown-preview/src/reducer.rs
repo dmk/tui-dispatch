@@ -89,6 +89,16 @@ pub fn reducer(state: &mut AppState, action: Action) -> bool {
             true
         }
 
+        // ===== UI =====
+        Action::UiTerminalResize(height) => {
+            if state.terminal_height != height {
+                state.terminal_height = height;
+                true
+            } else {
+                false
+            }
+        }
+
         // ===== App =====
         Action::Quit => false,
     }

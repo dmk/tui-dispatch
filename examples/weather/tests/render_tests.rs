@@ -7,7 +7,7 @@
 
 use tui_dispatch::testing::*;
 use weather_example::{
-    components::{WeatherDisplay, WeatherDisplayProps},
+    components::{Component, WeatherDisplay, WeatherDisplayProps},
     state::{AppState, Location, TempUnit, WeatherData},
 };
 

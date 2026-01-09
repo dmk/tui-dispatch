@@ -10,7 +10,7 @@ use tui_dispatch::testing::*;
 use tui_dispatch::{EffectStore, NumericComponentId, assert_emitted, assert_not_emitted};
 use weather_example::{
     action::Action,
-    components::{WeatherDisplay, WeatherDisplayProps},
+    components::{Component, WeatherDisplay, WeatherDisplayProps},
     effect::Effect,
     reducer::reducer,
     state::{AppState, Location, TempUnit, WeatherData},

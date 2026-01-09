@@ -7,6 +7,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{self, ThemeSet};
 use syntect::parsing::SyntaxSet;
 
+use crate::features::Features;
 /// Code block background color
 pub const CODE_BG: Color = Color::Rgb(30, 30, 40);
 
@@ -55,6 +56,9 @@ pub struct AppState {
 
     /// Terminal height (for page scrolling)
     pub terminal_height: u16,
+
+    /// Feature flags for rendering
+    pub features: Features,
 
     /// Search mode state
     pub search: SearchState,
@@ -108,13 +112,14 @@ pub struct DocStats {
 
 impl AppState {
     /// Create new state with the given file path
-    pub fn new(file_path: String) -> Self {
+    pub fn new(file_path: String, features: Features) -> Self {
         let mut state = Self {
             file_path,
             raw_content: String::new(),
             rendered_lines: Vec::new(),
             scroll_offset: 0,
             terminal_height: 24,
+            features,
             search: SearchState::default(),
             stats: DocStats::default(),
             syntax_set: SyntaxSet::load_defaults_newlines(),

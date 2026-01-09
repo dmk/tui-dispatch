@@ -10,7 +10,6 @@
 //! Keys: j/Down = decrement, k/Up = increment, q = quit
 
 use std::io;
-use std::time::Duration;
 
 use crossterm::{
     execute,
@@ -18,16 +17,12 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Flex, Layout},
+    layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Style},
     widgets::{Block, Borders, Paragraph},
-    Terminal,
+    Frame, Terminal,
 };
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-use tui_dispatch::{
-    debug::DebugLayer, process_raw_event, spawn_event_poller, Action, EventKind, RawEvent, Store,
-};
+use tui_dispatch::{debug::DebugLayer, Action, DispatchRuntime, EventKind, RenderContext};
 
 // ============================================================================
 // State - What the app knows
@@ -69,6 +64,65 @@ fn reducer(state: &mut AppState, action: AppAction) -> bool {
 }
 
 // ============================================================================
+// Renderer - ratatui stuff
+// ============================================================================
+
+fn render_app(frame: &mut Frame, area: Rect, state: &AppState, _ctx: RenderContext) {
+    // Center the counter vertically and horizontally
+    let [_, center, _] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(5),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
+
+    let [_, center, _] = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Length(30),
+        Constraint::Fill(1),
+    ])
+    .flex(Flex::Center)
+    .areas(center);
+
+    let block = Block::default()
+        .title(" Counter ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let text = format!("{}", state.count);
+    let paragraph = Paragraph::new(text)
+        .alignment(Alignment::Center)
+        .block(block);
+
+    frame.render_widget(paragraph, center);
+
+    // Help text at bottom
+    let [_, help_area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+    let help = Paragraph::new("k/Up: +1  j/Down: -1  q: quit  F12: debug")
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(help, help_area);
+}
+
+// ============================================================================
+// Events handler - send actions when an event happens
+// ============================================================================
+
+fn map_event(event: &EventKind, _state: &AppState) -> Option<AppAction> {
+    if let EventKind::Key(key) = event {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
+            KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
+            KeyCode::Char('q') | KeyCode::Esc => Some(AppAction::Quit),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+// ============================================================================
 // Main - Setup terminal, run event loop, cleanup
 // ============================================================================
 
@@ -81,6 +135,7 @@ async fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // start the loop
     let result = run_app(&mut terminal).await;
 
     // Cleanup
@@ -92,113 +147,14 @@ async fn main() -> io::Result<()> {
 }
 
 async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
-    // Action channel
-    let (action_tx, mut action_rx) = mpsc::unbounded_channel::<AppAction>();
-
-    // Store = state + reducer
-    let mut store = Store::new(AppState::default(), reducer);
-
     // Debug layer (F12 to toggle)
-    let mut debug: DebugLayer<AppAction> = DebugLayer::simple();
+    let debug: DebugLayer<AppAction> = DebugLayer::simple();
 
-    // Event poller
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
-    let cancel_token = CancellationToken::new();
-    let _handle = spawn_event_poller(
-        event_tx,
-        Duration::from_millis(10),
-        Duration::from_millis(16),
-        cancel_token.clone(),
-    );
+    let mut runtime = DispatchRuntime::new(AppState::default(), reducer).with_debug(debug);
 
-    let mut should_render = true;
-
-    loop {
-        // Render if state changed
-        if should_render {
-            terminal.draw(|frame| {
-                let state = store.state();
-                debug.render_state(frame, state, |frame, area| {
-                    // Center the counter vertically and horizontally
-                    let [_, center, _] = Layout::vertical([
-                        Constraint::Fill(1),
-                        Constraint::Length(5),
-                        Constraint::Fill(1),
-                    ])
-                    .areas(area);
-
-                    let [_, center, _] = Layout::horizontal([
-                        Constraint::Fill(1),
-                        Constraint::Length(30),
-                        Constraint::Fill(1),
-                    ])
-                    .flex(Flex::Center)
-                    .areas(center);
-
-                    let block = Block::default()
-                        .title(" Counter ")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Cyan));
-
-                    let text = format!("{}", state.count);
-                    let paragraph = Paragraph::new(text)
-                        .alignment(Alignment::Center)
-                        .block(block);
-
-                    frame.render_widget(paragraph, center);
-
-                    // Help text at bottom
-                    let [_, help_area] =
-                        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
-                    let help = Paragraph::new("k/Up: +1  j/Down: -1  q: quit  F12: debug")
-                        .alignment(Alignment::Center)
-                        .style(Style::default().fg(Color::DarkGray));
-                    frame.render_widget(help, help_area);
-                });
-            })?;
-            should_render = false;
-        }
-
-        // Event loop
-        tokio::select! {
-            Some(raw_event) = event_rx.recv() => {
-                let event = process_raw_event(raw_event);
-
-                if let Some(needs_render) = debug
-                    .handle_event_with_state(&event, store.state())
-                    .dispatch_queued(|action| {
-                        let _ = action_tx.send(action);
-                    })
-                {
-                    should_render = needs_render;
-                    continue;
-                }
-
-                // Map events to actions
-                if let EventKind::Key(key) = event {
-                    use crossterm::event::KeyCode;
-                    let action = match key.code {
-                        KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
-                        KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
-                        KeyCode::Char('q') | KeyCode::Esc => Some(AppAction::Quit),
-                        _ => None,
-                    };
-                    if let Some(a) = action {
-                        let _ = action_tx.send(a);
-                    }
-                }
-            }
-
-            Some(action) = action_rx.recv() => {
-                if matches!(action, AppAction::Quit) {
-                    break;
-                }
-                debug.log_action(&action);
-                should_render = store.dispatch(action);
-            }
-        }
-    }
-
-    cancel_token.cancel();
-    Ok(())
+    runtime
+        .run(terminal, render_app, map_event, |action| {
+            matches!(action, AppAction::Quit)
+        })
+        .await
 }

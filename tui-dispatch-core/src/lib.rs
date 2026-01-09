@@ -99,6 +99,7 @@ pub mod effect;
 pub mod event;
 pub mod features;
 pub mod keybindings;
+pub mod runtime;
 pub mod store;
 #[cfg(feature = "subscriptions")]
 pub mod subscriptions;
@@ -123,6 +124,12 @@ pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, 
 pub use store::{
     ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
     StoreWithMiddleware,
+};
+
+// Runtime exports
+pub use runtime::{
+    DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike, EventOutcome,
+    PollerConfig, RenderContext,
 };
 
 // Effect exports
@@ -172,6 +179,12 @@ pub mod prelude {
     pub use crate::store::{
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
         StoreWithMiddleware,
+    };
+
+    // Runtime helpers
+    pub use crate::runtime::{
+        DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike,
+        EventOutcome, PollerConfig, RenderContext,
     };
     #[cfg(feature = "subscriptions")]
     pub use crate::subscriptions::{SubKey, SubPauseHandle, Subscriptions};

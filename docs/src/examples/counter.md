@@ -82,31 +82,28 @@ let state_changed = store.dispatch(action);
 ### Event loop
 
 ```rust
-tokio::select! {
-    Some(raw_event) = event_rx.recv() => {
-        let event = process_raw_event(raw_event);
+let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
+    .with_debug(DebugLayer::simple());
 
-        // Map events to actions
-        if let EventKind::Key(key) = event {
-            let action = match key.code {
-                KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
-                KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
-                KeyCode::Char('q') | KeyCode::Esc => Some(AppAction::Quit),
-                _ => None,
-            };
-            if let Some(a) = action {
-                action_tx.send(a);
+runtime
+    .run(
+        terminal,
+        |frame, area, state, _ctx| render(frame, area, state),
+        |event, _state| {
+            if let EventKind::Key(key) = event {
+                match key.code {
+                    KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
+                    KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
+                    KeyCode::Char('q') | KeyCode::Esc => Some(AppAction::Quit),
+                    _ => None,
+                }
+            } else {
+                None
             }
-        }
-    }
-
-    Some(action) = action_rx.recv() => {
-        if matches!(action, AppAction::Quit) {
-            break;
-        }
-        should_render = store.dispatch(action);
-    }
-}
+        },
+        |action| matches!(action, AppAction::Quit),
+    )
+    .await?;
 ```
 
 ## Next steps

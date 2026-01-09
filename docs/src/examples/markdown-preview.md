@@ -16,19 +16,15 @@ cargo run -p markdown-preview -- path/to/file.md
 
 ### Debug Layer Setup
 
-The debug layer is set up with sensible defaults (F12 toggle key):
+The debug layer is set up with sensible defaults (F12 toggle key), wired into
+the runtime helper:
 
 ```rust
-let mut debug = DebugLayer::<Action>::simple().active(args.debug);
+let debug = DebugLayer::<Action>::simple().active(args.debug);
+let mut runtime = DispatchRuntime::new(AppState::new(file_path, features), reducer)
+    .with_debug(debug);
 
-// In event loop
-if let Some(needs_render) = debug
-    .handle_event_with_state(&event, store.state())
-    .dispatch_queued(|action| dispatch(action))
-{
-    should_render = needs_render;
-    continue;
-}
+runtime.run(terminal, render_app, map_event, |action| matches!(action, Action::Quit)).await?;
 ```
 
 Press **F12** to enter debug mode. The debug layer freezes the frame and provides inspection tools:

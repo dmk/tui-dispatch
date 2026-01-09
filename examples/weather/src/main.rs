@@ -7,9 +7,9 @@
 //! 4. Effects handled by TaskManager
 //! 5. If state changed, re-render
 //!
-//! FRAMEWORK PATTERN: The Main Loop with Effects
-//! - spawn_event_poller for terminal events
+//! FRAMEWORK PATTERN: EffectRuntime loop
 //! - EffectStore for state management with declarative effects
+//! - EffectRuntime handles event polling + action routing
 //! - TaskManager for async operations (API calls)
 //! - Subscriptions for continuous sources (tick timer, auto-refresh)
 //! - Debug layer for inspection (F12)
@@ -47,18 +47,15 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend};
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
+use ratatui::{Frame, Terminal, backend::CrosstermBackend, layout::Rect};
 use tui_dispatch::debug::DebugLayer;
 use tui_dispatch::{
-    EffectStoreWithMiddleware, EventKind, RawEvent, Subscriptions, TaskManager, process_raw_event,
-    spawn_event_poller,
+    EffectContext, EffectRuntime, EffectStoreWithMiddleware, EventKind, EventOutcome, RenderContext,
 };
 
 use crate::action::Action;
 use crate::api::GeocodingError;
-use crate::components::{WeatherDisplay, WeatherDisplayProps};
+use crate::components::{Component, WeatherDisplay, WeatherDisplayProps};
 use crate::effect::Effect;
 use crate::reducer::reducer;
 use crate::state::{AppState, Location};
@@ -128,159 +125,77 @@ async fn main() -> io::Result<()> {
     result
 }
 
+fn render_app(frame: &mut Frame, area: Rect, state: &AppState, render_ctx: RenderContext) {
+    let mut display = WeatherDisplay;
+    let props = WeatherDisplayProps {
+        state,
+        is_focused: render_ctx.is_focused(),
+    };
+    display.render(frame, area, props);
+}
+
+fn map_event(event: &EventKind, state: &AppState) -> EventOutcome<Action> {
+    if let EventKind::Resize(width, height) = event {
+        return EventOutcome::action(Action::UiTerminalResize(*width, *height)).with_render();
+    }
+
+    let mut display = WeatherDisplay;
+    let props = WeatherDisplayProps {
+        state,
+        is_focused: true,
+    };
+    EventOutcome::from(display.handle_event(event, props))
+}
+
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     location: Location,
     refresh_interval: u64,
     debug_enabled: bool,
 ) -> io::Result<()> {
-    // ===== Framework setup =====
-
-    // Action channel - receives actions from:
-    // 1. Component event handlers
-    // 2. Async tasks (via TaskManager)
-    // 3. Subscriptions (tick, refresh timers)
-    let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
-
     // EffectStore for state management
-    let mut store = EffectStoreWithMiddleware::new(
+    let store = EffectStoreWithMiddleware::new(
         AppState::new(location),
         reducer,
         tui_dispatch::NoopMiddleware,
     );
 
-    // TaskManager for async operations (API calls)
-    let tasks = TaskManager::new(action_tx.clone());
-
-    // Subscriptions for continuous action sources
-    let subs = Subscriptions::new(action_tx.clone());
-
     // Debug layer for inspection (F12) - only active when --debug
-    // Automatically pauses tasks/subs when debug mode is enabled
-    let mut debug = DebugLayer::simple()
-        .with_task_manager(&tasks)
-        .with_subscriptions(&subs)
-        .active(debug_enabled);
+    let debug = DebugLayer::simple().active(debug_enabled);
 
-    // Now we can mutate tasks and subs
-    let mut tasks = tasks;
-    let mut subs = subs;
+    let mut runtime = EffectRuntime::from_store(store).with_debug(debug);
 
     // Tick timer for loading animation (100ms)
-    subs.interval("tick", Duration::from_millis(100), || Action::Tick);
+    runtime
+        .subscriptions()
+        .interval("tick", Duration::from_millis(100), || Action::Tick);
 
     // Auto-refresh timer
-    subs.interval("refresh", Duration::from_secs(refresh_interval), || {
-        Action::WeatherFetch
-    });
-
-    // Event poller - converts terminal events to RawEvent
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
-    let cancel_token = CancellationToken::new();
-    let _event_handle = spawn_event_poller(
-        event_tx,
-        Duration::from_millis(10), // poll timeout
-        Duration::from_millis(16), // loop sleep (~60fps)
-        cancel_token.clone(),
-    );
-
-    // Component
-    let mut weather_display = WeatherDisplay;
-
-    // Initial render
-    let mut should_render = true;
+    runtime
+        .subscriptions()
+        .interval("refresh", Duration::from_secs(refresh_interval), || {
+            Action::WeatherFetch
+        });
 
     // Auto-fetch weather on start
-    let _ = action_tx.send(Action::WeatherFetch);
+    runtime.enqueue(Action::WeatherFetch);
 
-    // ===== Main loop =====
-    loop {
-        // 1. Render if state changed
-        if should_render {
-            let is_focused = !debug.is_enabled();
-            terminal.draw(|frame| {
-                let state = store.state();
-                debug.render_state(frame, state, |f, area| {
-                    let props = WeatherDisplayProps { state, is_focused };
-                    weather_display.render(f, area, props);
-                });
-            })?;
-            should_render = false;
-        }
-
-        // 2. Wait for events or actions
-        tokio::select! {
-            // Terminal event received
-            Some(raw_event) = event_rx.recv() => {
-                let event_kind = process_raw_event(raw_event);
-
-                // Handle resize events directly
-                if let EventKind::Resize(width, height) = event_kind {
-                    let _ = action_tx.send(Action::UiTerminalResize(width, height));
-                    should_render = true;
-                    continue;
-                }
-
-                // Debug layer handles F12, state overlay, action log, etc.
-                if let Some(needs_render) = debug
-                    .handle_event_with_state(&event_kind, store.state())
-                    .dispatch_queued(|action| {
-                        let _ = action_tx.send(action);
-                    })
-                {
-                    should_render = needs_render;
-                    continue;
-                }
-
-                // Pass to component, collect actions
-                let props = WeatherDisplayProps {
-                    state: store.state(),
-                    is_focused: true,
-                };
-                let actions = weather_display.handle_event(&event_kind, props);
-
-                // Queue actions for dispatch
-                for action in actions {
-                    let _ = action_tx.send(action);
-                }
-            }
-
-            // Action received (from component, TaskManager, or Subscriptions)
-            Some(action) = action_rx.recv() => {
-                // Handle quit before dispatch
-                if matches!(action, Action::Quit) {
-                    break;
-                }
-
-                // Log action for debug overlay
-                debug.log_action(&action);
-
-                // Dispatch to store - returns effects
-                let result = store.dispatch(action);
-
-                // Handle effects via TaskManager
-                for effect in result.effects {
-                    handle_effect(effect, &mut tasks);
-                }
-
-                should_render = result.changed;
-            }
-        }
-    }
-
-    // Cleanup
-    cancel_token.cancel();
-    subs.cancel_all();
-    tasks.cancel_all();
-
-    Ok(())
+    runtime
+        .run(
+            terminal,
+            render_app,
+            map_event,
+            |action| matches!(action, Action::Quit),
+            handle_effect,
+        )
+        .await
 }
 
 /// Handle effects by spawning tasks
-fn handle_effect(effect: Effect, tasks: &mut TaskManager<Action>) {
+fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
     match effect {
         Effect::FetchWeather { lat, lon } => {
-            tasks.spawn("weather", async move {
+            ctx.tasks().spawn("weather", async move {
                 match api::fetch_weather_data(lat, lon).await {
                     Ok(data) => Action::WeatherDidLoad(data),
                     Err(e) => Action::WeatherDidError(e),

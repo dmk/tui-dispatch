@@ -53,6 +53,12 @@ pub mod prelude {
         DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
     };
 
+    // Runtime helpers
+    pub use tui_dispatch_core::{
+        DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike,
+        EventOutcome, PollerConfig, RenderContext,
+    };
+
     // Tasks (requires "tasks" feature)
     #[cfg(feature = "tasks")]
     pub use tui_dispatch_core::{TaskKey, TaskManager};
