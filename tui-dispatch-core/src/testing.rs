@@ -659,10 +659,11 @@ impl<S, A: Action> TestHarness<S, A> {
     ///
     /// actions.assert_contains(Action::SelectItem(2));
     /// ```
-    pub fn send_keys<C, H>(&mut self, keys: &str, mut handler: H) -> Vec<A>
+    pub fn send_keys<C, H, I>(&mut self, keys: &str, mut handler: H) -> Vec<A>
     where
         C: ComponentId,
-        H: FnMut(&mut S, Event<C>) -> Vec<A>,
+        I: IntoIterator<Item = A>,
+        H: FnMut(&mut S, Event<C>) -> I,
     {
         let events = key_events::<C>(keys);
         let mut all_actions = Vec::new();
@@ -688,10 +689,11 @@ impl<S, A: Action> TestHarness<S, A> {
     /// let actions = harness.drain_emitted();
     /// actions.assert_contains(Action::Confirm);
     /// ```
-    pub fn send_keys_emit<C, H>(&mut self, keys: &str, mut handler: H)
+    pub fn send_keys_emit<C, H, I>(&mut self, keys: &str, mut handler: H)
     where
         C: ComponentId,
-        H: FnMut(&mut S, Event<C>) -> Vec<A>,
+        I: IntoIterator<Item = A>,
+        H: FnMut(&mut S, Event<C>) -> I,
     {
         let events = key_events::<C>(keys);
         for event in events {

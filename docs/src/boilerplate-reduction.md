@@ -144,9 +144,9 @@ impl SearchPanel {
     }
 
     #[handler]
-    fn handle_event(&mut self, event: &Event, props: &Props) -> Vec<Action> {
+    fn handle_event(&mut self, event: &Event, props: &Props) -> impl IntoIterator<Item = Action> {
         // map events to actions
-        Vec::new()
+        None
     }
 }
 ```

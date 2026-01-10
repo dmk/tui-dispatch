@@ -1,0 +1,17 @@
+[package]
+name = "tui-dispatch-components"
+description = "Pre-built UI components for tui-dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords = ["tui", "components", "ratatui", "terminal"]
+categories = ["command-line-interface"]
+
+[dependencies]
+tui-dispatch-core = { path = "../tui-dispatch-core" }
+ratatui.workspace = true
+crossterm.workspace = true
+
+[dev-dependencies]

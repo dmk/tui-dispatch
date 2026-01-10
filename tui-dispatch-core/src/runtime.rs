@@ -138,6 +138,19 @@ impl<A> From<Option<A>> for EventOutcome<A> {
     }
 }
 
+impl<A> EventOutcome<A> {
+    /// Create from any iterator of actions
+    ///
+    /// Useful for converting `Component::handle_event` results which return
+    /// `impl IntoIterator<Item = A>`.
+    pub fn from_actions(iter: impl IntoIterator<Item = A>) -> Self {
+        Self {
+            actions: iter.into_iter().collect(),
+            needs_render: false,
+        }
+    }
+}
+
 trait DebugAdapter<S, A>: 'static {
     fn render(
         &mut self,

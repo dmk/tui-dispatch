@@ -91,8 +91,8 @@ Key types:
 pub trait Component<A> {
     type Props<'a>;
 
-    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<A> {
-        vec![]  // Default: render-only component
+    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> impl IntoIterator<Item = A> {
+        None  // Default: render-only component
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>);
@@ -104,8 +104,8 @@ Usage:
 impl Component<AppAction> for Counter {
     type Props<'a> = CounterProps<'a>;
 
-    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<AppAction> {
-        // Handle events, return actions
+    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> impl IntoIterator<Item = AppAction> {
+        // Handle events, return actions (None, Some(action), or vec![...])
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
@@ -754,37 +754,6 @@ src/
     └── ...
 ```
 
-### Props Derive Macro
-
-Reduce boilerplate when components need many state slices:
-
-```rust
-#[derive(Props)]
-#[props(from = "AppState, UiState")]
-struct KeyListProps<'a> {
-    #[props(from = "app.keys")]
-    keys: &'a [Key],
-
-    #[props(from = "app.selected_key")]
-    selected: Option<usize>,
-
-    #[props(from = "ui.focus == ComponentId::KeyList")]
-    is_focused: bool,
-
-    #[props(from = "ui.scroll_offsets.get(&ComponentId::KeyList).copied().unwrap_or(0)")]
-    scroll: usize,
-}
-
-// Generates:
-impl<'a> KeyListProps<'a> {
-    pub fn from_state(app: &'a AppState, ui: &'a UiState) -> Self { ... }
-}
-
-// Usage in render:
-let props = KeyListProps::from_state(&app_state, &ui_state);
-key_list.render(frame, area, props);
-```
-
 ---
 
 ## Priority Summary
@@ -804,4 +773,3 @@ key_list.render(frame, area, props);
 | Animation system | High | Medium | Future |
 | LLM-aware debugging | Medium | **Very High** | Planned |
 | Reducer composition macro | Low | High | Planned |
-| Props derive macro | Medium | Medium | Future |
