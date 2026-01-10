@@ -1,0 +1,27 @@
+[package]
+name = "artbox-playground"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Interactive ASCII art playground demonstrating tui-dispatch patterns with artbox"
+
+[lib]
+name = "artbox_playground"
+path = "src/lib.rs"
+
+[[bin]]
+name = "artbox-playground"
+path = "src/main.rs"
+
+[dependencies]
+tui-dispatch = { workspace = true, features = ["tasks", "subscriptions"] }
+artbox.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+arboard.workspace = true
+dirs.workspace = true
