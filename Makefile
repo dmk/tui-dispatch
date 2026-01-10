@@ -1,7 +1,7 @@
 # tui-dispatch Makefile
 # Convenience targets for build, test, lint, and development
 
-.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc docs-serve
+.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc docs-serve tag
 
 # Default target
 all: build
@@ -47,6 +47,35 @@ doc:
 docs-serve:
 	mdbook serve docs
 
+# Create and push a release tag (runs full verification first)
+tag:
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Error: Working tree is dirty. Commit or stash changes first."; \
+		exit 1; \
+	fi
+	@if [ "$$(git branch --show-current)" != "main" ]; then \
+		echo "Error: Not on main branch."; \
+		exit 1; \
+	fi
+	@VERSION=$$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tui-dispatch") | .version'); \
+	if ! grep -q "^## \[$$VERSION\]" CHANGELOG.md; then \
+		echo "Error: CHANGELOG.md has no entry for version $$VERSION"; \
+		echo "Add a section like: ## [$$VERSION] - $$(date +%Y-%m-%d)"; \
+		exit 1; \
+	fi
+	@echo "Running full verification..."
+	@$(MAKE) verify
+	@VERSION=$$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tui-dispatch") | .version'); \
+	if git rev-parse "v$$VERSION" >/dev/null 2>&1; then \
+		echo "Error: Tag v$$VERSION already exists."; \
+		exit 1; \
+	fi; \
+	echo "Creating tag v$$VERSION..."; \
+	git tag "v$$VERSION" && \
+	echo "Pushing tag v$$VERSION to origin..."; \
+	git push origin "v$$VERSION" && \
+	echo "Done! Release v$$VERSION has been tagged and pushed."
+
 # Clean build artifacts
 clean:
 	cargo clean
@@ -66,5 +95,6 @@ help:
 	@echo "  make verify      - Run all checks (CI)"
 	@echo "  make doc         - Build docs (library crates only)"
 	@echo "  make docs-serve  - Serve mdBook docs locally"
+	@echo "  make tag         - Create release tag (runs verify first)"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make help        - Show this help"

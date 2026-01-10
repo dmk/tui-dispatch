@@ -7,9 +7,17 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write  # Required for creating GitHub releases
+
 jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   publish:
     name: Publish to crates.io
+    needs: [ci]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +30,15 @@ jobs:
           CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "tui-dispatch") | .version')
           if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
             echo "Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+
+      - name: Verify CHANGELOG has entry for this version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          if ! grep -q "^## \[$TAG_VERSION\]" CHANGELOG.md; then
+            echo "Error: CHANGELOG.md has no entry for version $TAG_VERSION"
+            echo "Add a section like: ## [$TAG_VERSION] - $(date +%Y-%m-%d)"
             exit 1
           fi
 
@@ -45,3 +62,26 @@ jobs:
         run: cargo publish -p tui-dispatch
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+
+          # Extract release notes from CHANGELOG (between this version and the next ## header)
+          NOTES=$(awk "/^## \[$TAG_VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+
+          # Create release with notes and crates.io links
+          gh release create "v$TAG_VERSION" \
+            --title "v$TAG_VERSION" \
+            --notes "$(cat <<EOF
+          $NOTES
+
+          ---
+
+          [tui-dispatch](https://crates.io/crates/tui-dispatch/$TAG_VERSION) ·
+          [tui-dispatch-core](https://crates.io/crates/tui-dispatch-core/$TAG_VERSION) ·
+          [tui-dispatch-macros](https://crates.io/crates/tui-dispatch-macros/$TAG_VERSION)
+          EOF
+          )"
