@@ -1,3 +1,7 @@
+use artbox::{
+    Alignment as ArtAlignment, Color as ArtColor, Fill, LinearGradient, Renderer, fonts,
+    integrations::ratatui::ArtBox,
+};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
@@ -6,7 +10,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use super::{Component, ERROR_ICON, LocationHeader, LocationHeaderProps, SPINNERS};
+use super::{Component, ERROR_ICON, LocationHeader, LocationHeaderProps};
 use crate::action::Action;
 use crate::sprites;
 use crate::state::{AppState, WeatherData};
@@ -43,6 +47,9 @@ impl Component<Action> for WeatherBody {
             *header_area,
             LocationHeaderProps {
                 location: props.state.current_location(),
+                temperature: props.state.weather.as_ref().map(|w| w.temperature),
+                is_animating: props.state.loading_anim_active(),
+                tick_count: props.state.tick_count,
             },
         );
 
@@ -76,6 +83,7 @@ impl<'a> WeatherView<'a> {
 enum BodyBlock {
     Line(Line<'static>),
     Sprite { art: Text<'static>, height: u16 },
+    Temperature { text: String, celsius: f32 },
 }
 
 impl BodyBlock {
@@ -83,6 +91,7 @@ impl BodyBlock {
         match self {
             BodyBlock::Line(_) => 1,
             BodyBlock::Sprite { height, .. } => *height,
+            BodyBlock::Temperature { .. } => 4, // blocky font height
         }
     }
 
@@ -93,6 +102,13 @@ impl BodyBlock {
             }
             BodyBlock::Sprite { art, .. } => {
                 frame.render_widget(Paragraph::new(art).alignment(Alignment::Center), area);
+            }
+            BodyBlock::Temperature { text, celsius } => {
+                let renderer = Renderer::new(fonts::family("blocky").unwrap())
+                    .with_alignment(ArtAlignment::Center)
+                    .with_fill(temperature_gradient(celsius));
+                let widget = ArtBox::new(&renderer, &text);
+                frame.render_widget(widget, area);
             }
         }
     }
@@ -134,7 +150,6 @@ fn blocks_for_state(state: &AppState) -> Vec<BodyBlock> {
             let sprite_height = art_lines.lines.len() as u16;
 
             let temp = state.unit.format(weather.temperature);
-            let temp_color = temp_to_color(weather.temperature);
 
             vec![
                 blank_line(),
@@ -143,13 +158,10 @@ fn blocks_for_state(state: &AppState) -> Vec<BodyBlock> {
                     height: sprite_height,
                 },
                 blank_line(),
-                BodyBlock::Line(
-                    Line::from(vec![Span::styled(
-                        temp,
-                        Style::default().fg(temp_color).bold(),
-                    )])
-                    .centered(),
-                ),
+                BodyBlock::Temperature {
+                    text: temp,
+                    celsius: weather.temperature,
+                },
                 BodyBlock::Line(
                     Line::from(vec![Span::styled(
                         weather.description.to_string(),
@@ -160,22 +172,8 @@ fn blocks_for_state(state: &AppState) -> Vec<BodyBlock> {
             ]
         }
         WeatherView::Loading => {
-            let spinner = SPINNERS[(state.tick_count as usize / 2) % SPINNERS.len()];
-            let dots = ".".repeat((state.tick_count as usize / 3) % 4);
-
-            vec![
-                blank_line(),
-                BodyBlock::Line(
-                    Line::from(vec![
-                        Span::styled(spinner, Style::default().fg(Color::Cyan)),
-                        Span::styled(
-                            format!(" Fetching weather{:<3}", dots),
-                            Style::default().fg(Color::Gray),
-                        ),
-                    ])
-                    .centered(),
-                ),
-            ]
+            // Loading animation is shown via the header gradient
+            vec![blank_line()]
         }
         WeatherView::Empty => vec![
             blank_line(),
@@ -195,15 +193,28 @@ fn blank_line() -> BodyBlock {
     BodyBlock::Line(Line::from("").centered())
 }
 
-/// Get temperature-based color
-fn temp_to_color(celsius: f32) -> Color {
-    match celsius as i32 {
-        ..=-10 => Color::Rgb(150, 200, 255),  // Very cold - light blue
-        -9..=0 => Color::Rgb(100, 180, 255),  // Cold - blue
-        1..=10 => Color::Rgb(100, 220, 200),  // Cool - cyan
-        11..=20 => Color::Rgb(150, 230, 150), // Mild - green
-        21..=30 => Color::Rgb(255, 220, 100), // Warm - yellow
-        31..=40 => Color::Rgb(255, 150, 80),  // Hot - orange
-        _ => Color::Rgb(255, 100, 100),       // Very hot - red
-    }
+fn temperature_gradient(celsius: f32) -> Fill {
+    let (start, end) = match celsius {
+        t if t < 0.0 => (
+            ArtColor::rgb(150, 200, 255), // Ice blue
+            ArtColor::rgb(200, 230, 255), // Light ice
+        ),
+        t if t < 15.0 => (
+            ArtColor::rgb(100, 180, 255), // Cool blue
+            ArtColor::rgb(150, 220, 200), // Teal
+        ),
+        t if t < 25.0 => (
+            ArtColor::rgb(100, 200, 150), // Green
+            ArtColor::rgb(255, 220, 100), // Yellow
+        ),
+        t if t < 35.0 => (
+            ArtColor::rgb(255, 180, 80), // Orange
+            ArtColor::rgb(255, 120, 80), // Deep orange
+        ),
+        _ => (
+            ArtColor::rgb(255, 100, 80), // Red-orange
+            ArtColor::rgb(255, 60, 60),  // Hot red
+        ),
+    };
+    Fill::Linear(LinearGradient::horizontal(start, end))
 }

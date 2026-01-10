@@ -10,7 +10,7 @@ use tui_dispatch::DispatchResult;
 
 use crate::action::Action;
 use crate::effect::Effect;
-use crate::state::AppState;
+use crate::state::{AppState, LOADING_ANIM_CYCLE_TICKS};
 
 /// The reducer handles all state transitions
 ///
@@ -23,6 +23,8 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             // Clear previous error, set loading, emit fetch effect
             state.is_loading = true;
             state.error = None;
+            state.tick_count = 0;
+            state.loading_anim_ticks_remaining = 0;
             let loc = state.current_location();
             DispatchResult::changed_with(Effect::FetchWeather {
                 lat: loc.lat,
@@ -34,12 +36,14 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.weather = Some(data);
             state.is_loading = false;
             state.error = None;
+            state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
             DispatchResult::changed()
         }
 
         Action::WeatherDidError(msg) => {
             state.is_loading = false;
             state.error = Some(msg);
+            state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
             DispatchResult::changed()
         }
 
@@ -60,8 +64,12 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
 
         // ===== Global actions =====
         Action::Tick => {
-            state.tick_count = state.tick_count.wrapping_add(1);
-            if state.is_loading {
+            let animating = state.loading_anim_active();
+            if animating {
+                state.tick_count = state.tick_count.wrapping_add(1);
+                if state.loading_anim_ticks_remaining > 0 {
+                    state.loading_anim_ticks_remaining -= 1;
+                }
                 DispatchResult::changed()
             } else {
                 DispatchResult::unchanged()
@@ -75,6 +83,19 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
     }
 }
 
+fn ticks_to_phase_zero(tick_count: u32) -> u32 {
+    let cycle = LOADING_ANIM_CYCLE_TICKS.max(1);
+    if tick_count == 0 {
+        return cycle;
+    }
+    let remainder = tick_count % cycle;
+    if remainder == 0 {
+        0
+    } else {
+        cycle - remainder
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,11 +105,15 @@ mod tests {
     fn test_weather_fetch_sets_loading() {
         let mut state = AppState::default();
         assert!(!state.is_loading);
+        state.tick_count = 5;
+        state.loading_anim_ticks_remaining = 7;
 
         let result = reducer(&mut state, Action::WeatherFetch);
 
         assert!(result.changed);
         assert!(state.is_loading);
+        assert_eq!(state.tick_count, 0);
+        assert_eq!(state.loading_anim_ticks_remaining, 0);
         assert_eq!(result.effects.len(), 1);
         assert!(matches!(result.effects[0], Effect::FetchWeather { .. }));
     }
@@ -97,6 +122,7 @@ mod tests {
     fn test_weather_did_load_clears_loading() {
         let mut state = AppState {
             is_loading: true,
+            tick_count: 1,
             ..Default::default()
         };
 
@@ -111,6 +137,10 @@ mod tests {
         assert!(result.changed);
         assert!(!state.is_loading);
         assert_eq!(state.weather, Some(weather));
+        assert_eq!(
+            state.loading_anim_ticks_remaining,
+            LOADING_ANIM_CYCLE_TICKS - 1
+        );
     }
 
     #[test]
@@ -141,15 +171,22 @@ mod tests {
     }
 
     #[test]
-    fn test_tick_only_rerenders_when_loading() {
+    fn test_tick_rerenders_during_loading_animation() {
         let mut state = AppState::default();
 
-        // Not loading - no re-render
+        // Not loading and no remaining animation - no re-render
         let result = reducer(&mut state, Action::Tick);
         assert!(!result.changed);
 
-        // Loading - should re-render
+        // Remaining animation ticks - should re-render
+        state.loading_anim_ticks_remaining = 1;
+        let result = reducer(&mut state, Action::Tick);
+        assert!(result.changed);
+        assert_eq!(state.loading_anim_ticks_remaining, 0);
+
+        // Loading - should re-render even without remaining ticks
         state.is_loading = true;
+        state.loading_anim_ticks_remaining = 0;
         let result = reducer(&mut state, Action::Tick);
         assert!(result.changed);
     }

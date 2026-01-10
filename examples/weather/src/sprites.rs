@@ -171,8 +171,7 @@ pub enum SpriteSize {
 impl SpriteSize {
     /// Determine appropriate sprite size based on terminal dimensions
     pub fn from_terminal_size(_width: u16, height: u16) -> Self {
-        // Account for UI chrome: border (2) + header (3) + spacer (1) + help (1) = 7
-        // Plus temp (1) + description (1) + blank (1) = 3 more for the new vertical layout
+        // Heuristic: reserve rows for header, help bar, and spacing so sprites fit.
         let content_height = height.saturating_sub(10);
 
         match content_height {

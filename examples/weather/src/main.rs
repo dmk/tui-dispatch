@@ -58,7 +58,7 @@ use crate::api::GeocodingError;
 use crate::components::{Component, WeatherDisplay, WeatherDisplayProps};
 use crate::effect::Effect;
 use crate::reducer::reducer;
-use crate::state::{AppState, Location};
+use crate::state::{AppState, Location, LOADING_ANIM_TICK_MS};
 
 /// Weather TUI - tui-dispatch framework example
 #[derive(Parser, Debug)]
@@ -165,10 +165,12 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     let mut runtime = EffectRuntime::from_store(store).with_debug(debug);
 
-    // Tick timer for loading animation (100ms)
+    // Tick timer for loading animation
     runtime
         .subscriptions()
-        .interval("tick", Duration::from_millis(100), || Action::Tick);
+        .interval("tick", Duration::from_millis(LOADING_ANIM_TICK_MS), || {
+            Action::Tick
+        });
 
     // Auto-refresh timer
     runtime

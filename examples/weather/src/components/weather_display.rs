@@ -7,21 +7,15 @@
 //! - Focus handled via props, not event context
 
 use crossterm::event::KeyCode;
+use ratatui::layout::{Constraint, Layout};
 use ratatui::prelude::{Frame, Rect};
-use ratatui::{
-    layout::{Alignment, Constraint, Layout},
-    style::{Color, Style, Stylize},
-    widgets::{Block, Borders},
-};
 use tui_dispatch::EventKind;
 
 use super::{Component, HelpBar, HelpBarProps, WeatherBody, WeatherBodyProps};
 use crate::action::Action;
 use crate::state::AppState;
 
-pub const LOCATION_ICON: &str = "📍 ";
 pub const ERROR_ICON: &str = "⚠️";
-pub const SPINNERS: [&str; 4] = ["◐", "◓", "◑", "◒"];
 /// Props for WeatherDisplay - read-only view of state
 pub struct WeatherDisplayProps<'a> {
     pub state: &'a AppState,
@@ -54,33 +48,12 @@ impl Component<Action> for WeatherDisplay {
 
     /// Render the component to the frame
     fn render(&mut self, frame: &mut Frame, area: Rect, props: WeatherDisplayProps<'_>) {
-        let state = props.state;
-
-        // Loading indicator for title
-        let loading_indicator = if state.is_loading {
-            let spinner = SPINNERS[(state.tick_count as usize / 2) % SPINNERS.len()];
-            format!(" {} ", spinner)
-        } else {
-            String::new()
-        };
-
-        // Main container with nice border
-        let outer_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(80, 80, 100)))
-            .title(format!(" ☁ Weather{}", loading_indicator))
-            .title_style(Style::default().fg(Color::Cyan).bold())
-            .title_alignment(Alignment::Center);
-
-        frame.render_widget(outer_block.clone(), area);
-        let inner = outer_block.inner(area);
-
         // Layout: main content area + help bar at bottom
         let chunks = Layout::vertical([
             Constraint::Min(1),    // Main content (centered by WeatherBody)
             Constraint::Length(1), // Help bar
         ])
-        .split(inner);
+        .split(area);
 
         let mut body = WeatherBody;
         body.render(frame, chunks[0], WeatherBodyProps { state: props.state });
@@ -154,7 +127,9 @@ mod tests {
             component.render(frame, frame.area(), props);
         });
 
-        assert!(output.contains("Fetching weather"));
+        // Loading is now indicated by animated gradient on city name
+        // Just verify the component renders without panicking
+        assert!(!output.is_empty());
     }
 
     #[test]
@@ -179,7 +154,7 @@ mod tests {
             component.render(frame, frame.area(), props);
         });
 
-        assert!(output.contains("22.5°C"));
+        // Temperature is now rendered as FIGlet ASCII art, so check for description instead
         assert!(output.contains("Clear sky"));
     }
 }

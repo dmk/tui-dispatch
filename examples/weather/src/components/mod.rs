@@ -9,6 +9,4 @@ pub use tui_dispatch::Component;
 pub use help_bar::{HelpBar, HelpBarProps};
 pub use location_header::{LocationHeader, LocationHeaderProps};
 pub use weather_body::{WeatherBody, WeatherBodyProps};
-pub use weather_display::{
-    ERROR_ICON, LOCATION_ICON, SPINNERS, WeatherDisplay, WeatherDisplayProps,
-};
+pub use weather_display::{ERROR_ICON, WeatherDisplay, WeatherDisplayProps};

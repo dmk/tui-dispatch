@@ -45,6 +45,10 @@ impl TempUnit {
     }
 }
 
+/// Animation timing for the header gradient seam.
+pub const LOADING_ANIM_TICK_MS: u64 = 15;
+pub const LOADING_ANIM_CYCLE_TICKS: u32 = 60;
+
 /// Application state - everything the UI needs to render
 #[derive(Clone, Debug, tui_dispatch::DebugState)]
 pub struct AppState {
@@ -67,8 +71,11 @@ pub struct AppState {
     #[debug(skip)]
     pub unit: TempUnit,
 
-    /// Animation frame counter (for loading spinner)
+    /// Animation frame counter (for gradient seam)
     pub tick_count: u32,
+
+    /// Remaining ticks to finish the current animation cycle after loading
+    pub loading_anim_ticks_remaining: u32,
 
     /// Terminal dimensions (for sprite sizing)
     #[debug(skip)]
@@ -85,6 +92,7 @@ impl AppState {
             location,
             unit: TempUnit::default(),
             tick_count: 0,
+            loading_anim_ticks_remaining: 0,
             terminal_size: (80, 24), // Default, updated on resize
         }
     }
@@ -92,6 +100,10 @@ impl AppState {
     /// Get current location
     pub fn current_location(&self) -> &Location {
         &self.location
+    }
+
+    pub fn loading_anim_active(&self) -> bool {
+        self.is_loading || self.loading_anim_ticks_remaining > 0
     }
 }
 
