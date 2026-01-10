@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] - 2025-01-10
+
+Runtime helpers that eliminate event loop boilerplate.
+
+### Added
+
+- `DispatchRuntime` and `EffectRuntime` - wrap the event/action/render loop so you don't have to write it yourself. Handles event polling, action dispatch, debug layer integration, and conditional rendering in ~5 lines instead of ~50.
+- `Component<A>` trait now in core - apps can use this instead of defining their own component traits.
+
+### Changed
+
+- All examples updated to use the new runtime helpers
+
 ## [0.3.3] - 2025-01-04
 
 Fix some info in LICENSE and Cargo.toml.
