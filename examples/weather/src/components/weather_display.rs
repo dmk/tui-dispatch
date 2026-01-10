@@ -32,7 +32,7 @@ pub struct WeatherDisplayProps<'a> {
 #[derive(Default)]
 pub struct WeatherDisplay;
 
-impl Component for WeatherDisplay {
+impl Component<Action> for WeatherDisplay {
     type Props<'a> = WeatherDisplayProps<'a>;
 
     /// Handle an event and return actions to dispatch

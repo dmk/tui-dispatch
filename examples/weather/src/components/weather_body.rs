@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use super::{Component, ERROR_ICON, LocationHeader, LocationHeaderProps, SPINNERS};
+use crate::action::Action;
 use crate::sprites;
 use crate::state::{AppState, WeatherData};
 
@@ -16,7 +17,7 @@ pub struct WeatherBodyProps<'a> {
     pub state: &'a AppState,
 }
 
-impl Component for WeatherBody {
+impl Component<Action> for WeatherBody {
     type Props<'a> = WeatherBodyProps<'a>;
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {

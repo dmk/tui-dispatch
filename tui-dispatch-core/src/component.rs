@@ -2,8 +2,7 @@
 
 use ratatui::{layout::Rect, Frame};
 
-use crate::event::{EventKind, EventType};
-use crate::Action;
+use crate::event::EventKind;
 
 /// A pure UI component that renders based on props and emits actions
 ///
@@ -20,29 +19,57 @@ use crate::Action;
 /// Components receive `EventKind` (the raw event) rather than the full `Event` with context.
 /// Focus information and other context should be passed through `Props`. This keeps components
 /// decoupled from the specific ComponentId type used by the application.
-pub trait Component {
+///
+/// # Example
+///
+/// ```ignore
+/// use tui_dispatch::{Component, EventKind, Frame, Rect};
+///
+/// struct Counter;
+///
+/// struct CounterProps {
+///     count: i32,
+///     is_focused: bool,
+/// }
+///
+/// impl Component<AppAction> for Counter {
+///     type Props<'a> = CounterProps;
+///
+///     fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<AppAction> {
+///         if !props.is_focused {
+///             return vec![];
+///         }
+///         if let EventKind::Key(key) = event {
+///             match key.code {
+///                 KeyCode::Up => return vec![AppAction::Increment],
+///                 KeyCode::Down => return vec![AppAction::Decrement],
+///                 _ => {}
+///             }
+///         }
+///         vec![]
+///     }
+///
+///     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+///         let text = format!("Count: {}", props.count);
+///         frame.render_widget(Paragraph::new(text), area);
+///     }
+/// }
+/// ```
+pub trait Component<A> {
     /// Data required to render the component (read-only)
     type Props<'a>;
-
-    /// Event types this component wants to receive
-    ///
-    /// Return the event types this component should be subscribed to.
-    /// Global events are always delivered regardless of this.
-    fn subscriptions(&self) -> Vec<EventType> {
-        vec![]
-    }
 
     /// Handle an event and return actions to dispatch
     ///
     /// Components receive the raw `EventKind` (key press, mouse event, etc.).
     /// Focus state and other context should be passed through `Props`.
-    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<impl Action>;
+    ///
+    /// Default implementation returns no actions (render-only components).
+    #[allow(unused_variables)]
+    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<A> {
+        vec![]
+    }
 
     /// Render the component to the frame
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>);
-
-    /// Get the last rendered area (for hit-testing and focus management)
-    fn area(&self) -> Option<Rect> {
-        None
-    }
 }

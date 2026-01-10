@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use super::Component;
+use crate::action::Action;
 use crate::state::{AppState, CODE_BG};
 
 pub struct ContentView;
@@ -15,7 +16,7 @@ pub struct ContentViewProps<'a> {
     pub state: &'a AppState,
 }
 
-impl Component for ContentView {
+impl Component<Action> for ContentView {
     type Props<'a> = ContentViewProps<'a>;
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {

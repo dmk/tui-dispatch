@@ -7,12 +7,13 @@ use ratatui::{
 };
 
 use super::Component;
+use crate::action::Action;
 
 pub struct HelpBar;
 
 pub struct HelpBarProps;
 
-impl Component for HelpBar {
+impl Component<Action> for HelpBar {
     type Props<'a> = HelpBarProps;
 
     fn render(&mut self, frame: &mut Frame, area: Rect, _props: Self::Props<'_>) {

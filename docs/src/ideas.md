@@ -44,42 +44,22 @@ struct AppState {
 
 ---
 
-## Runtime / Wiring Helpers
+## ~~Runtime / Wiring Helpers~~ DONE
 
-Reduce boilerplate in app `main` by bundling tasks/subscriptions/debug/action routing.
+> Implemented in v0.4.0
 
-**Option A: run-style helpers (draft API)**
+**`DispatchRuntime`** and **`EffectRuntime`** reduce boilerplate by bundling tasks/subscriptions/debug/action routing:
 
 ```rust
 let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
-    .with_debug(DebugLayer::simple())
-    .with_event_poller(PollerConfig::default());
+    .with_debug(DebugLayer::simple());
 
-runtime.run(
-    terminal,
-    |frame, area, state, render_ctx| render(frame, area, state, render_ctx),
-    |event, state| match event {
-        EventKind::Key(key) => match key.code {
-            KeyCode::Char('k') => AppAction::CountIncrement.into(),
-            KeyCode::Char('j') => AppAction::CountDecrement.into(),
-            KeyCode::Char('q') => AppAction::Quit.into(),
-            _ => EventOutcome::ignored(),
-        },
-        EventKind::Resize(_, _) => EventOutcome::needs_render(),
-        _ => EventOutcome::ignored(),
-    },
-    |action| matches!(action, AppAction::Quit),
-).await?;
+runtime
+    .run(terminal, render_app, map_event, |action| matches!(action, AppAction::Quit))
+    .await?;
 ```
 
-Key pieces:
-- `DispatchRuntime<S, A>` owns the store, debug layer, action queue, and event poller.
-- `EventOutcome<A>` allows returning `actions` plus a `needs_render` hint. Actions impl `Into<EventOutcome>` so `.into()` wraps an action with `needs_render: true`.
-- `RenderContext` exposes debug overlay state to render closures.
-- `PollerConfig` exposes `poll_timeout` and `loop_sleep` (defaults match examples).
-- `runtime.enqueue(action)` to seed initial actions.
-
-**Effect-aware runtime (draft API)**
+For effect-based apps:
 
 ```rust
 let mut runtime = EffectRuntime::new(AppState::new(location), reducer)
@@ -87,50 +67,57 @@ let mut runtime = EffectRuntime::new(AppState::new(location), reducer)
 
 runtime.subscriptions().interval("tick", Duration::from_millis(100), || Action::Tick);
 
-runtime.run(
-    terminal,
-    |frame, area, state, render_ctx| render(frame, area, state, render_ctx),
-    |event, state| handle_event(event, state),
-    |action| matches!(action, Action::Quit),
-    |effect, ctx| handle_effect(effect, ctx),
-).await?;
+runtime
+    .run(terminal, render_app, map_event, |action| matches!(action, Action::Quit), handle_effect)
+    .await?;
 ```
 
-Notes:
-- `EffectRuntime<S, A, E>` wraps `EffectStore` (or `EffectStoreWithMiddleware`) plus tasks/subs/debug.
-- `EffectContext` gives effect handlers access to `tasks()` / `subscriptions()` when enabled.
+Key types:
+- `DispatchRuntime<S, A>` - Simple stores without effects
+- `EffectRuntime<S, A, E>` - Effect-based stores with tasks/subscriptions
+- `EventOutcome<A>` - Event mapping result with optional render hint
+- `RenderContext` - Exposes debug state to render closures
+- `EffectContext` - Gives effect handlers access to `tasks()` / `subscriptions()`
 
 ---
 
-## Component Trait in Core (draft)
+## ~~Component Trait in Core~~ DONE
 
-Standardize component APIs so event handling + render live together and can plug into the runtime helpers.
+> Implemented in v0.4.0
+
+**`Component<A>`** standardizes component APIs so event handling + render live together:
 
 ```rust
-pub trait Component<A: Action> {
+pub trait Component<A> {
     type Props<'a>;
 
-    fn subscriptions(&self) -> Vec<EventType> {
-        vec![]
-    }
-
     fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<A> {
-        vec![]
+        vec![]  // Default: render-only component
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>);
+}
+```
 
-    fn area(&self) -> Option<Rect> {
-        None
+Usage:
+```rust
+impl Component<AppAction> for Counter {
+    type Props<'a> = CounterProps<'a>;
+
+    fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<AppAction> {
+        // Handle events, return actions
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        // Render based on props
     }
 }
 ```
 
-Notes:
-- Fits the memtui-style component pattern (subscriptions, event routing, render).
-- Pairs with `DispatchRuntime` / `EffectRuntime` via `EventOutcome`.
-- Plays well with existing `TestHarness` and `RenderHarness`.
-- Would let apps drop local component traits and share helpers.
+Benefits:
+- Apps can drop local component traits and use the core one
+- Pairs naturally with `DispatchRuntime` / `EffectRuntime` via `EventOutcome`
+- Works with existing `TestHarness` and `RenderHarness`
 
 ---
 
@@ -807,6 +794,8 @@ key_list.render(frame, area, props);
 | `DebugLayer::simple()` | Low | High | Done |
 | `#[derive(DebugState)]` | Medium | Medium | Done |
 | Feature flags | Medium | High | Done |
+| Runtime helpers | Medium | High | Done |
+| Component trait in core | Low | High | Done |
 | `SelectList` component | Medium | High | Next |
 | `TextInput` component | Medium | High | Next |
 | `StoreTestHarness` | Low | Medium | Planned |

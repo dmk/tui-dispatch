@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use super::Component;
+use crate::action::Action;
 
 pub struct TitleBar;
 
@@ -14,7 +15,7 @@ pub struct TitleBarProps<'a> {
     pub file_path: &'a str,
 }
 
-impl Component for TitleBar {
+impl Component<Action> for TitleBar {
     type Props<'a> = TitleBarProps<'a>;
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {

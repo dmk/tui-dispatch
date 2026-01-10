@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use super::{Component, LOCATION_ICON};
+use crate::action::Action;
 use crate::state::Location;
 
 pub struct LocationHeader;
@@ -19,7 +20,7 @@ impl LocationHeader {
     pub const HEIGHT: u16 = 2;
 }
 
-impl Component for LocationHeader {
+impl Component<Action> for LocationHeader {
     type Props<'a> = LocationHeaderProps<'a>;
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {

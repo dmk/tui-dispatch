@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use super::Component;
+use crate::action::Action;
 use crate::state::AppState;
 
 pub struct StatusBar;
@@ -15,7 +16,7 @@ pub struct StatusBarProps<'a> {
     pub state: &'a AppState,
 }
 
-impl Component for StatusBar {
+impl Component<Action> for StatusBar {
     type Props<'a> = StatusBarProps<'a>;
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
