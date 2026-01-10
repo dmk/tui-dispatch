@@ -80,6 +80,25 @@ pub struct AppState {
     /// Terminal dimensions (for sprite sizing)
     #[debug(skip)]
     pub terminal_size: (u16, u16),
+
+    // --- Search mode ---
+    /// Whether search overlay is open
+    pub search_mode: bool,
+
+    /// Current search query
+    #[debug(skip)]
+    pub search_query: String,
+
+    /// Search results from geocoding API
+    #[debug(skip)]
+    pub search_results: Vec<Location>,
+
+    /// Search error message
+    #[debug(skip)]
+    pub search_error: Option<String>,
+
+    /// Selected index in search results
+    pub search_selected: usize,
 }
 
 impl AppState {
@@ -94,6 +113,11 @@ impl AppState {
             tick_count: 0,
             loading_anim_ticks_remaining: 0,
             terminal_size: (80, 24), // Default, updated on resize
+            search_mode: false,
+            search_query: String::new(),
+            search_results: Vec::new(),
+            search_error: None,
+            search_selected: 0,
         }
     }
 

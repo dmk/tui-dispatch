@@ -5,12 +5,13 @@
 //! - "Did" prefix indicates async result
 //! - Verbs at end: Fetch, Load, Clear, Toggle, Quit
 
-use crate::state::WeatherData;
+use crate::state::{Location, WeatherData};
 
 /// Application actions with automatic category inference
 ///
 /// # Categories (auto-inferred from naming):
 /// - `weather`: WeatherFetch, WeatherDidLoad, WeatherDidError
+/// - `search`: SearchOpen, SearchClose, SearchQuery*, SearchDidLoad, etc.
 /// - `ui`: UiToggleUnits, UiTerminalResize
 /// - `uncategorized`: Tick, Quit
 #[derive(tui_dispatch::Action, Clone, Debug, PartialEq)]
@@ -25,6 +26,31 @@ pub enum Action {
 
     /// Result: Weather fetch failed
     WeatherDidError(String),
+
+    // ===== Search category =====
+    /// Open city search overlay
+    SearchOpen,
+
+    /// Close search overlay (cancel)
+    SearchClose,
+
+    /// Search query text changed
+    SearchQueryChange(String),
+
+    /// Submit search query (explicit trigger)
+    SearchQuerySubmit(String),
+
+    /// Result: Cities found from geocoding API
+    SearchDidLoad(Vec<Location>),
+
+    /// Result: Search failed
+    SearchDidError(String),
+
+    /// Select a result in the list (by index)
+    SearchSelect(usize),
+
+    /// Confirm selection - switch to selected city
+    SearchConfirm,
 
     // ===== UI category =====
     /// Toggle between Celsius and Fahrenheit

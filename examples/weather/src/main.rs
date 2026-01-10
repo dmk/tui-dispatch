@@ -38,6 +38,7 @@ mod reducer;
 mod sprites;
 mod state;
 
+use std::cell::RefCell;
 use std::io;
 use std::time::Duration;
 
@@ -50,15 +51,18 @@ use crossterm::{
 use ratatui::{Frame, Terminal, backend::CrosstermBackend, layout::Rect};
 use tui_dispatch::debug::DebugLayer;
 use tui_dispatch::{
-    EffectContext, EffectRuntime, EffectStoreWithMiddleware, EventKind, EventOutcome, RenderContext,
+    EffectContext, EffectRuntime, EffectStoreWithMiddleware, EventKind, EventOutcome,
+    RenderContext, TaskKey,
 };
 
 use crate::action::Action;
 use crate::api::GeocodingError;
-use crate::components::{Component, WeatherDisplay, WeatherDisplayProps};
+use crate::components::{
+    Component, SearchOverlay, SearchOverlayProps, WeatherDisplay, WeatherDisplayProps,
+};
 use crate::effect::Effect;
 use crate::reducer::reducer;
-use crate::state::{AppState, Location, LOADING_ANIM_TICK_MS};
+use crate::state::{AppState, LOADING_ANIM_TICK_MS, Location};
 
 /// Weather TUI - tui-dispatch framework example
 #[derive(Parser, Debug)]
@@ -125,26 +129,73 @@ async fn main() -> io::Result<()> {
     result
 }
 
-fn render_app(frame: &mut Frame, area: Rect, state: &AppState, render_ctx: RenderContext) {
-    let mut display = WeatherDisplay;
-    let props = WeatherDisplayProps {
-        state,
-        is_focused: render_ctx.is_focused(),
-    };
-    display.render(frame, area, props);
+struct WeatherUi {
+    display: WeatherDisplay,
+    search: SearchOverlay,
 }
 
-fn map_event(event: &EventKind, state: &AppState) -> EventOutcome<Action> {
-    if let EventKind::Resize(width, height) = event {
-        return EventOutcome::action(Action::UiTerminalResize(*width, *height)).with_render();
+impl WeatherUi {
+    fn new() -> Self {
+        Self {
+            display: WeatherDisplay,
+            search: SearchOverlay::new(),
+        }
     }
 
-    let mut display = WeatherDisplay;
-    let props = WeatherDisplayProps {
-        state,
-        is_focused: true,
-    };
-    EventOutcome::from(display.handle_event(event, props))
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        render_ctx: RenderContext,
+    ) {
+        let props = WeatherDisplayProps {
+            state,
+            is_focused: render_ctx.is_focused() && !state.search_mode,
+        };
+        self.display.render(frame, area, props);
+
+        self.search.set_open(state.search_mode);
+        if state.search_mode {
+            let props = SearchOverlayProps {
+                query: &state.search_query,
+                results: &state.search_results,
+                selected: state.search_selected,
+                is_focused: render_ctx.is_focused(),
+                error: state.search_error.as_deref(),
+                on_query_change: Action::SearchQueryChange,
+                on_query_submit: Action::SearchQuerySubmit,
+                on_select: Action::SearchSelect,
+            };
+            self.search.render(frame, area, props);
+        }
+    }
+
+    fn map_event(&mut self, event: &EventKind, state: &AppState) -> EventOutcome<Action> {
+        if let EventKind::Resize(width, height) = event {
+            return EventOutcome::action(Action::UiTerminalResize(*width, *height)).with_render();
+        }
+
+        if state.search_mode {
+            let props = SearchOverlayProps {
+                query: &state.search_query,
+                results: &state.search_results,
+                selected: state.search_selected,
+                is_focused: true,
+                error: state.search_error.as_deref(),
+                on_query_change: Action::SearchQueryChange,
+                on_query_submit: Action::SearchQuerySubmit,
+                on_select: Action::SearchSelect,
+            };
+            return EventOutcome::from_actions(self.search.handle_event(event, props));
+        }
+
+        let props = WeatherDisplayProps {
+            state,
+            is_focused: true,
+        };
+        EventOutcome::from_actions(self.display.handle_event(event, props))
+    }
 }
 
 async fn run_app<B: ratatui::backend::Backend>(
@@ -182,11 +233,15 @@ async fn run_app<B: ratatui::backend::Backend>(
     // Auto-fetch weather on start
     runtime.enqueue(Action::WeatherFetch);
 
+    let ui = RefCell::new(WeatherUi::new());
+
     runtime
         .run(
             terminal,
-            render_app,
-            map_event,
+            |frame, area, state, render_ctx| {
+                ui.borrow_mut().render(frame, area, state, render_ctx);
+            },
+            |event, state| ui.borrow_mut().map_event(event, state),
             |action| matches!(action, Action::Quit),
             handle_effect,
         )
@@ -203,6 +258,20 @@ fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
                     Err(e) => Action::WeatherDidError(e),
                 }
             });
+        }
+        Effect::SearchCities { query } => {
+            let query = query.trim().to_string();
+            if query.is_empty() {
+                ctx.tasks().cancel(&TaskKey::new("city_search"));
+                return;
+            }
+            ctx.tasks()
+                .debounce("city_search", Duration::from_millis(300), async move {
+                    match api::search_cities(&query).await {
+                        Ok(results) => Action::SearchDidLoad(results),
+                        Err(e) => Action::SearchDidError(e.to_string()),
+                    }
+                });
         }
     }
 }

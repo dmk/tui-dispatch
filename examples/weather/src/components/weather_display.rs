@@ -2,7 +2,7 @@
 //!
 //! FRAMEWORK PATTERN: Component Trait
 //! - Props<'a>: Read-only data for rendering (borrowed from state)
-//! - handle_event: Receives EventKind, returns `Vec<Action>`
+//! - handle_event: Receives EventKind, returns `impl IntoIterator<Item = Action>`
 //! - render: Pure function of props - no side effects
 //! - Focus handled via props, not event context
 
@@ -29,20 +29,24 @@ pub struct WeatherDisplay;
 impl Component<Action> for WeatherDisplay {
     type Props<'a> = WeatherDisplayProps<'a>;
 
-    /// Handle an event and return actions to dispatch
-    fn handle_event(&mut self, event: &EventKind, props: WeatherDisplayProps<'_>) -> Vec<Action> {
+    fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: Self::Props<'_>,
+    ) -> impl IntoIterator<Item = Action> {
         if !props.is_focused {
-            return vec![];
+            return None;
         }
 
         match event {
             EventKind::Key(key) => match key.code {
-                KeyCode::Char('r') | KeyCode::F(5) => vec![Action::WeatherFetch],
-                KeyCode::Char('u') => vec![Action::UiToggleUnits],
-                KeyCode::Char('q') | KeyCode::Esc => vec![Action::Quit],
-                _ => vec![],
+                KeyCode::Char('r') | KeyCode::F(5) => Some(Action::WeatherFetch),
+                KeyCode::Char('/') => Some(Action::SearchOpen),
+                KeyCode::Char('u') => Some(Action::UiToggleUnits),
+                KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
+                _ => None,
             },
-            _ => vec![],
+            _ => None,
         }
     }
 
@@ -78,7 +82,10 @@ mod tests {
             is_focused: true,
         };
 
-        let actions = component.handle_event(&EventKind::Key(key("r")), props);
+        let actions: Vec<_> = component
+            .handle_event(&EventKind::Key(key("r")), props)
+            .into_iter()
+            .collect();
         actions.assert_count(1);
         actions.assert_first(Action::WeatherFetch);
     }
@@ -92,7 +99,10 @@ mod tests {
             is_focused: true,
         };
 
-        let actions = component.handle_event(&EventKind::Key(key("q")), props);
+        let actions: Vec<_> = component
+            .handle_event(&EventKind::Key(key("q")), props)
+            .into_iter()
+            .collect();
         actions.assert_first(Action::Quit);
     }
 
@@ -105,7 +115,10 @@ mod tests {
             is_focused: false,
         };
 
-        let actions = component.handle_event(&EventKind::Key(key("r")), props);
+        let actions: Vec<_> = component
+            .handle_event(&EventKind::Key(key("r")), props)
+            .into_iter()
+            .collect();
         actions.assert_empty();
     }
 

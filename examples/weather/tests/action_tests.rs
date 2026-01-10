@@ -71,12 +71,15 @@ fn test_component_keyboard_events() {
 
     // PATTERN: send_keys helper - parse key strings, call handler
     // NumericComponentId is a simple built-in ComponentId type
-    let actions = harness.send_keys::<NumericComponentId, _>("r", |state, event| {
+    let actions = harness.send_keys::<NumericComponentId, _, _>("r", |state, event| {
         let props = WeatherDisplayProps {
             state,
             is_focused: true,
         };
-        component.handle_event(&event.kind, props)
+        component
+            .handle_event(&event.kind, props)
+            .into_iter()
+            .collect::<Vec<_>>()
     });
 
     // PATTERN: Fluent assertions
@@ -90,12 +93,15 @@ fn test_component_ignores_when_unfocused() {
     let mut component = WeatherDisplay;
 
     // When not focused, events should be ignored
-    let actions = harness.send_keys::<NumericComponentId, _>("r q u", |state, event| {
+    let actions = harness.send_keys::<NumericComponentId, _, _>("r q u", |state, event| {
         let props = WeatherDisplayProps {
             state,
             is_focused: false, // Not focused!
         };
-        component.handle_event(&event.kind, props)
+        component
+            .handle_event(&event.kind, props)
+            .into_iter()
+            .collect::<Vec<_>>()
     });
 
     actions.assert_empty();

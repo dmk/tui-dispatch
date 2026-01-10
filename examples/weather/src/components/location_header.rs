@@ -2,7 +2,6 @@ use artbox::{
     Alignment as ArtAlignment, Color as ArtColor, Fill, LinearGradient, Renderer, fonts,
     integrations::ratatui::ArtBox,
 };
-use std::cmp::Ordering;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -10,10 +9,11 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
+use std::cmp::Ordering;
 
 use super::Component;
 use crate::action::Action;
-use crate::state::{Location, LOADING_ANIM_CYCLE_TICKS};
+use crate::state::{LOADING_ANIM_CYCLE_TICKS, Location};
 
 pub struct LocationHeader;
 

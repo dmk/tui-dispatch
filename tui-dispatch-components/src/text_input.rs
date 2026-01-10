@@ -17,6 +17,14 @@ pub struct TextInputProps<'a, A> {
     pub placeholder: &'a str,
     /// Whether this component has focus
     pub is_focused: bool,
+    /// Whether to show border (default: true)
+    pub show_border: bool,
+    /// Background color (None = transparent)
+    pub bg_color: Option<Color>,
+    /// Horizontal padding (left and right)
+    pub padding_x: u16,
+    /// Vertical padding (top and bottom)
+    pub padding_y: u16,
     /// Callback when value changes
     pub on_change: fn(String) -> A,
     /// Callback when user submits (Enter)
@@ -202,6 +210,24 @@ impl<A> Component<A> for TextInput {
         // Ensure cursor is valid
         self.clamp_cursor(props.value);
 
+        // Fill background if color provided
+        if let Some(bg) = props.bg_color {
+            for y in area.y..area.y.saturating_add(area.height) {
+                for x in area.x..area.x.saturating_add(area.width) {
+                    frame.buffer_mut()[(x, y)].set_bg(bg);
+                    frame.buffer_mut()[(x, y)].set_symbol(" ");
+                }
+            }
+        }
+
+        // Apply padding
+        let content_area = Rect {
+            x: area.x + props.padding_x,
+            y: area.y + props.padding_y,
+            width: area.width.saturating_sub(props.padding_x * 2),
+            height: area.height.saturating_sub(props.padding_y * 2),
+        };
+
         // Determine display text
         let display_text = if props.value.is_empty() {
             props.placeholder
@@ -209,33 +235,45 @@ impl<A> Component<A> for TextInput {
             props.value
         };
 
-        let style = if props.value.is_empty() {
+        let mut style = if props.value.is_empty() {
             Style::default().fg(Color::DarkGray)
         } else {
             Style::default()
         };
 
-        let paragraph = Paragraph::new(display_text).style(style).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(if props.is_focused {
+        // Preserve background color in text style
+        if let Some(bg) = props.bg_color {
+            style = style.bg(bg);
+        }
+
+        let mut paragraph = Paragraph::new(display_text).style(style);
+
+        if props.show_border {
+            paragraph = paragraph.block(Block::default().borders(Borders::ALL).border_style(
+                if props.is_focused {
                     Style::default().fg(Color::Cyan)
                 } else {
                     Style::default().fg(Color::DarkGray)
-                }),
-        );
+                },
+            ));
+        }
 
-        frame.render_widget(paragraph, area);
+        frame.render_widget(paragraph, content_area);
 
         // Show cursor if focused
         if props.is_focused {
-            // Calculate cursor screen position
-            // Account for border (1 char) and text before cursor
-            let cursor_x = area.x + 1 + self.cursor as u16;
-            let cursor_y = area.y + 1;
+            // Calculate cursor screen position (account for border and padding)
+            let border_offset = if props.show_border { 1 } else { 0 };
+            let cursor_x = content_area.x + border_offset + self.cursor as u16;
+            let cursor_y = content_area.y + border_offset;
 
             // Only show cursor if within bounds
-            if cursor_x < area.x + area.width - 1 {
+            let max_x = if props.show_border {
+                content_area.x + content_area.width - 1
+            } else {
+                content_area.x + content_area.width
+            };
+            if cursor_x < max_x {
                 frame.set_cursor_position((cursor_x, cursor_y));
             }
         }
@@ -260,6 +298,10 @@ mod tests {
             value: "",
             placeholder: "",
             is_focused: true,
+            show_border: true,
+            bg_color: None,
+            padding_x: 0,
+            padding_y: 0,
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -281,6 +323,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
+            show_border: true,
+            bg_color: None,
+            padding_x: 0,
+            padding_y: 0,
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -302,6 +348,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
+            show_border: true,
+            bg_color: None,
+            padding_x: 0,
+            padding_y: 0,
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -324,6 +374,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
+            show_border: true,
+            bg_color: None,
+            padding_x: 0,
+            padding_y: 0,
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -344,6 +398,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
+            show_border: true,
+            bg_color: None,
+            padding_x: 0,
+            padding_y: 0,
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -364,6 +422,10 @@ mod tests {
             value: "",
             placeholder: "",
             is_focused: false,
+            show_border: true,
+            bg_color: None,
+            padding_x: 0,
+            padding_y: 0,
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -386,6 +448,10 @@ mod tests {
                 value: "hello",
                 placeholder: "Type here...",
                 is_focused: true,
+                show_border: true,
+                bg_color: None,
+                padding_x: 0,
+                padding_y: 0,
                 on_change: |_| (),
                 on_submit: |_| (),
             };
@@ -405,6 +471,10 @@ mod tests {
                 value: "",
                 placeholder: "Type here...",
                 is_focused: true,
+                show_border: true,
+                bg_color: None,
+                padding_x: 0,
+                padding_y: 0,
                 on_change: |_| (),
                 on_submit: |_| (),
             };

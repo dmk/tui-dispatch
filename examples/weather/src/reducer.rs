@@ -47,6 +47,90 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             DispatchResult::changed()
         }
 
+        // ===== Search actions =====
+        Action::SearchOpen => {
+            state.search_mode = true;
+            state.search_query.clear();
+            state.search_results.clear();
+            state.search_error = None;
+            state.search_selected = 0;
+            DispatchResult::changed()
+        }
+
+        Action::SearchClose => {
+            state.search_mode = false;
+            state.search_query.clear();
+            state.search_results.clear();
+            state.search_error = None;
+            state.search_selected = 0;
+            DispatchResult::changed()
+        }
+
+        Action::SearchQueryChange(query) => {
+            let query = query.trim().to_string();
+            state.search_query = query.clone();
+            state.search_selected = 0;
+            state.search_error = None;
+            if query.is_empty() {
+                state.search_results.clear();
+            }
+            DispatchResult::changed_with(Effect::SearchCities { query })
+        }
+
+        Action::SearchQuerySubmit(query) => {
+            let query = query.trim().to_string();
+            state.search_query = query.clone();
+            state.search_selected = 0;
+            state.search_error = None;
+            if query.is_empty() {
+                state.search_results.clear();
+            }
+            DispatchResult::changed_with(Effect::SearchCities { query })
+        }
+
+        Action::SearchDidLoad(results) => {
+            state.search_results = results;
+            state.search_error = None;
+            state.search_selected = 0;
+            DispatchResult::changed()
+        }
+
+        Action::SearchDidError(msg) => {
+            state.search_results.clear();
+            state.search_error = Some(msg);
+            state.search_selected = 0;
+            DispatchResult::changed()
+        }
+
+        Action::SearchSelect(index) => {
+            if index < state.search_results.len() && index != state.search_selected {
+                state.search_selected = index;
+                DispatchResult::changed()
+            } else {
+                DispatchResult::unchanged()
+            }
+        }
+
+        Action::SearchConfirm => {
+            let Some(location) = state.search_results.get(state.search_selected).cloned() else {
+                return DispatchResult::unchanged();
+            };
+
+            let (lat, lon) = (location.lat, location.lon);
+            state.location = location;
+            state.weather = None;
+            state.search_mode = false;
+            state.search_query.clear();
+            state.search_results.clear();
+            state.search_error = None;
+            state.search_selected = 0;
+            state.is_loading = true;
+            state.error = None;
+            state.tick_count = 0;
+            state.loading_anim_ticks_remaining = 0;
+            DispatchResult::changed_with(Effect::FetchWeather { lat, lon })
+        }
+
         // ===== UI actions =====
         Action::UiToggleUnits => {
             state.unit = state.unit.toggle();
@@ -89,11 +173,7 @@ fn ticks_to_phase_zero(tick_count: u32) -> u32 {
         return cycle;
     }
     let remainder = tick_count % cycle;
-    if remainder == 0 {
-        0
-    } else {
-        cycle - remainder
-    }
+    if remainder == 0 { 0 } else { cycle - remainder }
 }
 
 #[cfg(test)]

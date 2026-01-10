@@ -77,7 +77,7 @@ runtime
                 return EventOutcome::action(Action::UiTerminalResize(*width, *height))
                     .with_render();
             }
-            EventOutcome::from(component.handle_event(event, props))
+            EventOutcome::from_actions(component.handle_event(event, props))
         },
         |action| matches!(action, Action::Quit),
         |effect, ctx| handle_effect(effect, ctx),

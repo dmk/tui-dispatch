@@ -46,6 +46,18 @@ impl std::fmt::Display for GeocodingError {
 
 impl std::error::Error for GeocodingError {}
 
+fn location_from_result(result: GeocodingResult) -> Location {
+    let display_name = match &result.country {
+        Some(country) => format!("{}, {}", result.name, country),
+        None => result.name,
+    };
+    Location {
+        name: display_name,
+        lat: result.latitude,
+        lon: result.longitude,
+    }
+}
+
 /// Resolve city name to coordinates using Open-Meteo Geocoding API
 pub async fn geocode_city(city: &str) -> Result<Location, GeocodingError> {
     let url = format!(
@@ -59,19 +71,33 @@ pub async fn geocode_city(city: &str) -> Result<Location, GeocodingError> {
 
     data.results
         .and_then(|results| results.into_iter().next())
-        .map(|r| {
-            // Build display name with country context
-            let display_name = match &r.country {
-                Some(country) => format!("{}, {}", r.name, country),
-                None => r.name,
-            };
-            Location {
-                name: display_name,
-                lat: r.latitude,
-                lon: r.longitude,
-            }
-        })
+        .map(location_from_result)
         .ok_or_else(|| GeocodingError::NotFound(city.to_string()))
+}
+
+/// Search for cities matching a query using Open-Meteo Geocoding API
+pub async fn search_cities(query: &str) -> Result<Vec<Location>, GeocodingError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let url = format!(
+        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=10&language=en",
+        urlencoding::encode(query)
+    );
+
+    let response = reqwest::get(&url).await.map_err(GeocodingError::Request)?;
+    let data: GeocodingResponse = response.json().await.map_err(GeocodingError::Request)?;
+
+    let results = data
+        .results
+        .unwrap_or_default()
+        .into_iter()
+        .map(location_from_result)
+        .collect();
+
+    Ok(results)
 }
 
 // ============================================================================

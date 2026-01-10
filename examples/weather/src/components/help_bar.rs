@@ -20,6 +20,8 @@ impl Component<Action> for HelpBar {
         let help = Line::from(vec![
             Span::styled(" r", Style::default().fg(Color::Cyan).bold()),
             Span::styled(" refresh  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("/", Style::default().fg(Color::Cyan).bold()),
+            Span::styled(" search  ", Style::default().fg(Color::DarkGray)),
             Span::styled("u", Style::default().fg(Color::Cyan).bold()),
             Span::styled(" units  ", Style::default().fg(Color::DarkGray)),
             Span::styled("q", Style::default().fg(Color::Cyan).bold()),

@@ -226,7 +226,9 @@ Also includes `DynamicFeatures` for runtime-only flags without the derive macro.
 
 ---
 
-## tui-dispatch-components
+## ~~tui-dispatch-components~~ DONE (partial)
+
+> Implemented in v0.5.x: `SelectList` and `TextInput` components
 
 A companion crate providing reusable TUI components that integrate with tui-dispatch patterns.
 
@@ -252,7 +254,7 @@ A components crate could provide battle-tested implementations.
 
 ### Components (event-handling)
 
-**Priority 1 - Most universal:**
+**Priority 1 - Most universal (DONE):**
 
 **SelectList** - Generic scrollable selection
 ```rust
@@ -765,8 +767,8 @@ src/
 | Feature flags | Medium | High | Done |
 | Runtime helpers | Medium | High | Done |
 | Component trait in core | Low | High | Done |
-| `SelectList` component | Medium | High | Next |
-| `TextInput` component | Medium | High | Next |
+| `SelectList` component | Medium | High | Done |
+| `TextInput` component | Medium | High | Done |
 | `StoreTestHarness` | Low | Medium | Planned |
 | Theme system | Medium | Medium | Planned |
 | `CmdLine` component | Medium-High | High | Planned |

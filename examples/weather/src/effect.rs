@@ -8,4 +8,6 @@
 pub enum Effect {
     /// Fetch weather data for the given coordinates
     FetchWeather { lat: f64, lon: f64 },
+    /// Search for cities matching the query
+    SearchCities { query: String },
 }
