@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.1] - 2026-01-11
+
+Testing harnesses and reducer composition macro.
+
+### Added
+
+- `StoreTestHarness` - test harness for `Store` with action collection and state assertions
+- `EffectStoreTestHarness` - test harness for `EffectStore` with effect assertions
+- `EffectAssertions` - chainable assertions for effects (`effects_count`, `effects_first_matches`, etc.)
+- `reducer_compose!` macro - route actions to handlers by category, context, or pattern (for large reducers)
+
+### Fixed
+
+- `reducer_compose!` macro pattern ordering (3-arg form now correctly matches before 4-arg)
+- Added missing action verbs for category inference: `Fetch`, `Change`, `Resize`, `Error`
+
 ## [0.5.0] - 2026-01-11
 
 New `tui-dispatch-components` crate with reusable UI components.
