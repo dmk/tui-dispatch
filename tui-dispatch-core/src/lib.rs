@@ -177,6 +177,7 @@ pub mod prelude {
     pub use crate::keybindings::{
         format_key_for_display, parse_key_string, BindingContext, Keybindings,
     };
+    pub use crate::reducer_compose;
     pub use crate::store::{
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
         StoreWithMiddleware,

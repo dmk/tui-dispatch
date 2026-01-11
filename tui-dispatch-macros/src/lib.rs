@@ -48,7 +48,9 @@ const ACTION_VERBS: &[&str] = &[
     "Next", "Prev", "Up", "Down", "Left", "Right", "Enter", "Exit", "Escape",
     // CRUD operations
     "Add", "Remove", "Clear", "Update", "Set", "Get", "Load", "Save", "Delete", "Create",
-    // Visibility
+    // Data operations
+    "Fetch", "Change", "Resize", // Async results
+    "Error",  // Visibility
     "Show", "Hide", "Enable", "Disable", "Toggle", // Focus
     "Focus", "Blur", "Select", // Movement
     "Move", "Copy", "Cycle", "Reset", "Scroll",

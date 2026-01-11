@@ -21,6 +21,7 @@
 //! ```
 
 // Re-export everything from core
+pub use tui_dispatch_core::reducer_compose;
 pub use tui_dispatch_core::*;
 
 // Re-export derive macros
@@ -43,6 +44,7 @@ pub mod prelude {
     pub use tui_dispatch_core::{format_key_for_display, parse_key_string, Keybindings};
 
     // Store
+    pub use tui_dispatch_core::reducer_compose;
     pub use tui_dispatch_core::{
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
         StoreWithMiddleware,

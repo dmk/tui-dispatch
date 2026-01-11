@@ -643,7 +643,7 @@ Ideas for keeping larger tui-dispatch apps (like memtui) organized and maintaina
 Large apps end up with 1000+ line reducers. Provide a macro for context-aware dispatch:
 
 ```rust
-reducer_compose! {
+reducer_compose!(state, action, context, {
     // Route by action category (from #[derive(Action)])
     category "nav" => handle_navigation,
     category "search" => handle_search,
@@ -657,7 +657,7 @@ reducer_compose! {
 
     // Fallback
     _ => handle_ui,
-}
+})
 ```
 
 Benefits:

@@ -8,6 +8,191 @@ use std::marker::PhantomData;
 /// Returns `true` if the state changed and a re-render is needed.
 pub type Reducer<S, A> = fn(&mut S, A) -> bool;
 
+/// Compose a reducer by routing actions to focused handlers.
+///
+/// # When to Use
+///
+/// For most reducers, a flat `match` is simpler and clearer. Use this macro when:
+/// - Your reducer exceeds ~500 lines and splitting improves organization
+/// - You have **context-aware routing** (e.g., vim normal vs command mode)
+/// - Handlers live in **separate modules** and you want clean composition
+///
+/// # Syntax
+///
+/// ```ignore
+/// reducer_compose!(state, action, {
+///     // Arms are tried in order, first match wins
+///     category "name" => handler,      // Route by action category
+///     Action::Specific => handler,     // Route by pattern match
+///     _ => fallback_handler,           // Catch-all (required last)
+/// })
+///
+/// // With context (e.g., for modal/mode-aware routing):
+/// reducer_compose!(state, action, context, {
+///     context Mode::Command => handle_command,  // Route by context value
+///     category "nav" => handle_nav,
+///     _ => handle_default,
+/// })
+/// ```
+///
+/// # Arm Types
+///
+/// **`category "name" => handler`** - Routes actions where
+/// `ActionCategory::category(&action) == Some("name")`. Requires
+/// `#[action(infer_categories)]` on your action enum.
+///
+/// **`context Value => handler`** - Routes when the context expression equals
+/// `Value`. Only available in the 4-argument form.
+///
+/// **`Pattern => handler`** - Standard pattern match (e.g., `Action::Quit`,
+/// `Action::Input(_)`).
+///
+/// **`_ => handler`** - Catch-all fallback. Must be last.
+///
+/// # Handler Signature
+///
+/// All handlers must have the same signature:
+/// ```ignore
+/// fn handler(state: &mut S, action: A) -> R
+/// ```
+/// Where `R` is typically `bool` or `DispatchResult<E>`.
+///
+/// # Category Inference
+///
+/// With `#[action(infer_categories)]`, categories are inferred from action
+/// names by taking the prefix before the verb:
+///
+/// | Action | Verb | Category |
+/// |--------|------|----------|
+/// | `NavScrollUp` | Scroll | `"nav"` |
+/// | `SearchQuerySubmit` | Submit | `"search_query"` |
+/// | `WeatherDidLoad` | Load | `"weather_did"` |
+/// | `Quit` | (none) | `None` |
+///
+/// For predictable categories, use explicit `#[category = "name"]` attributes.
+///
+/// # Example
+///
+/// ```ignore
+/// fn reducer(state: &mut AppState, action: Action, mode: Mode) -> bool {
+///     reducer_compose!(state, action, mode, {
+///         // Command mode gets priority
+///         context Mode::Command => handle_command,
+///         // Then route by category
+///         category "nav" => handle_navigation,
+///         category "search" => handle_search,
+///         // Specific actions
+///         Action::Quit => |_, _| false,
+///         // Everything else
+///         _ => handle_ui,
+///     })
+/// }
+///
+/// fn handle_navigation(state: &mut AppState, action: Action) -> bool {
+///     match action {
+///         Action::NavUp => { state.cursor -= 1; true }
+///         Action::NavDown => { state.cursor += 1; true }
+///         _ => false,
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! reducer_compose {
+    // 3-argument form must come first to prevent $context:expr from matching the braces
+    ($state:expr, $action:expr, { $($arms:tt)+ }) => {{
+        let __state = $state;
+        let __action_input = $action;
+        let __context = ();
+        $crate::reducer_compose!(@accum __state, __action_input, __context; () $($arms)+)
+    }};
+    ($state:expr, $action:expr, $context:expr, { $($arms:tt)+ }) => {{
+        let __state = $state;
+        let __action_input = $action;
+        let __context = $context;
+        $crate::reducer_compose!(@accum __state, __action_input, __context; () $($arms)+)
+    }};
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) category $category:expr => $handler:expr, $($rest:tt)+) => {
+        $crate::reducer_compose!(
+            @accum $state, $action, $context;
+            (
+                $($out)*
+                __action if $crate::ActionCategory::category(&__action) == Some($category) => {
+                    ($handler)($state, __action)
+                },
+            )
+            $($rest)+
+        )
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) context $context_value:expr => $handler:expr, $($rest:tt)+) => {
+        $crate::reducer_compose!(
+            @accum $state, $action, $context;
+            (
+                $($out)*
+                __action if $context == $context_value => {
+                    ($handler)($state, __action)
+                },
+            )
+            $($rest)+
+        )
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) _ => $handler:expr, $($rest:tt)+) => {
+        $crate::reducer_compose!(
+            @accum $state, $action, $context;
+            (
+                $($out)*
+                __action => {
+                    ($handler)($state, __action)
+                },
+            )
+            $($rest)+
+        )
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) $pattern:pat $(if $guard:expr)? => $handler:expr, $($rest:tt)+) => {
+        $crate::reducer_compose!(
+            @accum $state, $action, $context;
+            (
+                $($out)*
+                __action @ $pattern $(if $guard)? => {
+                    ($handler)($state, __action)
+                },
+            )
+            $($rest)+
+        )
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) category $category:expr => $handler:expr $(,)?) => {
+        match $action {
+            $($out)*
+            __action if $crate::ActionCategory::category(&__action) == Some($category) => {
+                ($handler)($state, __action)
+            }
+        }
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) context $context_value:expr => $handler:expr $(,)?) => {
+        match $action {
+            $($out)*
+            __action if $context == $context_value => {
+                ($handler)($state, __action)
+            }
+        }
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) _ => $handler:expr $(,)?) => {
+        match $action {
+            $($out)*
+            __action => {
+                ($handler)($state, __action)
+            }
+        }
+    };
+    (@accum $state:ident, $action:ident, $context:ident; ($($out:tt)*) $pattern:pat $(if $guard:expr)? => $handler:expr $(,)?) => {
+        match $action {
+            $($out)*
+            __action @ $pattern $(if $guard)? => {
+                ($handler)($state, __action)
+            }
+        }
+    };
+}
+
 /// Centralized state store with Redux-like reducer pattern
 ///
 /// The store holds the application state and provides a single point
@@ -250,6 +435,7 @@ impl<A: Action> Middleware<A> for ComposedMiddleware<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ActionCategory;
 
     #[derive(Default)]
     struct TestState {
@@ -347,5 +533,153 @@ mod tests {
         assert_eq!(store.middleware().before_count, 2);
         assert_eq!(store.middleware().after_count, 2);
         assert_eq!(store.state().counter, 2);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum ComposeContext {
+        Default,
+        Command,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum ComposeCategory {
+        Nav,
+        Search,
+        Uncategorized,
+    }
+
+    #[derive(Clone, Debug)]
+    enum ComposeAction {
+        NavUp,
+        Search,
+        Other,
+    }
+
+    impl Action for ComposeAction {
+        fn name(&self) -> &'static str {
+            match self {
+                ComposeAction::NavUp => "NavUp",
+                ComposeAction::Search => "Search",
+                ComposeAction::Other => "Other",
+            }
+        }
+    }
+
+    impl ActionCategory for ComposeAction {
+        type Category = ComposeCategory;
+
+        fn category(&self) -> Option<&'static str> {
+            match self {
+                ComposeAction::NavUp => Some("nav"),
+                ComposeAction::Search => Some("search"),
+                ComposeAction::Other => None,
+            }
+        }
+
+        fn category_enum(&self) -> Self::Category {
+            match self {
+                ComposeAction::NavUp => ComposeCategory::Nav,
+                ComposeAction::Search => ComposeCategory::Search,
+                ComposeAction::Other => ComposeCategory::Uncategorized,
+            }
+        }
+    }
+
+    fn handle_nav(state: &mut usize, _action: ComposeAction) -> &'static str {
+        *state += 1;
+        "nav"
+    }
+
+    fn handle_command(state: &mut usize, _action: ComposeAction) -> &'static str {
+        *state += 10;
+        "command"
+    }
+
+    fn handle_search(state: &mut usize, _action: ComposeAction) -> &'static str {
+        *state += 100;
+        "search"
+    }
+
+    fn handle_default(state: &mut usize, _action: ComposeAction) -> &'static str {
+        *state += 1000;
+        "default"
+    }
+
+    fn composed_reducer(
+        state: &mut usize,
+        action: ComposeAction,
+        context: ComposeContext,
+    ) -> &'static str {
+        crate::reducer_compose!(state, action, context, {
+            category "nav" => handle_nav,
+            context ComposeContext::Command => handle_command,
+            ComposeAction::Search => handle_search,
+            _ => handle_default,
+        })
+    }
+
+    #[test]
+    fn test_reducer_compose_routes_category() {
+        let mut state = 0;
+        let result = composed_reducer(&mut state, ComposeAction::NavUp, ComposeContext::Command);
+        assert_eq!(result, "nav");
+        assert_eq!(state, 1);
+    }
+
+    #[test]
+    fn test_reducer_compose_routes_context() {
+        let mut state = 0;
+        let result = composed_reducer(&mut state, ComposeAction::Other, ComposeContext::Command);
+        assert_eq!(result, "command");
+        assert_eq!(state, 10);
+    }
+
+    #[test]
+    fn test_reducer_compose_routes_pattern() {
+        let mut state = 0;
+        let result = composed_reducer(&mut state, ComposeAction::Search, ComposeContext::Default);
+        assert_eq!(result, "search");
+        assert_eq!(state, 100);
+    }
+
+    #[test]
+    fn test_reducer_compose_routes_fallback() {
+        let mut state = 0;
+        let result = composed_reducer(&mut state, ComposeAction::Other, ComposeContext::Default);
+        assert_eq!(result, "default");
+        assert_eq!(state, 1000);
+    }
+
+    // Test 3-argument form (no context)
+    fn composed_reducer_no_context(state: &mut usize, action: ComposeAction) -> &'static str {
+        crate::reducer_compose!(state, action, {
+            category "nav" => handle_nav,
+            ComposeAction::Search => handle_search,
+            _ => handle_default,
+        })
+    }
+
+    #[test]
+    fn test_reducer_compose_3arg_category() {
+        let mut state = 0;
+        let result = composed_reducer_no_context(&mut state, ComposeAction::NavUp);
+        assert_eq!(result, "nav");
+        assert_eq!(state, 1);
+    }
+
+    #[test]
+    fn test_reducer_compose_3arg_pattern() {
+        let mut state = 0;
+        let result = composed_reducer_no_context(&mut state, ComposeAction::Search);
+        assert_eq!(result, "search");
+        assert_eq!(state, 100);
+    }
+
+    #[test]
+    fn test_reducer_compose_3arg_fallback() {
+        let mut state = 0;
+        let result = composed_reducer_no_context(&mut state, ComposeAction::Other);
+        assert_eq!(result, "default");
+        assert_eq!(state, 1000);
     }
 }
