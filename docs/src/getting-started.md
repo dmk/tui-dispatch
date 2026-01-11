@@ -159,6 +159,27 @@ if debug.intercepts(&event) {
 debug.render_state(frame, &state, |f, area| render_app(f, area, state));
 ```
 
+## Testing Helpers
+
+Use the harnesses in `tui_dispatch::testing` to combine state, effects, and rendering:
+
+```rust
+use tui_dispatch::testing::{EffectAssertions, EffectStoreTestHarness};
+
+let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+
+harness.dispatch_collect(Action::WeatherFetch);
+let effects = harness.drain_effects();
+effects.effects_count(1);
+
+let output = harness.render_plain(60, 20, |f, area, state| {
+    component.render(f, area, Props { state });
+});
+assert!(output.contains("expected text"));
+```
+
+Use `StoreTestHarness` for bool reducers without effects.
+
 ## Next Steps
 
 Check out the [examples](./examples/README.md):

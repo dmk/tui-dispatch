@@ -155,7 +155,8 @@ pub use ratatui::{
 pub use testing::{
     alt_key, buffer_rect_to_string_plain, buffer_to_string, buffer_to_string_plain, char_key,
     ctrl_key, into_event, key, key_event, key_events, keys, ActionAssertions, ActionAssertionsEq,
-    RenderHarness, TestHarness,
+    EffectAssertions, EffectAssertionsEq, EffectStoreTestHarness, RenderHarness, StoreTestHarness,
+    TestHarness,
 };
 
 #[cfg(feature = "testing-time")]

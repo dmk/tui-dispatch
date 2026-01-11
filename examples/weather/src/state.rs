@@ -52,37 +52,43 @@ pub const LOADING_ANIM_CYCLE_TICKS: u32 = 60;
 /// Application state - everything the UI needs to render
 #[derive(Clone, Debug, tui_dispatch::DebugState)]
 pub struct AppState {
+    // --- Core data (visible in debug) ---
+    /// Single location (from geocoding)
+    #[debug(section = "Location", label = "City", debug_fmt)]
+    pub location: Location,
+
     /// Current weather data (None = not yet fetched)
-    #[debug(skip)]
+    #[debug(section = "Weather", label = "Data", debug_fmt)]
     pub weather: Option<WeatherData>,
 
+    /// Temperature unit preference
+    #[debug(section = "Weather", label = "Unit", debug_fmt)]
+    pub unit: TempUnit,
+
     /// Loading state for async operations
+    #[debug(section = "Status")]
     pub is_loading: bool,
 
     /// Error message (if last fetch failed)
-    #[debug(skip)]
+    #[debug(section = "Status", debug_fmt)]
     pub error: Option<String>,
 
-    /// Single location (from geocoding)
-    #[debug(skip)]
-    pub location: Location,
-
-    /// Temperature unit preference
-    #[debug(skip)]
-    pub unit: TempUnit,
-
+    // --- Animation internals (skipped) ---
     /// Animation frame counter (for gradient seam)
+    #[debug(skip)]
     pub tick_count: u32,
 
     /// Remaining ticks to finish the current animation cycle after loading
+    #[debug(skip)]
     pub loading_anim_ticks_remaining: u32,
 
     /// Terminal dimensions (for sprite sizing)
     #[debug(skip)]
     pub terminal_size: (u16, u16),
 
-    // --- Search mode ---
+    // --- Search mode (skipped) ---
     /// Whether search overlay is open
+    #[debug(skip)]
     pub search_mode: bool,
 
     /// Current search query
@@ -98,6 +104,7 @@ pub struct AppState {
     pub search_error: Option<String>,
 
     /// Selected index in search results
+    #[debug(skip)]
     pub search_selected: usize,
 }
 
@@ -105,11 +112,11 @@ impl AppState {
     /// Create state with the given location
     pub fn new(location: Location) -> Self {
         Self {
+            location,
             weather: None,
+            unit: TempUnit::default(),
             is_loading: false,
             error: None,
-            location,
-            unit: TempUnit::default(),
             tick_count: 0,
             loading_anim_ticks_remaining: 0,
             terminal_size: (80, 24), // Default, updated on resize
