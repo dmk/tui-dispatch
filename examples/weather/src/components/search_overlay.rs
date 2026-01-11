@@ -145,6 +145,7 @@ impl Component<Action> for SearchOverlay {
             },
             on_change: props.on_query_change,
             on_submit: props.on_query_submit,
+            render_action: Some(Action::Render),
         };
 
         self.input
@@ -190,6 +191,7 @@ impl Component<Action> for SearchOverlay {
             },
             on_change: props.on_query_change,
             on_submit: props.on_query_submit,
+            render_action: Some(Action::Render),
         };
         self.input.render(frame, chunks[0], input_props);
 

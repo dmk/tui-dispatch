@@ -166,10 +166,13 @@ let props = TextInputProps {
     style: InputStyle::default(),
     on_change: |s| Action::InputChange(s),
     on_submit: |s| Action::InputSubmit(s),
+    render_action: Some(Action::Render),
 };
 
 input.render(frame, area, props);
 ```
+
+Use `render_action` to trigger a re-render for cursor-only movement (left/right/home/end, word movement) when the text value doesn't change.
 
 ### Styling
 
@@ -189,12 +192,34 @@ let style = InputStyle {
 
 ### Keyboard Handling
 
+Full readline/emacs-style keybindings:
+
+**Basic:**
 - **Characters**: Insert at cursor
 - **Backspace/Delete**: Remove characters
-- **Left/Right/Home/End**: Move cursor
-- **Ctrl+A/E**: Move to start/end
-- **Ctrl+U**: Clear line
+- **Left/Right**: Move by character
+- **Home/End**: Move to start/end
 - **Enter**: Submit
+
+**Emacs Movement:**
+- **Ctrl+A/E**: Move to start/end
+- **Ctrl+B/F**: Move backward/forward by character
+- **Ctrl+Left/Right**: Move by word (Mac-friendly)
+- **Alt+B/F**: Move by word (when terminal configured)
+
+**Deletion:**
+- **Ctrl+U**: Clear entire line
+- **Ctrl+K**: Kill to end of line
+- **Ctrl+W**: Delete word backward
+- **Ctrl+D**: Delete character at cursor
+- **Ctrl+H**: Backspace (alternative)
+- **Alt+D**: Delete word forward
+- **Alt+Backspace**: Delete word backward
+
+**Editing:**
+- **Ctrl+T**: Transpose characters
+
+> **Mac Note:** Alt keybindings require terminal configuration. In iTerm2: Preferences → Profiles → Keys → "Left/Right Option key" → "Esc+". Use Ctrl+Left/Right for word movement as the portable alternative.
 
 ## Modal
 

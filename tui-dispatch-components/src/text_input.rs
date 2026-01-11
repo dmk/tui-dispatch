@@ -89,12 +89,15 @@ pub struct TextInputProps<'a, A> {
     pub on_change: fn(String) -> A,
     /// Callback when user submits (Enter)
     pub on_submit: fn(String) -> A,
+    /// Action to trigger a re-render for cursor movement
+    pub render_action: Option<A>,
 }
 
 /// A single-line text input with cursor
 ///
 /// Handles typing, backspace, delete, and cursor movement.
-/// Emits on_change for each keystroke and on_submit for Enter.
+/// Emits on_change for each keystroke, on_submit for Enter,
+/// and render_action for cursor-only movement if provided.
 #[derive(Default)]
 pub struct TextInput {
     /// Cursor position (byte index)
@@ -185,6 +188,189 @@ impl TextInput {
 
         Some(new_value)
     }
+
+    // ========================================================================
+    // Word-based operations (readline/emacs style)
+    // ========================================================================
+
+    /// Find the byte position of the previous word boundary
+    fn prev_word_boundary(&self, value: &str) -> usize {
+        if self.cursor == 0 {
+            return 0;
+        }
+
+        let before = &value[..self.cursor];
+        let mut chars: Vec<(usize, char)> = before.char_indices().collect();
+
+        // Skip trailing non-word, non-whitespace (punctuation)
+        while let Some(&(_, c)) = chars.last() {
+            if c.is_alphanumeric() || c == '_' || c.is_whitespace() {
+                break;
+            }
+            chars.pop();
+        }
+
+        // Skip whitespace
+        while let Some(&(_, c)) = chars.last() {
+            if !c.is_whitespace() {
+                break;
+            }
+            chars.pop();
+        }
+
+        // Skip word characters (alphanumeric or _)
+        while let Some(&(_, c)) = chars.last() {
+            if !c.is_alphanumeric() && c != '_' {
+                break;
+            }
+            chars.pop();
+        }
+
+        chars.last().map(|&(i, c)| i + c.len_utf8()).unwrap_or(0)
+    }
+
+    /// Find the byte position of the next word boundary
+    fn next_word_boundary(&self, value: &str) -> usize {
+        if self.cursor >= value.len() {
+            return value.len();
+        }
+
+        let after = &value[self.cursor..];
+        let mut pos = self.cursor;
+
+        let mut chars = after.chars().peekable();
+
+        // Skip current word characters
+        while let Some(&c) = chars.peek() {
+            if !c.is_alphanumeric() && c != '_' {
+                break;
+            }
+            pos += c.len_utf8();
+            chars.next();
+        }
+
+        // Skip whitespace
+        while let Some(&c) = chars.peek() {
+            if !c.is_whitespace() {
+                break;
+            }
+            pos += c.len_utf8();
+            chars.next();
+        }
+
+        // If we haven't moved (started on whitespace/punctuation), skip to next word
+        if pos == self.cursor {
+            // Skip non-word, non-whitespace
+            while let Some(&c) = chars.peek() {
+                if c.is_alphanumeric() || c == '_' || c.is_whitespace() {
+                    break;
+                }
+                pos += c.len_utf8();
+                chars.next();
+            }
+            // Skip whitespace
+            while let Some(&c) = chars.peek() {
+                if !c.is_whitespace() {
+                    break;
+                }
+                pos += c.len_utf8();
+                chars.next();
+            }
+        }
+
+        pos
+    }
+
+    /// Move cursor backward by one word
+    fn move_word_backward(&mut self, value: &str) {
+        self.cursor = self.prev_word_boundary(value);
+    }
+
+    /// Move cursor forward by one word
+    fn move_word_forward(&mut self, value: &str) {
+        self.cursor = self.next_word_boundary(value);
+    }
+
+    /// Delete from cursor to end of line (Ctrl+K)
+    fn kill_line(&self, value: &str) -> Option<String> {
+        if self.cursor >= value.len() {
+            return None;
+        }
+        Some(value[..self.cursor].to_string())
+    }
+
+    /// Delete word backward (Ctrl+W / Alt+Backspace)
+    fn kill_word_backward(&mut self, value: &str) -> Option<String> {
+        let boundary = self.prev_word_boundary(value);
+        if boundary == self.cursor {
+            return None;
+        }
+
+        let mut new_value = String::with_capacity(value.len());
+        new_value.push_str(&value[..boundary]);
+        new_value.push_str(&value[self.cursor..]);
+        self.cursor = boundary;
+        Some(new_value)
+    }
+
+    /// Delete word forward (Alt+D)
+    fn kill_word_forward(&self, value: &str) -> Option<String> {
+        let boundary = self.next_word_boundary(value);
+        if boundary == self.cursor {
+            return None;
+        }
+
+        let mut new_value = String::with_capacity(value.len());
+        new_value.push_str(&value[..self.cursor]);
+        new_value.push_str(&value[boundary..]);
+        Some(new_value)
+    }
+
+    /// Transpose characters at cursor (Ctrl+T)
+    fn transpose_chars(&mut self, value: &str) -> Option<String> {
+        // Need at least 2 characters and cursor not at start
+        if value.len() < 2 || self.cursor == 0 {
+            return None;
+        }
+
+        // If at end, transpose last two chars
+        let pos = if self.cursor >= value.len() {
+            // Find start of second-to-last char
+            let mut idx = value.len();
+            let mut count = 0;
+            for (i, _) in value.char_indices().rev() {
+                idx = i;
+                count += 1;
+                if count == 2 {
+                    break;
+                }
+            }
+            idx
+        } else {
+            // Find start of char before cursor
+            let before = &value[..self.cursor];
+            before.char_indices().last().map(|(i, _)| i).unwrap_or(0)
+        };
+
+        // Get the two characters to swap
+        let chars: Vec<char> = value[pos..].chars().take(2).collect();
+        if chars.len() < 2 {
+            return None;
+        }
+
+        let mut new_value = String::with_capacity(value.len());
+        new_value.push_str(&value[..pos]);
+        new_value.push(chars[1]);
+        new_value.push(chars[0]);
+        new_value.push_str(&value[pos + chars[0].len_utf8() + chars[1].len_utf8()..]);
+
+        // Move cursor forward if not at end
+        if self.cursor < value.len() {
+            self.cursor += chars[1].len_utf8();
+        }
+
+        Some(new_value)
+    }
 }
 
 impl<A> Component<A> for TextInput {
@@ -204,62 +390,151 @@ impl<A> Component<A> for TextInput {
 
         match event {
             EventKind::Key(key) => {
-                // Handle Ctrl+key shortcuts
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    return match key.code {
-                        // Ctrl+A: move to start
-                        KeyCode::Char('a') => {
-                            self.cursor = 0;
-                            None
-                        }
-                        // Ctrl+E: move to end
-                        KeyCode::Char('e') => {
-                            self.cursor = props.value.len();
-                            None
-                        }
-                        // Ctrl+U: clear line
-                        KeyCode::Char('u') => {
-                            self.cursor = 0;
-                            Some((props.on_change)(String::new()))
-                        }
-                        _ => None,
-                    };
-                }
+                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                let alt = key.modifiers.contains(KeyModifiers::ALT);
+                let mut did_move = false;
 
-                match key.code {
-                    // Character input
-                    KeyCode::Char(c) => {
+                let action = match (key.code, ctrl, alt) {
+                    // ============================================================
+                    // Ctrl+key shortcuts (readline/emacs style)
+                    // ============================================================
+
+                    // Movement
+                    (KeyCode::Char('a'), true, false) => {
+                        self.cursor = 0;
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Char('e'), true, false) => {
+                        self.cursor = props.value.len();
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Char('b'), true, false) => {
+                        self.move_cursor_left(props.value);
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Char('f'), true, false) => {
+                        self.move_cursor_right(props.value);
+                        did_move = true;
+                        None
+                    }
+
+                    // Word movement (Ctrl+Arrow - Mac friendly)
+                    (KeyCode::Left, true, false) => {
+                        self.move_word_backward(props.value);
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Right, true, false) => {
+                        self.move_word_forward(props.value);
+                        did_move = true;
+                        None
+                    }
+
+                    // Deletion
+                    (KeyCode::Char('u'), true, false) => {
+                        self.cursor = 0;
+                        Some((props.on_change)(String::new()))
+                    }
+                    (KeyCode::Char('k'), true, false) => {
+                        self.kill_line(props.value).map(|v| (props.on_change)(v))
+                    }
+                    (KeyCode::Char('w'), true, false) => self
+                        .kill_word_backward(props.value)
+                        .map(|v| (props.on_change)(v)),
+                    (KeyCode::Char('d'), true, false) => self
+                        .delete_char_at(props.value)
+                        .map(|v| (props.on_change)(v)),
+                    (KeyCode::Char('h'), true, false) => self
+                        .delete_char_before(props.value)
+                        .map(|v| (props.on_change)(v)),
+
+                    // Transpose
+                    (KeyCode::Char('t'), true, false) => self
+                        .transpose_chars(props.value)
+                        .map(|v| (props.on_change)(v)),
+
+                    // ============================================================
+                    // Alt+key shortcuts (when terminal sends escape sequences)
+                    // ============================================================
+
+                    // Word movement
+                    (KeyCode::Char('b'), false, true) => {
+                        self.move_word_backward(props.value);
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Char('f'), false, true) => {
+                        self.move_word_forward(props.value);
+                        did_move = true;
+                        None
+                    }
+
+                    // Word deletion
+                    (KeyCode::Char('d'), false, true) => self
+                        .kill_word_forward(props.value)
+                        .map(|v| (props.on_change)(v)),
+                    (KeyCode::Backspace, false, true) => self
+                        .kill_word_backward(props.value)
+                        .map(|v| (props.on_change)(v)),
+
+                    // ============================================================
+                    // Basic keys
+                    // ============================================================
+
+                    // Backspace (no modifiers - Alt+Backspace handled above)
+                    (KeyCode::Backspace, false, false) => self
+                        .delete_char_before(props.value)
+                        .map(|v| (props.on_change)(v)),
+
+                    // Delete
+                    (KeyCode::Delete, _, _) => self
+                        .delete_char_at(props.value)
+                        .map(|v| (props.on_change)(v)),
+
+                    // Cursor movement (no Ctrl - Ctrl+Arrow handled above)
+                    (KeyCode::Left, false, _) => {
+                        self.move_cursor_left(props.value);
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Right, false, _) => {
+                        self.move_cursor_right(props.value);
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::Home, _, _) => {
+                        self.cursor = 0;
+                        did_move = true;
+                        None
+                    }
+                    (KeyCode::End, _, _) => {
+                        self.cursor = props.value.len();
+                        did_move = true;
+                        None
+                    }
+
+                    // Submit
+                    (KeyCode::Enter, _, _) => Some((props.on_submit)(props.value.to_string())),
+
+                    // ============================================================
+                    // Character input - MUST be last to catch all printable chars
+                    // ============================================================
+                    // Any character not handled above gets inserted (space, etc.)
+                    (KeyCode::Char(c), _, _) => {
                         let new_value = self.insert_char(props.value, c);
                         Some((props.on_change)(new_value))
                     }
-                    // Backspace
-                    KeyCode::Backspace => self
-                        .delete_char_before(props.value)
-                        .map(|v| (props.on_change)(v)),
-                    // Delete
-                    KeyCode::Delete => self
-                        .delete_char_at(props.value)
-                        .map(|v| (props.on_change)(v)),
-                    // Cursor movement
-                    KeyCode::Left => {
-                        self.move_cursor_left(props.value);
-                        None
-                    }
-                    KeyCode::Right => {
-                        self.move_cursor_right(props.value);
-                        None
-                    }
-                    KeyCode::Home => {
-                        self.cursor = 0;
-                        None
-                    }
-                    KeyCode::End => {
-                        self.cursor = props.value.len();
-                        None
-                    }
-                    // Submit
-                    KeyCode::Enter => Some((props.on_submit)(props.value.to_string())),
+
                     _ => None,
+                };
+
+                if action.is_none() && did_move {
+                    props.render_action
+                } else {
+                    action
                 }
             }
             _ => None,
@@ -371,6 +646,7 @@ mod tests {
             style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
+            render_action: None,
         };
 
         let actions: Vec<_> = input
@@ -379,6 +655,32 @@ mod tests {
             .collect();
 
         assert_eq!(actions, vec![TestAction::Change("a".into())]);
+    }
+
+    #[test]
+    fn test_typing_space() {
+        let mut input = TextInput::new();
+        input.cursor = 5; // After "hello"
+
+        let props = TextInputProps {
+            value: "hello",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        // Space character
+        let space_key = crossterm::event::KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(space_key), props)
+            .into_iter()
+            .collect();
+
+        assert_eq!(actions, vec![TestAction::Change("hello ".into())]);
     }
 
     #[test]
@@ -393,6 +695,7 @@ mod tests {
             style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
+            render_action: None,
         };
 
         let actions: Vec<_> = input
@@ -415,6 +718,7 @@ mod tests {
             style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
+            render_action: None,
         };
 
         let actions: Vec<_> = input
@@ -438,6 +742,7 @@ mod tests {
             style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
+            render_action: None,
         };
 
         let actions: Vec<_> = input
@@ -459,6 +764,7 @@ mod tests {
             style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
+            render_action: None,
         };
 
         let actions: Vec<_> = input
@@ -480,6 +786,7 @@ mod tests {
             style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
+            render_action: None,
         };
 
         let actions: Vec<_> = input
@@ -503,6 +810,7 @@ mod tests {
                 style: InputStyle::default(),
                 on_change: |_| (),
                 on_submit: |_| (),
+                render_action: None,
             };
             input.render(frame, frame.area(), props);
         });
@@ -523,6 +831,7 @@ mod tests {
                 style: InputStyle::default(),
                 on_change: |_| (),
                 on_submit: |_| (),
+                render_action: None,
             };
             input.render(frame, frame.area(), props);
         });
@@ -550,10 +859,231 @@ mod tests {
                 },
                 on_change: |_| (),
                 on_submit: |_| (),
+                render_action: None,
             };
             input.render(frame, frame.area(), props);
         });
 
         assert!(output.contains("test"));
+    }
+
+    // ========================================================================
+    // Readline/Emacs keybinding tests
+    // ========================================================================
+
+    fn ctrl_key(c: char) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn alt_key(c: char) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)
+    }
+
+    fn ctrl_arrow(code: KeyCode) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn test_ctrl_k_kill_line() {
+        let mut input = TextInput::new();
+        input.cursor = 5; // After "hello"
+
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_key('k')), props)
+            .into_iter()
+            .collect();
+
+        assert_eq!(actions, vec![TestAction::Change("hello".into())]);
+    }
+
+    #[test]
+    fn test_ctrl_w_kill_word_backward() {
+        let mut input = TextInput::new();
+        input.cursor = 11; // At end of "hello world"
+
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_key('w')), props)
+            .into_iter()
+            .collect();
+
+        assert_eq!(actions, vec![TestAction::Change("hello ".into())]);
+        assert_eq!(input.cursor, 6);
+    }
+
+    #[test]
+    fn test_ctrl_left_word_backward() {
+        let mut input = TextInput::new();
+        input.cursor = 11; // At end of "hello world"
+
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_arrow(KeyCode::Left)), props)
+            .into_iter()
+            .collect();
+
+        assert!(actions.is_empty()); // Movement doesn't emit action
+        assert_eq!(input.cursor, 6); // At start of "world"
+    }
+
+    #[test]
+    fn test_ctrl_right_word_forward() {
+        let mut input = TextInput::new();
+        input.cursor = 0;
+
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_arrow(KeyCode::Right)), props)
+            .into_iter()
+            .collect();
+
+        assert!(actions.is_empty());
+        assert_eq!(input.cursor, 6); // After "hello "
+    }
+
+    #[test]
+    fn test_alt_d_kill_word_forward() {
+        let mut input = TextInput::new();
+        input.cursor = 0;
+
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(alt_key('d')), props)
+            .into_iter()
+            .collect();
+
+        assert_eq!(actions, vec![TestAction::Change("world".into())]);
+    }
+
+    #[test]
+    fn test_ctrl_t_transpose() {
+        let mut input = TextInput::new();
+        input.cursor = 2; // Between 'e' and 'l' in "hello"
+
+        let props = TextInputProps {
+            value: "hello",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let actions: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_key('t')), props)
+            .into_iter()
+            .collect();
+
+        assert_eq!(actions, vec![TestAction::Change("hlelo".into())]);
+    }
+
+    #[test]
+    fn test_ctrl_b_f_movement() {
+        let mut input = TextInput::new();
+        input.cursor = 5;
+
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        // Ctrl+B moves back
+        let _: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_key('b')), props)
+            .into_iter()
+            .collect();
+        assert_eq!(input.cursor, 4);
+
+        // Ctrl+F moves forward
+        let props = TextInputProps {
+            value: "hello world",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+        let _: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_key('f')), props)
+            .into_iter()
+            .collect();
+        assert_eq!(input.cursor, 5);
+    }
+
+    #[test]
+    fn test_word_boundary_multiple_spaces() {
+        let mut input = TextInput::new();
+        input.cursor = 14; // At end of "hello   world" (3 spaces)
+
+        // Test backward over multiple spaces
+        let props = TextInputProps {
+            value: "hello   world!",
+            placeholder: "",
+            is_focused: true,
+            style: InputStyle::default(),
+            on_change: TestAction::Change,
+            on_submit: TestAction::Submit,
+            render_action: None,
+        };
+
+        let _: Vec<_> = input
+            .handle_event(&EventKind::Key(ctrl_arrow(KeyCode::Left)), props)
+            .into_iter()
+            .collect();
+
+        assert_eq!(input.cursor, 8); // At start of "world"
     }
 }

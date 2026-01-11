@@ -59,6 +59,9 @@ pub enum Action {
     /// Terminal was resized - update sprite sizing
     UiTerminalResize(u16, u16),
 
+    /// Force a re-render (for cursor movement, etc.)
+    Render,
+
     // ===== Uncategorized (global) =====
     /// Periodic tick for loading animation
     Tick,

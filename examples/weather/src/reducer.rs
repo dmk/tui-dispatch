@@ -67,14 +67,13 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
         }
 
         Action::SearchQueryChange(query) => {
-            let query = query.trim().to_string();
-            state.search_query = query.clone();
+            state.search_query = query;
             state.search_selected = 0;
             state.search_error = None;
-            if query.is_empty() {
-                state.search_results.clear();
-            }
-            DispatchResult::changed_with(Effect::SearchCities { query })
+            // Don't trigger search on every keystroke - use SearchQuerySubmit or debounce via action
+            DispatchResult::changed_with(Effect::SearchCities {
+                query: state.search_query.clone(),
+            })
         }
 
         Action::SearchQuerySubmit(query) => {
@@ -145,6 +144,8 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
                 DispatchResult::unchanged()
             }
         }
+
+        Action::Render => DispatchResult::changed(),
 
         // ===== Global actions =====
         Action::Tick => {
