@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.0] - 2026-01-11
+
+New `tui-dispatch-components` crate with reusable UI components.
+
+### Added
+
+- `tui-dispatch-components` crate - common components for TUI apps
+  - `TextInput` - text input field with cursor navigation, selection, and customizable styling
+  - `SelectList` - keyboard-navigable list with single/multi-select support
+  - `Modal` - modal dialog wrapper component
+  - `ComponentStyle` - flexible styling system for components
+- `TextInputProps::render_action` - emit a render action on cursor-only changes
+- Components documentation page (`docs/src/components.md`)
+
+### Changed
+
+- Improved `Component` trait API in core
+- Weather example updated to use new components crate
+
 ## [0.4.0] - 2025-01-10
 
 Runtime helpers that eliminate event loop boilerplate.

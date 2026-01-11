@@ -10,7 +10,7 @@ keywords = ["tui", "components", "ratatui", "terminal"]
 categories = ["command-line-interface"]
 
 [dependencies]
-tui-dispatch-core = { path = "../tui-dispatch-core" }
+tui-dispatch-core.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 
