@@ -5,6 +5,7 @@
 # User Guide
 
 - [Getting Started](./getting-started.md)
+- [Pre-built Components](./components.md)
 - [Async Patterns](./async.md)
 - [Debug Layer](./debug-layer.md)
 - [Feature Flags](./feature-flags.md)

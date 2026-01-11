@@ -4,10 +4,76 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Paragraph},
     Frame,
 };
 use tui_dispatch_core::{Component, EventKind};
+
+use crate::style::{BorderStyle, ComponentStyle, Padding};
+
+/// Unified styling for TextInput
+#[derive(Debug, Clone)]
+pub struct InputStyle {
+    /// Border configuration (None = no border)
+    pub border: Option<BorderStyle>,
+    /// Padding inside the component
+    pub padding: Padding,
+    /// Background color
+    pub bg: Option<Color>,
+    /// Foreground (text) color
+    pub fg: Option<Color>,
+    /// Style for placeholder text
+    pub placeholder_style: Option<Style>,
+    /// Style for cursor (when focused)
+    pub cursor_style: Option<Style>,
+}
+
+impl Default for InputStyle {
+    fn default() -> Self {
+        Self {
+            border: Some(BorderStyle::default()),
+            padding: Padding::default(),
+            bg: None,
+            fg: None,
+            placeholder_style: Some(Style::default().fg(Color::DarkGray)),
+            cursor_style: None,
+        }
+    }
+}
+
+impl InputStyle {
+    /// Create a style with no border
+    pub fn borderless() -> Self {
+        Self {
+            border: None,
+            ..Default::default()
+        }
+    }
+
+    /// Create a minimal style (no border, no padding)
+    pub fn minimal() -> Self {
+        Self {
+            border: None,
+            padding: Padding::default(),
+            bg: None,
+            fg: None,
+            placeholder_style: Some(Style::default().fg(Color::DarkGray)),
+            cursor_style: None,
+        }
+    }
+}
+
+impl ComponentStyle for InputStyle {
+    fn border(&self) -> Option<&BorderStyle> {
+        self.border.as_ref()
+    }
+    fn padding(&self) -> &Padding {
+        &self.padding
+    }
+    fn bg(&self) -> Option<Color> {
+        self.bg
+    }
+}
 
 /// Props for TextInput component
 pub struct TextInputProps<'a, A> {
@@ -17,14 +83,8 @@ pub struct TextInputProps<'a, A> {
     pub placeholder: &'a str,
     /// Whether this component has focus
     pub is_focused: bool,
-    /// Whether to show border (default: true)
-    pub show_border: bool,
-    /// Background color (None = transparent)
-    pub bg_color: Option<Color>,
-    /// Horizontal padding (left and right)
-    pub padding_x: u16,
-    /// Vertical padding (top and bottom)
-    pub padding_y: u16,
+    /// Unified styling
+    pub style: InputStyle,
     /// Callback when value changes
     pub on_change: fn(String) -> A,
     /// Callback when user submits (Enter)
@@ -207,11 +267,13 @@ impl<A> Component<A> for TextInput {
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        let style = &props.style;
+
         // Ensure cursor is valid
         self.clamp_cursor(props.value);
 
         // Fill background if color provided
-        if let Some(bg) = props.bg_color {
+        if let Some(bg) = style.bg {
             for y in area.y..area.y.saturating_add(area.height) {
                 for x in area.x..area.x.saturating_add(area.width) {
                     frame.buffer_mut()[(x, y)].set_bg(bg);
@@ -222,10 +284,10 @@ impl<A> Component<A> for TextInput {
 
         // Apply padding
         let content_area = Rect {
-            x: area.x + props.padding_x,
-            y: area.y + props.padding_y,
-            width: area.width.saturating_sub(props.padding_x * 2),
-            height: area.height.saturating_sub(props.padding_y * 2),
+            x: area.x + style.padding.left,
+            y: area.y + style.padding.top,
+            width: area.width.saturating_sub(style.padding.horizontal()),
+            height: area.height.saturating_sub(style.padding.vertical()),
         };
 
         // Determine display text
@@ -235,27 +297,32 @@ impl<A> Component<A> for TextInput {
             props.value
         };
 
-        let mut style = if props.value.is_empty() {
-            Style::default().fg(Color::DarkGray)
+        // Build text style
+        let mut text_style = if props.value.is_empty() {
+            style
+                .placeholder_style
+                .unwrap_or_else(|| Style::default().fg(Color::DarkGray))
         } else {
-            Style::default()
+            let mut s = Style::default();
+            if let Some(fg) = style.fg {
+                s = s.fg(fg);
+            }
+            s
         };
 
         // Preserve background color in text style
-        if let Some(bg) = props.bg_color {
-            style = style.bg(bg);
+        if let Some(bg) = style.bg {
+            text_style = text_style.bg(bg);
         }
 
-        let mut paragraph = Paragraph::new(display_text).style(style);
+        let mut paragraph = Paragraph::new(display_text).style(text_style);
 
-        if props.show_border {
-            paragraph = paragraph.block(Block::default().borders(Borders::ALL).border_style(
-                if props.is_focused {
-                    Style::default().fg(Color::Cyan)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                },
-            ));
+        if let Some(border) = &style.border {
+            paragraph = paragraph.block(
+                Block::default()
+                    .borders(border.borders)
+                    .border_style(border.style_for_focus(props.is_focused)),
+            );
         }
 
         frame.render_widget(paragraph, content_area);
@@ -263,17 +330,20 @@ impl<A> Component<A> for TextInput {
         // Show cursor if focused
         if props.is_focused {
             // Calculate cursor screen position (account for border and padding)
-            let border_offset = if props.show_border { 1 } else { 0 };
+            let border_offset = if style.border.is_some() { 1 } else { 0 };
             let cursor_x = content_area.x + border_offset + self.cursor as u16;
             let cursor_y = content_area.y + border_offset;
 
             // Only show cursor if within bounds
-            let max_x = if props.show_border {
+            let max_x = if style.border.is_some() {
                 content_area.x + content_area.width - 1
             } else {
                 content_area.x + content_area.width
             };
             if cursor_x < max_x {
+                if let Some(cursor_style) = style.cursor_style {
+                    frame.buffer_mut()[(cursor_x, cursor_y)].set_style(cursor_style);
+                }
                 frame.set_cursor_position((cursor_x, cursor_y));
             }
         }
@@ -298,10 +368,7 @@ mod tests {
             value: "",
             placeholder: "",
             is_focused: true,
-            show_border: true,
-            bg_color: None,
-            padding_x: 0,
-            padding_y: 0,
+            style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -323,10 +390,7 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            show_border: true,
-            bg_color: None,
-            padding_x: 0,
-            padding_y: 0,
+            style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -348,10 +412,7 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            show_border: true,
-            bg_color: None,
-            padding_x: 0,
-            padding_y: 0,
+            style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -374,10 +435,7 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            show_border: true,
-            bg_color: None,
-            padding_x: 0,
-            padding_y: 0,
+            style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -398,10 +456,7 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            show_border: true,
-            bg_color: None,
-            padding_x: 0,
-            padding_y: 0,
+            style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -422,10 +477,7 @@ mod tests {
             value: "",
             placeholder: "",
             is_focused: false,
-            show_border: true,
-            bg_color: None,
-            padding_x: 0,
-            padding_y: 0,
+            style: InputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
         };
@@ -448,10 +500,7 @@ mod tests {
                 value: "hello",
                 placeholder: "Type here...",
                 is_focused: true,
-                show_border: true,
-                bg_color: None,
-                padding_x: 0,
-                padding_y: 0,
+                style: InputStyle::default(),
                 on_change: |_| (),
                 on_submit: |_| (),
             };
@@ -471,10 +520,7 @@ mod tests {
                 value: "",
                 placeholder: "Type here...",
                 is_focused: true,
-                show_border: true,
-                bg_color: None,
-                padding_x: 0,
-                padding_y: 0,
+                style: InputStyle::default(),
                 on_change: |_| (),
                 on_submit: |_| (),
             };
@@ -482,5 +528,32 @@ mod tests {
         });
 
         assert!(output.contains("Type here..."));
+    }
+
+    #[test]
+    fn test_render_with_custom_style() {
+        let mut render = RenderHarness::new(30, 3);
+        let mut input = TextInput::new();
+
+        let output = render.render_to_string_plain(|frame| {
+            let props = TextInputProps {
+                value: "test",
+                placeholder: "",
+                is_focused: true,
+                style: InputStyle {
+                    border: None,
+                    padding: Padding::xy(1, 0),
+                    bg: Some(Color::Blue),
+                    fg: Some(Color::White),
+                    placeholder_style: None,
+                    cursor_style: None,
+                },
+                on_change: |_| (),
+                on_submit: |_| (),
+            };
+            input.render(frame, frame.area(), props);
+        });
+
+        assert!(output.contains("test"));
     }
 }
