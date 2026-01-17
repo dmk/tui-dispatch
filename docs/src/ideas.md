@@ -34,13 +34,15 @@ struct AppState {
 
 ---
 
-## Debug Layer Ergonomics
+## ~~Debug Layer Ergonomics~~ DONE (partial)
 
-- `DebugLayer::render_with_state(frame, state, |f, area| ...)` convenience that auto-builds the state table only when active.
-- `DebugLayer::handle_event(&event) -> DebugOutcome { consumed, queued_actions, needs_render }` to replace ad-hoc intercept/effect plumbing.
-- `DebugLayer::middleware()` or `ActionLoggerMiddleware::for_debug(&mut DebugLayer)` to avoid manual `log_action()` calls.
-- Expose scrollbar styles/symbols in `DebugStyle` for the state/action overlays.
-- Docs: make `render_with_state` the default pattern and list scroll keys + banner toggle.
+> Implemented in v0.5.x (middleware helper still pending)
+
+- DONE: `DebugLayer::render_state` / `render_with_state` convenience that auto-builds the state table only when active.
+- DONE: `DebugLayer::handle_event(&event) -> DebugOutcome { consumed, queued_actions, needs_render }` for event plumbing.
+- TODO: `DebugLayer::middleware()` or `ActionLoggerMiddleware::for_debug(&mut DebugLayer)` to avoid manual `log_action()` calls.
+- DONE: Scrollbar styles/symbols exposed in `DebugStyle` for the state/action overlays.
+- DONE: Docs use `render_state` and list scroll keys + banner toggle.
 
 ---
 
@@ -228,7 +230,7 @@ Also includes `DynamicFeatures` for runtime-only flags without the derive macro.
 
 ## ~~tui-dispatch-components~~ DONE (partial)
 
-> Implemented in v0.5.x: `SelectList` and `TextInput` components
+> Implemented in v0.5.x: `SelectList`, `TextInput`, and modal overlay helpers (`render_modal`, `ModalStyle`, `centered_rect`)
 
 A companion crate providing reusable TUI components that integrate with tui-dispatch patterns.
 
@@ -246,11 +248,11 @@ Common TUI patterns keep getting reimplemented:
 These share structure: event handling, action emission, state management.
 A components crate could provide battle-tested implementations.
 
-### What's Included
+### What's Included / Planned
 
-1. **Components** - Handle events, return actions (SelectList, TextInput, CmdLine, etc.)
-2. **Building Blocks** - Pre-styled ratatui wrappers for common UI patterns (Button, Pane, StatusBadge, TabBar)
-3. **Utilities** - Geometry, formatting, text helpers (see "Large Project Patterns" section)
+1. **Components (done/planned)** - Done: SelectList, TextInput. Planned: CmdLine, CommandPalette, etc.
+2. **Building Blocks (planned)** - Pre-styled ratatui wrappers for common UI patterns (Button, Pane, StatusBadge, TabBar)
+3. **Utilities (planned)** - Geometry, formatting, text helpers (see "Large Project Patterns" section)
 
 ### Components (event-handling)
 
@@ -275,7 +277,7 @@ let input = TextInput::new()
 // Emits: InputChange(String), InputSubmit, InputCancel
 ```
 
-**Priority 2 - Common patterns:**
+**Priority 2 - Common patterns (planned):**
 
 **CmdLine** - Vim-style command input
 ```rust
@@ -288,8 +290,9 @@ let cmdline = CmdLine::new()
 // Emits: CmdLineAddChar, CmdLineConfirm, CmdLineHistoryPrev, etc.
 ```
 
-**Modal** - Confirmation/input dialogs
+**Modal** - Confirmation/input dialogs (base overlay helpers are implemented; dialog component is planned)
 ```rust
+// Planned API sketch
 let confirm = Modal::confirm("Delete key?")
     .yes_label("Delete")
     .no_label("Cancel")
@@ -369,7 +372,7 @@ Toast::success("File saved!")
 5. **Generic over Action type** - Apps define their own action enums, components are generic
 6. **Centralized theme** - Components accept `&impl Theme` reference, consistent with "simple API, less code"
 
-### Command Definition Macro
+### Command Definition Macro (Planned)
 
 ```rust
 commands![
@@ -409,9 +412,11 @@ Components would implement the `Component<A: Action>` trait (see "Component Trai
 
 ---
 
-## Test Helper Improvements
+## ~~Test Helper Improvements~~ DONE (partial)
 
-### StoreTestHarness
+> Implemented in v0.5.1: `StoreTestHarness` and `EffectStoreTestHarness`
+
+### StoreTestHarness (DONE)
 
 Combines `Store` + `TestHarness` for integrated testing:
 
@@ -433,7 +438,11 @@ let output = harness.render(|f, area, state| {
 insta::assert_snapshot!(output);
 ```
 
-### Scenario Macro
+### EffectStoreTestHarness (DONE)
+
+Same API as `StoreTestHarness`, plus effect assertions for `EffectStore` reducers.
+
+### Scenario Macro (Planned)
 
 Behavior-driven test syntax:
 
@@ -464,7 +473,7 @@ test_scenario! {
 }
 ```
 
-### Async Test Helpers
+### Async Test Helpers (Planned)
 
 For testing async action flows:
 
@@ -638,9 +647,11 @@ let session = DebugSession::from_harness(harness, state, reducer);
 
 Ideas for keeping larger tui-dispatch apps (like memtui) organized and maintainable.
 
-### Reducer Composition
+### ~~Reducer Composition~~ DONE
 
-Large apps end up with 1000+ line reducers. Provide a macro for context-aware dispatch:
+> Implemented in v0.5.1 (`reducer_compose!`)
+
+Large apps end up with 1000+ line reducers. Use a macro for context-aware dispatch:
 
 ```rust
 reducer_compose!(state, action, context, {
@@ -769,9 +780,9 @@ src/
 | Component trait in core | Low | High | Done |
 | `SelectList` component | Medium | High | Done |
 | `TextInput` component | Medium | High | Done |
-| `StoreTestHarness` | Low | Medium | Planned |
+| `StoreTestHarness` / `EffectStoreTestHarness` | Low | Medium | Done |
 | Theme system | Medium | Medium | Planned |
 | `CmdLine` component | Medium-High | High | Planned |
 | Animation system | High | Medium | Future |
 | LLM-aware debugging | Medium | **Very High** | Planned |
-| Reducer composition macro | Low | High | Planned |
+| Reducer composition macro | Low | High | Done |

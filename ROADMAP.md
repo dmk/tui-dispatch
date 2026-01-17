@@ -103,6 +103,21 @@ These are intentionally not planned:
 
 ---
 
+## Draft Issue List (Ideas Backlog)
+
+Minimal issue list derived from remaining items in `docs/src/ideas.md`:
+
+- [ ] Debug layer middleware helper (`DebugLayer::middleware` / `ActionLoggerMiddleware::for_debug`)
+- [ ] Theme system (`Theme` trait + derive + presets)
+- [ ] Animation system (registry + tween/spring/keyframes)
+- [ ] Components backlog: CmdLine, CommandPalette, CommandSuggestions, ScrollView, Tabs/TabBar, Tree, Toast/Notification
+- [ ] Components extras: command definition macro, building blocks, shared utilities
+- [ ] Testing helpers: scenario macro, async test harness
+- [ ] LLM-aware debugging feature (llm-debug, DebugSession, snapshots)
+- [ ] Large-project docs: AppState/UiState split, project structure guide
+
+---
+
 ## Post 1.0 Directions
 
 See [Ideas](docs/src/ideas.md) for exploratory features and
