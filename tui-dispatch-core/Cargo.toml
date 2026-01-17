@@ -9,6 +9,9 @@ rust-version.workspace = true
 
 [features]
 default = []
+# Enable debug adapter integration in runtimes
+# (debug UI lives in tui-dispatch-debug)
+debug = []
 # Enable time control utilities for testing debounced actions
 # Requires tokio with test-util feature
 testing-time = ["tokio/test-util"]
@@ -26,5 +29,3 @@ tokio-stream = { version = "0.1", optional = true }
 bitflags.workspace = true
 tracing.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-base64 = "0.22"

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 tui-dispatch.workspace = true
+tui-dispatch-debug.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 clap.workspace = true

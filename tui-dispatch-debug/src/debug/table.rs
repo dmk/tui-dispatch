@@ -126,6 +126,8 @@ pub struct ActionLogDisplayEntry {
     pub name: String,
     /// Action parameters (without the action name)
     pub params: String,
+    /// Pretty action parameters for detail view
+    pub params_detail: String,
     /// Elapsed time display (e.g., "2.3s")
     pub elapsed: String,
 }
@@ -152,6 +154,7 @@ impl ActionLogOverlay {
                 sequence: e.sequence,
                 name: e.name.to_string(),
                 params: e.params.clone(),
+                params_detail: e.params_pretty.clone(),
                 elapsed: e.elapsed.clone(),
             })
             .collect();
@@ -222,7 +225,7 @@ impl ActionLogOverlay {
         self.get_selected().map(|entry| ActionDetailOverlay {
             sequence: entry.sequence,
             name: entry.name.clone(),
-            params: entry.params.clone(),
+            params: entry.params_detail.clone(),
             elapsed: entry.elapsed.clone(),
         })
     }
@@ -233,7 +236,7 @@ impl ActionLogOverlay {
 /// # Example
 ///
 /// ```
-/// use tui_dispatch_core::debug::{DebugTableBuilder, DebugTableRow};
+/// use tui_dispatch_debug::debug::{DebugTableBuilder, DebugTableRow};
 ///
 /// let table = DebugTableBuilder::new()
 ///     .section("Connection")

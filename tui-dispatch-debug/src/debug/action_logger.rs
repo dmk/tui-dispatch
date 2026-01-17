@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use tui_dispatch_core::debug::{ActionLoggerConfig, ActionLoggerMiddleware, ActionLogConfig};
+//! use tui_dispatch_debug::debug::{ActionLoggerConfig, ActionLoggerMiddleware, ActionLogConfig};
 //!
 //! // Log all actions except Tick and Render (tracing only)
 //! let config = ActionLoggerConfig::default();
@@ -25,10 +25,10 @@
 //! }
 //! ```
 
-use crate::action::ActionParams;
-use crate::store::Middleware;
 use std::collections::VecDeque;
 use std::time::Instant;
+use tui_dispatch_core::action::ActionParams;
+use tui_dispatch_core::store::Middleware;
 
 /// Configuration for action logging with glob pattern filtering.
 ///
@@ -70,7 +70,7 @@ impl ActionLoggerConfig {
     ///
     /// # Example
     /// ```
-    /// use tui_dispatch_core::debug::ActionLoggerConfig;
+    /// use tui_dispatch_debug::debug::ActionLoggerConfig;
     ///
     /// let config = ActionLoggerConfig::new(Some("Search*,Connect"), Some("Tick,Render"));
     /// assert!(config.should_log("SearchAddChar"));
@@ -134,6 +134,8 @@ pub struct ActionLogEntry {
     pub name: &'static str,
     /// Action parameters (from ActionParams::params())
     pub params: String,
+    /// Pretty action parameters (from ActionParams::params_pretty())
+    pub params_pretty: String,
     /// Timestamp when the action was logged
     pub timestamp: Instant,
     /// Elapsed time display, frozen at creation time
@@ -144,10 +146,11 @@ pub struct ActionLogEntry {
 
 impl ActionLogEntry {
     /// Create a new log entry
-    pub fn new(name: &'static str, params: String, sequence: u64) -> Self {
+    pub fn new(name: &'static str, params: String, params_pretty: String, sequence: u64) -> Self {
         Self {
             name,
             params,
+            params_pretty,
             timestamp: Instant::now(),
             elapsed: "0ms".to_string(),
             sequence,
@@ -238,7 +241,8 @@ impl ActionLog {
         }
 
         let params = action.params();
-        let mut entry = ActionLogEntry::new(name, params, self.next_sequence);
+        let params_pretty = action.params_pretty();
+        let mut entry = ActionLogEntry::new(name, params, params_pretty, self.next_sequence);
         // Freeze the elapsed time at creation
         entry.elapsed = format_elapsed(self.start_time.elapsed());
         self.next_sequence += 1;
@@ -306,7 +310,7 @@ impl ActionLog {
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch_core::debug::{ActionLoggerConfig, ActionLoggerMiddleware, ActionLogConfig};
+/// use tui_dispatch_debug::debug::{ActionLoggerConfig, ActionLoggerMiddleware, ActionLogConfig};
 /// use tui_dispatch_core::{Store, StoreWithMiddleware};
 ///
 /// // Tracing only
@@ -556,7 +560,7 @@ mod tests {
         Connect,
     }
 
-    impl crate::Action for TestAction {
+    impl tui_dispatch_core::Action for TestAction {
         fn name(&self) -> &'static str {
             match self {
                 TestAction::Tick => "Tick",
@@ -565,7 +569,7 @@ mod tests {
         }
     }
 
-    impl crate::ActionParams for TestAction {
+    impl tui_dispatch_core::ActionParams for TestAction {
         fn params(&self) -> String {
             String::new()
         }
@@ -641,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_middleware_filtering() {
-        use crate::store::Middleware;
+        use tui_dispatch_core::store::Middleware;
 
         // Default config filters out "Tick"
         let mut middleware = ActionLoggerMiddleware::with_default_log();

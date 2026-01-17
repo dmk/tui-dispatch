@@ -13,11 +13,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::bus::{process_raw_event, spawn_event_poller, RawEvent};
-use crate::debug::{DebugLayer, DebugState};
 use crate::effect::{DispatchResult, EffectStore, EffectStoreWithMiddleware};
 use crate::event::EventKind;
 use crate::store::{Middleware, Reducer, Store, StoreWithMiddleware};
-use crate::{Action, ActionParams};
+use crate::Action;
 
 #[cfg(feature = "subscriptions")]
 use crate::subscriptions::Subscriptions;
@@ -151,7 +150,8 @@ impl<A> EventOutcome<A> {
     }
 }
 
-trait DebugAdapter<S, A>: 'static {
+#[cfg(feature = "debug")]
+pub trait DebugAdapter<S, A>: 'static {
     fn render(
         &mut self,
         frame: &mut Frame,
@@ -171,41 +171,16 @@ trait DebugAdapter<S, A>: 'static {
     fn is_enabled(&self) -> bool;
 }
 
-impl<S, A> DebugAdapter<S, A> for DebugLayer<A>
-where
-    S: DebugState,
-    A: Action + ActionParams,
-{
-    fn render(
-        &mut self,
-        frame: &mut Frame,
-        state: &S,
-        render_ctx: RenderContext,
-        render_fn: &mut dyn FnMut(&mut Frame, Rect, &S, RenderContext),
-    ) {
-        self.render_state(frame, state, |f, area| {
-            render_fn(f, area, state, render_ctx);
-        });
+#[cfg(feature = "debug")]
+pub trait DebugHooks<A>: Sized {
+    #[cfg(feature = "tasks")]
+    fn with_task_manager(self, _tasks: &TaskManager<A>) -> Self {
+        self
     }
 
-    fn handle_event(
-        &mut self,
-        event: &EventKind,
-        state: &S,
-        action_tx: &mpsc::UnboundedSender<A>,
-    ) -> Option<bool> {
-        self.handle_event_with_state(event, state)
-            .dispatch_queued(|action| {
-                let _ = action_tx.send(action);
-            })
-    }
-
-    fn log_action(&mut self, action: &A) {
-        DebugLayer::log_action(self, action);
-    }
-
-    fn is_enabled(&self) -> bool {
-        DebugLayer::is_enabled(self)
+    #[cfg(feature = "subscriptions")]
+    fn with_subscriptions(self, _subscriptions: &Subscriptions<A>) -> Self {
+        self
     }
 }
 
@@ -273,6 +248,7 @@ pub struct DispatchRuntime<S, A: Action, St: DispatchStore<S, A> = Store<S, A>> 
     action_tx: mpsc::UnboundedSender<A>,
     action_rx: mpsc::UnboundedReceiver<A>,
     poller_config: PollerConfig,
+    #[cfg(feature = "debug")]
     debug: Option<Box<dyn DebugAdapter<S, A>>>,
     should_render: bool,
     _state: std::marker::PhantomData<S>,
@@ -294,6 +270,7 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
             action_tx,
             action_rx,
             poller_config: PollerConfig::default(),
+            #[cfg(feature = "debug")]
             debug: None,
             should_render: true,
             _state: std::marker::PhantomData,
@@ -301,13 +278,12 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
     }
 
     /// Attach a debug layer.
-    pub fn with_debug(mut self, debug: DebugLayer<A>) -> Self
+    #[cfg(feature = "debug")]
+    pub fn with_debug<D>(mut self, debug: D) -> Self
     where
-        S: DebugState,
-        A: ActionParams,
+        D: DebugAdapter<S, A>,
     {
-        let adapter: Box<dyn DebugAdapter<S, A>> = Box::new(debug);
-        self.debug = Some(adapter);
+        self.debug = Some(Box::new(debug));
         self
     }
 
@@ -360,13 +336,22 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
             if self.should_render {
                 let state = self.store.state();
                 let render_ctx = RenderContext {
-                    debug_enabled: self
-                        .debug
-                        .as_ref()
-                        .map(|debug| debug.is_enabled())
-                        .unwrap_or(false),
+                    debug_enabled: {
+                        #[cfg(feature = "debug")]
+                        {
+                            self.debug
+                                .as_ref()
+                                .map(|debug| debug.is_enabled())
+                                .unwrap_or(false)
+                        }
+                        #[cfg(not(feature = "debug"))]
+                        {
+                            false
+                        }
+                    },
                 };
                 terminal.draw(|frame| {
+                    #[cfg(feature = "debug")]
                     if let Some(debug) = self.debug.as_mut() {
                         let mut render_fn =
                             |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
@@ -374,6 +359,11 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
                             };
                         debug.render(frame, state, render_ctx, &mut render_fn);
                     } else {
+                        render(frame, frame.area(), state, render_ctx);
+                    }
+
+                    #[cfg(not(feature = "debug"))]
+                    {
                         render(frame, frame.area(), state, render_ctx);
                     }
                 })?;
@@ -384,6 +374,7 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
                 Some(raw_event) = event_rx.recv() => {
                     let event = process_raw_event(raw_event);
 
+                    #[cfg(feature = "debug")]
                     if let Some(debug) = self.debug.as_mut() {
                         if let Some(needs_render) =
                             debug.handle_event(&event, self.store.state(), &self.action_tx)
@@ -407,6 +398,7 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
                         break;
                     }
 
+                    #[cfg(feature = "debug")]
                     if let Some(debug) = self.debug.as_mut() {
                         debug.log_action(&action);
                     }
@@ -464,6 +456,7 @@ pub struct EffectRuntime<S, A: Action, E, St: EffectStoreLike<S, A, E> = EffectS
     action_tx: mpsc::UnboundedSender<A>,
     action_rx: mpsc::UnboundedReceiver<A>,
     poller_config: PollerConfig,
+    #[cfg(feature = "debug")]
     debug: Option<Box<dyn DebugAdapter<S, A>>>,
     should_render: bool,
     #[cfg(feature = "tasks")]
@@ -496,6 +489,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
             action_tx,
             action_rx,
             poller_config: PollerConfig::default(),
+            #[cfg(feature = "debug")]
             debug: None,
             should_render: true,
             #[cfg(feature = "tasks")]
@@ -508,10 +502,10 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
     }
 
     /// Attach a debug layer (auto-wires tasks/subscriptions when available).
-    pub fn with_debug(mut self, debug: DebugLayer<A>) -> Self
+    #[cfg(feature = "debug")]
+    pub fn with_debug<D>(mut self, debug: D) -> Self
     where
-        S: DebugState,
-        A: ActionParams,
+        D: DebugAdapter<S, A> + DebugHooks<A>,
     {
         let debug = {
             let debug = debug;
@@ -521,8 +515,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
             let debug = debug.with_subscriptions(&self.subscriptions);
             debug
         };
-        let adapter: Box<dyn DebugAdapter<S, A>> = Box::new(debug);
-        self.debug = Some(adapter);
+        self.debug = Some(Box::new(debug));
         self
     }
 
@@ -621,13 +614,22 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
             if self.should_render {
                 let state = self.store.state();
                 let render_ctx = RenderContext {
-                    debug_enabled: self
-                        .debug
-                        .as_ref()
-                        .map(|debug| debug.is_enabled())
-                        .unwrap_or(false),
+                    debug_enabled: {
+                        #[cfg(feature = "debug")]
+                        {
+                            self.debug
+                                .as_ref()
+                                .map(|debug| debug.is_enabled())
+                                .unwrap_or(false)
+                        }
+                        #[cfg(not(feature = "debug"))]
+                        {
+                            false
+                        }
+                    },
                 };
                 terminal.draw(|frame| {
+                    #[cfg(feature = "debug")]
                     if let Some(debug) = self.debug.as_mut() {
                         let mut render_fn =
                             |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
@@ -635,6 +637,11 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                             };
                         debug.render(frame, state, render_ctx, &mut render_fn);
                     } else {
+                        render(frame, frame.area(), state, render_ctx);
+                    }
+
+                    #[cfg(not(feature = "debug"))]
+                    {
                         render(frame, frame.area(), state, render_ctx);
                     }
                 })?;
@@ -645,6 +652,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                 Some(raw_event) = event_rx.recv() => {
                     let event = process_raw_event(raw_event);
 
+                    #[cfg(feature = "debug")]
                     if let Some(debug) = self.debug.as_mut() {
                         if let Some(needs_render) =
                             debug.handle_event(&event, self.store.state(), &self.action_tx)
@@ -668,6 +676,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                         break;
                     }
 
+                    #[cfg(feature = "debug")]
                     if let Some(debug) = self.debug.as_mut() {
                         debug.log_action(&action);
                     }

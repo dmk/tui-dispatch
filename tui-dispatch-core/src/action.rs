@@ -67,7 +67,7 @@ pub trait ActionCategory: Action {
 ///
 /// let action = MyAction::SetFilter { query: "foo".into(), limit: 10 };
 /// assert_eq!(action.name(), "SetFilter");
-/// assert_eq!(action.params(), r#""foo", 10"#);
+/// assert_eq!(action.params(), r#"{query: \"foo\", limit: 10}"#);
 ///
 /// let tick = MyAction::Tick;
 /// assert_eq!(tick.params(), "");
@@ -75,6 +75,11 @@ pub trait ActionCategory: Action {
 pub trait ActionParams: Action {
     /// Get just the action parameters as a string (no variant name)
     fn params(&self) -> String;
+
+    /// Get a multi-line, detailed representation of the parameters.
+    fn params_pretty(&self) -> String {
+        self.params()
+    }
 }
 
 /// Trait for actions that provide a summary representation for logging

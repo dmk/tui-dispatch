@@ -3,14 +3,15 @@
 //! Provides theme-agnostic widgets for rendering debug information.
 //! Applications provide their own styles to customize appearance.
 
+use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Cell, Clear, Paragraph, Row, Table, Widget};
-use ratatui::Frame;
 
-use super::cell::{format_color_compact, format_modifier_compact, CellPreview};
+use super::cell::{CellPreview, format_color_compact, format_modifier_compact};
+use super::config::DebugStyle;
 use super::table::{ActionLogOverlay, DebugTableOverlay, DebugTableRow};
 
 /// Convert a buffer to plain text (for clipboard export)
@@ -447,9 +448,11 @@ impl Widget for DebugTableWidget<'_> {
                     } else {
                         self.style.row_styles.1
                     };
+                    let ron_style = RonSyntaxStyle::with_base(self.style.value);
+                    let value_line = Line::from(ron_spans(value, &ron_style));
                     Row::new(vec![
                         Cell::from(key.clone()).style(self.style.key),
-                        Cell::from(value.clone()).style(self.style.value),
+                        Cell::from(value_line).style(self.style.value),
                     ])
                     .style(row_style)
                 }
@@ -538,6 +541,141 @@ impl Widget for CellPreviewWidget<'_> {
         let line = Paragraph::new(Line::from(spans));
         line.render(area, buf);
     }
+}
+
+// ============================================================================
+// RON Highlighting
+// ============================================================================
+
+#[derive(Clone)]
+pub(crate) struct RonSyntaxStyle {
+    punctuation: Style,
+    string: Style,
+    number: Style,
+    keyword: Style,
+    identifier: Style,
+    fallback: Style,
+}
+
+impl RonSyntaxStyle {
+    pub(crate) fn with_base(base: Style) -> Self {
+        Self {
+            punctuation: Style::default().fg(DebugStyle::text_secondary()),
+            string: Style::default().fg(DebugStyle::neon_green()),
+            number: Style::default().fg(DebugStyle::neon_cyan()),
+            keyword: Style::default().fg(DebugStyle::neon_purple()),
+            identifier: base,
+            fallback: base,
+        }
+    }
+}
+
+pub(crate) fn ron_spans(value: &str, style: &RonSyntaxStyle) -> Vec<Span<'static>> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '"' || ch == '\'' {
+            let quote = ch;
+            let mut token = String::from(quote);
+            let mut escaped = false;
+            while let Some(next) = chars.next() {
+                token.push(next);
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if next == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if next == quote {
+                    break;
+                }
+            }
+            spans.push(Span::styled(token, style.string));
+            continue;
+        }
+
+        if is_ron_punctuation(ch) {
+            spans.push(Span::styled(ch.to_string(), style.punctuation));
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            spans.push(Span::styled(ch.to_string(), style.fallback));
+            continue;
+        }
+
+        if is_number_start(ch, chars.peek()) {
+            let mut token = String::new();
+            token.push(ch);
+            while let Some(&next) = chars.peek() {
+                if is_number_char(next) {
+                    token.push(next);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            spans.push(Span::styled(token, style.number));
+            continue;
+        }
+
+        if is_ident_start(ch) {
+            let mut token = String::new();
+            token.push(ch);
+            while let Some(&next) = chars.peek() {
+                if is_ident_char(next) {
+                    token.push(next);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            let token_style = if is_ron_keyword(&token) {
+                style.keyword
+            } else {
+                style.identifier
+            };
+            spans.push(Span::styled(token, token_style));
+            continue;
+        }
+
+        spans.push(Span::styled(ch.to_string(), style.fallback));
+    }
+
+    spans
+}
+
+fn is_ron_punctuation(ch: char) -> bool {
+    matches!(ch, '{' | '}' | '[' | ']' | '(' | ')' | ':' | ',' | '=')
+}
+
+fn is_number_start(ch: char, next: Option<&char>) -> bool {
+    if ch.is_ascii_digit() {
+        return true;
+    }
+    if ch == '-' {
+        return next.map(|c| c.is_ascii_digit()).unwrap_or(false);
+    }
+    false
+}
+
+fn is_number_char(ch: char) -> bool {
+    ch.is_ascii_digit() || matches!(ch, '.' | '_' | '+' | '-' | 'e' | 'E')
+}
+
+fn is_ident_start(ch: char) -> bool {
+    ch.is_ascii_alphabetic() || ch == '_'
+}
+
+fn is_ident_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
+}
+
+fn is_ron_keyword(token: &str) -> bool {
+    matches!(token, "true" | "false" | "None" | "Some" | "null")
 }
 
 // ============================================================================
@@ -670,18 +808,26 @@ impl Widget for ActionLogWidget<'_> {
                     self.style.row_styles.1
                 };
 
+                let params_compact = entry.params.replace('\n', " ");
+                let params_compact = params_compact
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
                 // Truncate params if needed (char-aware to avoid UTF-8 panic)
-                let params = if entry.params.chars().count() > 60 {
-                    let truncated: String = entry.params.chars().take(57).collect();
+                let params = if params_compact.chars().count() > 60 {
+                    let truncated: String = params_compact.chars().take(57).collect();
                     format!("{}...", truncated)
                 } else {
-                    entry.params.clone()
+                    params_compact
                 };
+                let ron_style = RonSyntaxStyle::with_base(self.style.params);
+                let params_line = Line::from(ron_spans(&params, &ron_style));
 
                 Row::new(vec![
                     Cell::from(format!("{}", entry.sequence)).style(self.style.sequence),
                     Cell::from(entry.name.clone()).style(self.style.name),
-                    Cell::from(params).style(self.style.params),
+                    Cell::from(Text::from(params_line)).style(self.style.params),
                     Cell::from(entry.elapsed.clone()).style(self.style.elapsed),
                 ])
                 .style(base_style)

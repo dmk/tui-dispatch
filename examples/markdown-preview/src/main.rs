@@ -31,10 +31,8 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
-use tui_dispatch::{
-    DispatchRuntime, EventKind, EventOutcome, FeatureFlags,
-    debug::{DebugLayer, DebugSection, DebugState},
-};
+use tui_dispatch::{DispatchRuntime, EventKind, EventOutcome, FeatureFlags};
+use tui_dispatch_debug::debug::{DebugLayer, DebugSection, DebugState, ron_string};
 
 use crate::action::Action;
 use crate::features::Features;
@@ -67,32 +65,31 @@ struct Args {
 /// Implement DebugState for our AppState
 impl DebugState for AppState {
     fn debug_sections(&self) -> Vec<DebugSection> {
+        let query = if self.search.query.is_empty() {
+            "(none)"
+        } else {
+            &self.search.query
+        };
+
         vec![
             DebugSection::new("Document")
-                .entry("file", &self.file_path)
-                .entry("total_lines", self.stats.total_lines.to_string()),
+                .entry("file", ron_string(&self.file_path))
+                .entry("total_lines", ron_string(&self.stats.total_lines)),
             DebugSection::new("AST Statistics")
-                .entry("headings", self.stats.heading_count.to_string())
-                .entry("links", self.stats.link_count.to_string())
-                .entry("code_blocks", self.stats.code_block_count.to_string())
-                .entry("list_items", self.stats.list_item_count.to_string())
-                .entry("paragraphs", self.stats.paragraph_count.to_string()),
+                .entry("headings", ron_string(&self.stats.heading_count))
+                .entry("links", ron_string(&self.stats.link_count))
+                .entry("code_blocks", ron_string(&self.stats.code_block_count))
+                .entry("list_items", ron_string(&self.stats.list_item_count))
+                .entry("paragraphs", ron_string(&self.stats.paragraph_count)),
             DebugSection::new("View")
-                .entry("scroll_offset", self.scroll_offset.to_string())
-                .entry("max_scroll", self.max_scroll().to_string())
-                .entry("terminal_height", self.terminal_height.to_string()),
+                .entry("scroll_offset", ron_string(&self.scroll_offset))
+                .entry("max_scroll", ron_string(&self.max_scroll()))
+                .entry("terminal_height", ron_string(&self.terminal_height)),
             DebugSection::new("Search")
-                .entry("active", self.search.active.to_string())
-                .entry(
-                    "query",
-                    if self.search.query.is_empty() {
-                        "(none)"
-                    } else {
-                        &self.search.query
-                    },
-                )
-                .entry("matches", self.search.matches.len().to_string())
-                .entry("current", self.search.current_match.to_string()),
+                .entry("active", ron_string(&self.search.active))
+                .entry("query", ron_string(&query))
+                .entry("matches", ron_string(&self.search.matches.len()))
+                .entry("current", ron_string(&self.search.current_match)),
         ]
     }
 }

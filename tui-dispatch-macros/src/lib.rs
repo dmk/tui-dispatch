@@ -245,16 +245,30 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
             },
             syn::Fields::Unnamed(fields) => {
                 let field_count = fields.unnamed.len();
-                let field_names: Vec<_> = (0..field_count)
-                    .map(|i| format_ident!("_{}", i))
-                    .collect();
-                let format_str = (0..field_count).map(|_| "{:?}").collect::<Vec<_>>().join(", ");
-                quote! {
-                    #name::#variant_name(#(#field_names),*) => ::std::format!(#format_str, #(#field_names),*)
+                let field_names: Vec<_> =
+                    (0..field_count).map(|i| format_ident!("_{}", i)).collect();
+                if field_count == 1 {
+                    quote! {
+                        #name::#variant_name(#(#field_names),*) => {
+                            tui_dispatch::debug::ron_string(&#(#field_names),*)
+                        }
+                    }
+                } else {
+                    let parts = field_names.iter().map(|field| {
+                        quote! { tui_dispatch::debug::ron_string(&#field) }
+                    });
+                    quote! {
+                        #name::#variant_name(#(#field_names),*) => {
+                            let values = ::std::vec![#(#parts),*];
+                            format!("({})", values.join(", "))
+                        }
+                    }
                 }
-            },
+            }
             syn::Fields::Named(fields) => {
-                let field_names: Vec<_> = fields.named.iter()
+                let field_names: Vec<_> = fields
+                    .named
+                    .iter()
                     .filter_map(|f| f.ident.as_ref())
                     .collect();
                 if field_names.is_empty() {
@@ -262,15 +276,77 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                         #name::#variant_name { .. } => ::std::string::String::new()
                     }
                 } else {
-                    let format_str = field_names.iter()
-                        .map(|n| format!("{}: {{:?}}", n))
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    let parts = field_names.iter().map(|field| {
+                        let label = field.to_string();
+                        quote! {
+                            format!("{}: {}", #label, tui_dispatch::debug::ron_string(&#field))
+                        }
+                    });
                     quote! {
-                        #name::#variant_name { #(#field_names),*, .. } => ::std::format!(#format_str, #(#field_names),*)
+                        #name::#variant_name { #(#field_names),*, .. } => {
+                            let values = ::std::vec![#(#parts),*];
+                            format!("{{{}}}", values.join(", "))
+                        }
                     }
                 }
+            }
+        }
+    });
+
+    let params_pretty_arms = syn_variants.iter().map(|v| {
+        let variant_name = &v.ident;
+
+        match &v.fields {
+            syn::Fields::Unit => quote! {
+                #name::#variant_name => ::std::string::String::new()
             },
+            syn::Fields::Unnamed(fields) => {
+                let field_count = fields.unnamed.len();
+                let field_names: Vec<_> =
+                    (0..field_count).map(|i| format_ident!("_{}", i)).collect();
+                if field_count == 1 {
+                    quote! {
+                        #name::#variant_name(#(#field_names),*) => {
+                            tui_dispatch::debug::ron_string_pretty(&#(#field_names),*)
+                        }
+                    }
+                } else {
+                    let parts = field_names.iter().map(|field| {
+                        quote! { tui_dispatch::debug::ron_string_pretty(&#field) }
+                    });
+                    quote! {
+                        #name::#variant_name(#(#field_names),*) => {
+                            let values = ::std::vec![#(#parts),*];
+                            format!("({})", values.join(", "))
+                        }
+                    }
+                }
+            }
+            syn::Fields::Named(fields) => {
+                let field_names: Vec<_> = fields
+                    .named
+                    .iter()
+                    .filter_map(|f| f.ident.as_ref())
+                    .collect();
+                if field_names.is_empty() {
+                    quote! {
+                        #name::#variant_name { .. } => ::std::string::String::new()
+                    }
+                } else {
+                    let parts = field_names.iter().map(|field| {
+                        let label = field.to_string();
+                        quote! {
+                            format!("{}: {}", #label, tui_dispatch::debug::ron_string_pretty(&#field))
+                        }
+                    });
+                    quote! {
+                        #name::#variant_name { #(#field_names),*, .. } => {
+                            let values = ::std::vec![#(#parts),*];
+                            format!("{{{}}}", values.join(", "))
+                        }
+                    }
+                }
+            }
         }
     });
 
@@ -287,6 +363,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
             fn params(&self) -> ::std::string::String {
                 match self {
                     #(#params_arms),*
+                }
+            }
+
+            fn params_pretty(&self) -> ::std::string::String {
+                match self {
+                    #(#params_pretty_arms),*
                 }
             }
         }
@@ -798,7 +880,7 @@ pub fn derive_debug_state(input: TokenStream) -> TokenStream {
                     } else if field.debug_fmt {
                         quote! { format!("{:?}", self.#field_ident) }
                     } else {
-                        quote! { self.#field_ident.to_string() }
+                        quote! { tui_dispatch::debug::ron_string(&self.#field_ident) }
                     };
 
                     Some(quote! {

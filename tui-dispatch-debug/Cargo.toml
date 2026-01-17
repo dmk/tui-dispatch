@@ -1,0 +1,24 @@
+[package]
+name = "tui-dispatch-debug"
+description = "Debugging utilities for tui-dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+tasks = ["tui-dispatch-core/tasks"]
+subscriptions = ["tui-dispatch-core/subscriptions"]
+
+[dependencies]
+tui-dispatch-core = { workspace = true, features = ["debug"] }
+ratatui.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ron.workspace = true
+base64 = "0.22"

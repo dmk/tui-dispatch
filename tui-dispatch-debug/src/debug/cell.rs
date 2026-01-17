@@ -44,7 +44,7 @@ impl CellPreview {
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch_core::debug::inspect_cell;
+/// use tui_dispatch_debug::debug::inspect_cell;
 ///
 /// let preview = inspect_cell(&buffer, 10, 5);
 /// if let Some(cell) = preview {
@@ -80,7 +80,7 @@ pub fn point_in_rect(rect_x: u16, rect_y: u16, width: u16, height: u16, x: u16, 
 ///
 /// ```
 /// use ratatui::style::Color;
-/// use tui_dispatch_core::debug::format_color_compact;
+/// use tui_dispatch_debug::debug::format_color_compact;
 ///
 /// assert_eq!(format_color_compact(Color::Rgb(255, 128, 0)), "(255,128,0)");
 /// assert_eq!(format_color_compact(Color::Red), "Red");

@@ -15,6 +15,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
@@ -22,7 +23,8 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
-use tui_dispatch::{debug::DebugLayer, Action, DispatchRuntime, EventKind, RenderContext};
+use tui_dispatch::{Action, DispatchRuntime, EventKind, RenderContext};
+use tui_dispatch_debug::debug::DebugLayer;
 
 // ============================================================================
 // State - What the app knows

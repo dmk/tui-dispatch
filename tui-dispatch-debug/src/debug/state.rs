@@ -56,7 +56,7 @@ impl DebugSection {
 /// # Example
 ///
 /// ```
-/// use tui_dispatch_core::debug::{DebugState, DebugSection, DebugEntry};
+/// use tui_dispatch_debug::debug::{DebugState, DebugSection, DebugEntry};
 ///
 /// struct AppState {
 ///     host: String,
@@ -110,7 +110,7 @@ impl<T: std::fmt::Debug> DebugState for DebugWrapper<'_, T> {
 /// Use this when you want the fallback Debug-based rendering:
 ///
 /// ```
-/// use tui_dispatch_core::debug::{DebugState, DebugWrapper};
+/// use tui_dispatch_debug::debug::{DebugState, DebugWrapper};
 ///
 /// #[derive(Debug)]
 /// struct MyState { x: i32 }
@@ -169,9 +169,11 @@ mod tests {
 
     impl DebugState for TestState {
         fn debug_sections(&self) -> Vec<DebugSection> {
-            vec![DebugSection::new("Test")
-                .entry("name", &self.name)
-                .entry("count", self.count.to_string())]
+            vec![
+                DebugSection::new("Test")
+                    .entry("name", &self.name)
+                    .entry("count", self.count.to_string()),
+            ]
         }
     }
 

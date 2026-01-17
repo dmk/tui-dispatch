@@ -4,7 +4,7 @@
 //! modal content on top.
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget, Frame};
-use tui_dispatch_core::debug::dim_buffer;
+use tui_dispatch_debug::debug::dim_buffer;
 
 use crate::style::{BorderStyle, ComponentStyle, Padding};
 

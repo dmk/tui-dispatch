@@ -1,8 +1,8 @@
 //! Debug layer configuration
 
 use super::SimpleDebugContext;
-use crate::keybindings::{BindingContext, Keybindings};
 use ratatui::style::{Color, Modifier, Style};
+use tui_dispatch_core::keybindings::{BindingContext, Keybindings};
 
 // Neon color palette (matches memtui theme)
 const NEON_PURPLE: Color = Color::Rgb(160, 100, 220);
@@ -263,7 +263,7 @@ impl<C: BindingContext> DebugConfig<C> {
 /// # Example
 ///
 /// ```
-/// use tui_dispatch_core::debug::default_debug_keybindings;
+/// use tui_dispatch_debug::debug::default_debug_keybindings;
 ///
 /// let kb = default_debug_keybindings();
 /// ```
@@ -279,7 +279,7 @@ pub fn default_debug_keybindings() -> Keybindings<SimpleDebugContext> {
 /// # Example
 ///
 /// ```
-/// use tui_dispatch_core::debug::default_debug_keybindings_with_toggle;
+/// use tui_dispatch_debug::debug::default_debug_keybindings_with_toggle;
 ///
 /// // Use F11 instead of F12
 /// let kb = default_debug_keybindings_with_toggle(&["F11"]);

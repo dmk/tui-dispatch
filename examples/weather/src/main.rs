@@ -40,6 +40,8 @@ mod state;
 
 use std::cell::RefCell;
 use std::io;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Duration;
 
 use clap::Parser;
@@ -49,11 +51,12 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Frame, Terminal, backend::CrosstermBackend, layout::Rect};
-use tui_dispatch::debug::DebugLayer;
 use tui_dispatch::{
-    EffectContext, EffectRuntime, EffectStoreWithMiddleware, EventKind, EventOutcome,
-    RenderContext, TaskKey,
+    ComposedMiddleware, EffectContext, EffectRuntime, EffectStoreWithMiddleware, EventKind,
+    EventOutcome, Middleware, RenderContext, TaskKey,
 };
+use tui_dispatch_debug::debug::DebugLayer;
+use tui_dispatch_debug::snapshot::{ActionSnapshot, SnapshotError, StateSnapshot};
 
 use crate::action::Action;
 use crate::api::GeocodingError;
@@ -62,7 +65,7 @@ use crate::components::{
 };
 use crate::effect::Effect;
 use crate::reducer::reducer;
-use crate::state::{AppState, LOADING_ANIM_TICK_MS, Location};
+use crate::state::{AppState, LOADING_ANIM_TICK_MS};
 
 /// Weather TUI - tui-dispatch framework example
 #[derive(Parser, Debug)]
@@ -80,32 +83,66 @@ struct Args {
     /// Enable debug mode (F12 to toggle overlay)
     #[arg(long)]
     debug: bool,
+
+    /// Load initial state from a RON snapshot
+    #[arg(long)]
+    state_in: Option<PathBuf>,
+
+    /// Save final state to a RON snapshot
+    #[arg(long)]
+    state_out: Option<PathBuf>,
+
+    /// Load and replay actions from a RON snapshot
+    #[arg(long)]
+    actions_in: Option<PathBuf>,
+
+    /// Save dispatched actions to a RON snapshot
+    #[arg(long)]
+    actions_out: Option<PathBuf>,
 }
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    // Geocode city before entering TUI mode
-    let location = match api::geocode_city(&args.city).await {
-        Ok(loc) => loc,
-        Err(e) => {
-            match e {
-                GeocodingError::NotFound(city) => {
-                    eprintln!(
-                        "Error: City '{}' not found. Please check the spelling.",
-                        city
-                    );
-                    eprintln!("Examples: 'London', 'Tokyo', 'New York'");
+    let state = if let Some(state_path) = args.state_in.as_ref() {
+        StateSnapshot::load_ron(state_path)
+            .map_err(snapshot_error)?
+            .into_state()
+    } else {
+        // Geocode city before entering TUI mode
+        let location = match api::geocode_city(&args.city).await {
+            Ok(loc) => loc,
+            Err(e) => {
+                match e {
+                    GeocodingError::NotFound(city) => {
+                        eprintln!(
+                            "Error: City '{}' not found. Please check the spelling.",
+                            city
+                        );
+                        eprintln!("Examples: 'London', 'Tokyo', 'New York'");
+                    }
+                    GeocodingError::Request(e) => {
+                        eprintln!("Error: Could not connect to geocoding service.");
+                        eprintln!("Details: {}", e);
+                    }
                 }
-                GeocodingError::Request(e) => {
-                    eprintln!("Error: Could not connect to geocoding service.");
-                    eprintln!("Details: {}", e);
-                }
+                std::process::exit(1);
             }
-            std::process::exit(1);
-        }
+        };
+
+        AppState::new(location)
     };
+
+    let replay_actions = if let Some(actions_path) = args.actions_in.as_ref() {
+        ActionSnapshot::load_ron(actions_path)
+            .map_err(snapshot_error)?
+            .into_actions()
+    } else {
+        Vec::new()
+    };
+
+    let action_recorder = args.actions_out.as_ref().map(|_| ActionRecorder::default());
 
     // ===== Terminal setup =====
     enable_raw_mode()?;
@@ -115,7 +152,15 @@ async fn main() -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Run the app and capture result
-    let result = run_app(&mut terminal, location, args.refresh_interval, args.debug).await;
+    let result = run_app(
+        &mut terminal,
+        state,
+        args.refresh_interval,
+        args.debug,
+        replay_actions,
+        action_recorder.clone(),
+    )
+    .await;
 
     // ===== Cleanup =====
     disable_raw_mode()?;
@@ -126,7 +171,23 @@ async fn main() -> io::Result<()> {
     )?;
     terminal.show_cursor()?;
 
-    result
+    let final_state = result?;
+
+    if let Some(state_path) = args.state_out {
+        StateSnapshot::new(final_state.clone())
+            .save_ron(state_path)
+            .map_err(snapshot_error)?;
+    }
+
+    if let Some(actions_path) = args.actions_out {
+        if let Some(recorder) = action_recorder {
+            ActionSnapshot::new(recorder.actions())
+                .save_ron(actions_path)
+                .map_err(snapshot_error)?;
+        }
+    }
+
+    Ok(())
 }
 
 struct WeatherUi {
@@ -198,18 +259,44 @@ impl WeatherUi {
     }
 }
 
+#[derive(Clone, Default)]
+struct ActionRecorder {
+    actions: Rc<RefCell<Vec<Action>>>,
+}
+
+impl ActionRecorder {
+    fn actions(&self) -> Vec<Action> {
+        self.actions.borrow().clone()
+    }
+}
+
+impl Middleware<Action> for ActionRecorder {
+    fn before(&mut self, action: &Action) {
+        self.actions.borrow_mut().push(action.clone());
+    }
+
+    fn after(&mut self, _action: &Action, _state_changed: bool) {}
+}
+
+fn snapshot_error(error: SnapshotError) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, format!("snapshot error: {error:?}"))
+}
+
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
-    location: Location,
+    state: AppState,
     refresh_interval: u64,
     debug_enabled: bool,
-) -> io::Result<()> {
+    replay_actions: Vec<Action>,
+    action_recorder: Option<ActionRecorder>,
+) -> io::Result<AppState> {
+    let mut middleware = ComposedMiddleware::new();
+    if let Some(recorder) = action_recorder.clone() {
+        middleware.add(recorder);
+    }
+
     // EffectStore for state management
-    let store = EffectStoreWithMiddleware::new(
-        AppState::new(location),
-        reducer,
-        tui_dispatch::NoopMiddleware,
-    );
+    let store = EffectStoreWithMiddleware::new(state, reducer, middleware);
 
     // Debug layer for inspection (F12) - only active when --debug
     let debug = DebugLayer::simple().active(debug_enabled);
@@ -230,12 +317,16 @@ async fn run_app<B: ratatui::backend::Backend>(
             Action::WeatherFetch
         });
 
+    for action in replay_actions {
+        runtime.enqueue(action);
+    }
+
     // Auto-fetch weather on start
     runtime.enqueue(Action::WeatherFetch);
 
     let ui = RefCell::new(WeatherUi::new());
 
-    runtime
+    let result = runtime
         .run(
             terminal,
             |frame, area, state, render_ctx| {
@@ -245,7 +336,12 @@ async fn run_app<B: ratatui::backend::Backend>(
             |action| matches!(action, Action::Quit),
             handle_effect,
         )
-        .await
+        .await;
+
+    match result {
+        Ok(()) => Ok(runtime.state().clone()),
+        Err(err) => Err(err),
+    }
 }
 
 /// Handle effects by spawning tasks

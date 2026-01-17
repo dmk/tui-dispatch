@@ -24,6 +24,9 @@
 pub use tui_dispatch_core::reducer_compose;
 pub use tui_dispatch_core::*;
 
+// Debug utilities
+pub use tui_dispatch_debug::debug;
+
 // Re-export derive macros
 pub use tui_dispatch_macros::{Action, BindingContext, ComponentId, DebugState, FeatureFlags};
 
@@ -70,7 +73,7 @@ pub mod prelude {
     pub use tui_dispatch_core::{SubKey, Subscriptions};
 
     // Debug
-    pub use tui_dispatch_core::debug::{
+    pub use tui_dispatch_debug::debug::{
         ActionLoggerConfig, ActionLoggerMiddleware, DebugFreeze, DebugOverlay, DebugTableBuilder,
     };
 

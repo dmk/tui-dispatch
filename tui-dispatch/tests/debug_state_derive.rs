@@ -2,12 +2,13 @@
 
 #![allow(dead_code)]
 
+use serde::Serialize;
 use tui_dispatch::debug::DebugState;
 use tui_dispatch::DebugState;
 
 #[test]
 fn test_basic_derive() {
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct SimpleState {
         name: String,
         count: usize,
@@ -23,14 +24,14 @@ fn test_basic_derive() {
     assert_eq!(sections[0].title, "SimpleState");
     assert_eq!(sections[0].entries.len(), 2);
     assert_eq!(sections[0].entries[0].key, "name");
-    assert_eq!(sections[0].entries[0].value, "test");
+    assert_eq!(sections[0].entries[0].value, "\"test\"");
     assert_eq!(sections[0].entries[1].key, "count");
     assert_eq!(sections[0].entries[1].value, "42");
 }
 
 #[test]
 fn test_sections() {
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct AppState {
         #[debug(section = "Connection")]
         host: String,
@@ -54,7 +55,7 @@ fn test_sections() {
     assert_eq!(sections[0].title, "Connection");
     assert_eq!(sections[0].entries.len(), 2);
     assert_eq!(sections[0].entries[0].key, "host");
-    assert_eq!(sections[0].entries[0].value, "localhost");
+    assert_eq!(sections[0].entries[0].value, "\"localhost\"");
     assert_eq!(sections[0].entries[1].key, "port");
     assert_eq!(sections[0].entries[1].value, "8080");
 
@@ -67,7 +68,7 @@ fn test_sections() {
 
 #[test]
 fn test_skip() {
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct StateWithSkip {
         visible: String,
         #[debug(skip)]
@@ -83,11 +84,12 @@ fn test_skip() {
     assert_eq!(sections.len(), 1);
     assert_eq!(sections[0].entries.len(), 1);
     assert_eq!(sections[0].entries[0].key, "visible");
+    assert_eq!(sections[0].entries[0].value, "\"show\"");
 }
 
 #[test]
 fn test_custom_label() {
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct LabeledState {
         #[debug(label = "Server Host")]
         host: String,
@@ -99,16 +101,17 @@ fn test_custom_label() {
 
     let sections = state.debug_sections();
     assert_eq!(sections[0].entries[0].key, "Server Host");
+    assert_eq!(sections[0].entries[0].value, "\"example.com\"");
 }
 
 #[test]
 fn test_debug_fmt() {
-    #[derive(Debug)]
+    #[derive(Debug, Serialize)]
     enum Status {
         Connected,
     }
 
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct StateWithDebug {
         #[debug(debug_fmt)]
         status: Status,
@@ -124,12 +127,12 @@ fn test_debug_fmt() {
 
 #[test]
 fn test_combined_attributes() {
-    #[derive(Debug)]
+    #[derive(Debug, Serialize)]
     enum Level {
         High,
     }
 
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct CombinedState {
         #[debug(section = "Info", label = "Full Name")]
         name: String,
@@ -158,7 +161,7 @@ fn test_combined_attributes() {
     assert_eq!(sections[0].title, "Info");
     assert_eq!(sections[0].entries.len(), 2);
     assert_eq!(sections[0].entries[0].key, "Full Name");
-    assert_eq!(sections[0].entries[0].value, "Alice");
+    assert_eq!(sections[0].entries[0].value, "\"Alice\"");
     assert_eq!(sections[0].entries[1].key, "count");
 
     // Status section
@@ -169,7 +172,7 @@ fn test_combined_attributes() {
 
 #[test]
 fn test_build_debug_table() {
-    #[derive(DebugState)]
+    #[derive(DebugState, Serialize)]
     struct TableState {
         #[debug(section = "Data")]
         value: String,

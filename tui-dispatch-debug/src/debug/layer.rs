@@ -7,12 +7,13 @@ use std::io::Write;
 
 use base64::prelude::*;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
+use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
-use ratatui::Frame;
 
+use super::DebugFreeze;
 use super::action_logger::{ActionLog, ActionLogConfig};
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
@@ -20,15 +21,14 @@ use super::config::DebugStyle;
 use super::state::DebugState;
 use super::table::{ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay};
 use super::widgets::{
-    dim_buffer, paint_snapshot, ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner,
-    DebugTableWidget,
+    ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner, DebugTableWidget, RonSyntaxStyle,
+    dim_buffer, paint_snapshot, ron_spans,
 };
-use super::DebugFreeze;
+use tui_dispatch_core::Action;
 #[cfg(feature = "subscriptions")]
-use crate::subscriptions::SubPauseHandle;
+use tui_dispatch_core::subscriptions::SubPauseHandle;
 #[cfg(feature = "tasks")]
-use crate::tasks::TaskPauseHandle;
-use crate::Action;
+use tui_dispatch_core::tasks::TaskPauseHandle;
 
 /// Location of the debug banner relative to the app area.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +153,10 @@ pub struct DebugLayer<A> {
     table_scroll_offset: usize,
     /// Cached page size for table overlay scrolling
     table_page_size: usize,
+    /// Scroll offset for action detail modal
+    detail_scroll_offset: usize,
+    /// Cached page size for action detail scrolling
+    detail_page_size: usize,
     /// Handle to pause/resume task manager
     #[cfg(feature = "tasks")]
     task_handle: Option<TaskPauseHandle<A>>,
@@ -171,6 +175,7 @@ impl<A> std::fmt::Debug for DebugLayer<A> {
             .field("has_state_snapshot", &self.state_snapshot.is_some())
             .field("banner_position", &self.banner_position)
             .field("table_scroll_offset", &self.table_scroll_offset)
+            .field("detail_scroll_offset", &self.detail_scroll_offset)
             .field("queued_actions", &self.freeze.queued_actions.len())
             .finish()
     }
@@ -197,6 +202,8 @@ impl<A: Action> DebugLayer<A> {
             state_snapshot: None,
             table_scroll_offset: 0,
             table_page_size: 1,
+            detail_scroll_offset: 0,
+            detail_page_size: 1,
             #[cfg(feature = "tasks")]
             task_handle: None,
             #[cfg(feature = "subscriptions")]
@@ -233,7 +240,7 @@ impl<A: Action> DebugLayer<A> {
     /// When debug mode is enabled, the task manager will be paused.
     /// When disabled, queued actions will be returned.
     #[cfg(feature = "tasks")]
-    pub fn with_task_manager(mut self, tasks: &crate::tasks::TaskManager<A>) -> Self {
+    pub fn with_task_manager(mut self, tasks: &tui_dispatch_core::tasks::TaskManager<A>) -> Self {
         self.task_handle = Some(tasks.pause_handle());
         self
     }
@@ -242,7 +249,10 @@ impl<A: Action> DebugLayer<A> {
     ///
     /// When debug mode is enabled, subscriptions will be paused.
     #[cfg(feature = "subscriptions")]
-    pub fn with_subscriptions(mut self, subs: &crate::subscriptions::Subscriptions<A>) -> Self {
+    pub fn with_subscriptions(
+        mut self,
+        subs: &tui_dispatch_core::subscriptions::Subscriptions<A>,
+    ) -> Self {
         self.sub_handle = Some(subs.pause_handle());
         self
     }
@@ -317,7 +327,7 @@ impl<A: Action> DebugLayer<A> {
     /// Log an action to the action log.
     ///
     /// Call this when dispatching actions to record them for the debug overlay.
-    pub fn log_action<T: crate::ActionParams>(&mut self, action: &T) {
+    pub fn log_action<T: tui_dispatch_core::ActionParams>(&mut self, action: &T) {
         if self.active {
             self.action_log.log(action);
         }
@@ -420,19 +430,19 @@ impl<A: Action> DebugLayer<A> {
     /// }
     /// // Normal event handling
     /// ```
-    pub fn intercepts(&mut self, event: &crate::EventKind) -> bool {
+    pub fn intercepts(&mut self, event: &tui_dispatch_core::EventKind) -> bool {
         self.intercepts_with_effects(event).is_some()
     }
 
     /// Handle a debug event with a single call and return a summary outcome.
-    pub fn handle_event(&mut self, event: &crate::EventKind) -> DebugOutcome<A> {
+    pub fn handle_event(&mut self, event: &tui_dispatch_core::EventKind) -> DebugOutcome<A> {
         self.handle_event_internal::<()>(event, None)
     }
 
     /// Handle a debug event with access to state (for the state overlay).
     pub fn handle_event_with_state<S: DebugState>(
         &mut self,
-        event: &crate::EventKind,
+        event: &tui_dispatch_core::EventKind,
         state: &S,
     ) -> DebugOutcome<A> {
         self.handle_event_internal(event, Some(state))
@@ -443,7 +453,7 @@ impl<A: Action> DebugLayer<A> {
     /// Returns `None` if the event was not consumed, `Some(effects)` if it was.
     pub fn intercepts_with_effects(
         &mut self,
-        event: &crate::EventKind,
+        event: &tui_dispatch_core::EventKind,
     ) -> Option<Vec<DebugSideEffect<A>>> {
         self.intercepts_with_effects_internal::<()>(event, None)
     }
@@ -453,7 +463,7 @@ impl<A: Action> DebugLayer<A> {
     /// Use this to populate the state overlay when `S` is pressed.
     pub fn intercepts_with_effects_and_state<S: DebugState>(
         &mut self,
-        event: &crate::EventKind,
+        event: &tui_dispatch_core::EventKind,
         state: &S,
     ) -> Option<Vec<DebugSideEffect<A>>> {
         self.intercepts_with_effects_internal(event, Some(state))
@@ -462,7 +472,7 @@ impl<A: Action> DebugLayer<A> {
     /// Check if debug layer intercepts an event with access to app state.
     pub fn intercepts_with_state<S: DebugState>(
         &mut self,
-        event: &crate::EventKind,
+        event: &tui_dispatch_core::EventKind,
         state: &S,
     ) -> bool {
         self.intercepts_with_effects_internal(event, Some(state))
@@ -471,7 +481,7 @@ impl<A: Action> DebugLayer<A> {
 
     fn handle_event_internal<S: DebugState>(
         &mut self,
-        event: &crate::EventKind,
+        event: &tui_dispatch_core::EventKind,
         state: Option<&S>,
     ) -> DebugOutcome<A> {
         let effects = self.intercepts_with_effects_internal(event, state);
@@ -491,14 +501,14 @@ impl<A: Action> DebugLayer<A> {
 
     fn intercepts_with_effects_internal<S: DebugState>(
         &mut self,
-        event: &crate::EventKind,
+        event: &tui_dispatch_core::EventKind,
         state: Option<&S>,
     ) -> Option<Vec<DebugSideEffect<A>>> {
         if !self.active {
             return None;
         }
 
-        use crate::EventKind;
+        use tui_dispatch_core::EventKind;
 
         match event {
             EventKind::Key(key) => self.handle_key_event(*key, state),
@@ -544,6 +554,14 @@ impl<A: Action> DebugLayer<A> {
                             self.scroll_table_up();
                         } else {
                             self.scroll_table_down(table.rows.len());
+                        }
+                    }
+                    Some(DebugOverlay::ActionDetail(detail)) => {
+                        let params_lines = self.detail_params_lines(detail);
+                        if *delta > 0 {
+                            self.scroll_detail_up();
+                        } else {
+                            self.scroll_detail_down(params_lines.len());
                         }
                     }
                     _ => {}
@@ -659,6 +677,42 @@ impl<A: Action> DebugLayer<A> {
         self.table_scroll_offset = (self.table_scroll_offset + page_size).min(max_offset);
     }
 
+    fn detail_page_size_value(&self) -> usize {
+        self.detail_page_size.max(1)
+    }
+
+    fn detail_max_offset(&self, rows_len: usize) -> usize {
+        rows_len.saturating_sub(self.detail_page_size_value())
+    }
+
+    fn scroll_detail_up(&mut self) {
+        self.detail_scroll_offset = self.detail_scroll_offset.saturating_sub(1);
+    }
+
+    fn scroll_detail_down(&mut self, rows_len: usize) {
+        let max_offset = self.detail_max_offset(rows_len);
+        self.detail_scroll_offset = (self.detail_scroll_offset + 1).min(max_offset);
+    }
+
+    fn scroll_detail_to_top(&mut self) {
+        self.detail_scroll_offset = 0;
+    }
+
+    fn scroll_detail_to_bottom(&mut self, rows_len: usize) {
+        self.detail_scroll_offset = self.detail_max_offset(rows_len);
+    }
+
+    fn scroll_detail_page_up(&mut self) {
+        let page_size = self.detail_page_size_value();
+        self.detail_scroll_offset = self.detail_scroll_offset.saturating_sub(page_size);
+    }
+
+    fn scroll_detail_page_down(&mut self, rows_len: usize) {
+        let page_size = self.detail_page_size_value();
+        let max_offset = self.detail_max_offset(rows_len);
+        self.detail_scroll_offset = (self.detail_scroll_offset + page_size).min(max_offset);
+    }
+
     fn handle_table_scroll_key(&mut self, key: KeyCode, rows_len: usize) -> bool {
         match key {
             KeyCode::Char('j') | KeyCode::Down => {
@@ -683,6 +737,36 @@ impl<A: Action> DebugLayer<A> {
             }
             KeyCode::PageUp => {
                 self.scroll_table_page_up();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_detail_scroll_key(&mut self, key: KeyCode, rows_len: usize) -> bool {
+        match key {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.scroll_detail_down(rows_len);
+                true
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.scroll_detail_up();
+                true
+            }
+            KeyCode::Char('g') => {
+                self.scroll_detail_to_top();
+                true
+            }
+            KeyCode::Char('G') => {
+                self.scroll_detail_to_bottom(rows_len);
+                true
+            }
+            KeyCode::PageDown => {
+                self.scroll_detail_page_down(rows_len);
+                true
+            }
+            KeyCode::PageUp => {
+                self.scroll_detail_page_up();
                 true
             }
             _ => false,
@@ -777,10 +861,15 @@ impl<A: Action> DebugLayer<A> {
                     return Some(vec![]);
                 }
             }
-            Some(DebugOverlay::ActionDetail(_)) => {
+            Some(DebugOverlay::ActionDetail(detail)) => {
                 // Back to action log on Esc, Backspace, or Enter
                 if matches!(key.code, KeyCode::Esc | KeyCode::Backspace | KeyCode::Enter) {
                     self.handle_action(DebugAction::ActionLogBackToList);
+                    return Some(vec![]);
+                }
+
+                let params_lines = self.detail_params_lines(detail);
+                if self.handle_detail_scroll_key(key.code, params_lines.len()) {
                     return Some(vec![]);
                 }
             }
@@ -821,7 +910,22 @@ impl<A: Action> DebugLayer<A> {
             if all_queued.is_empty() {
                 None
             } else {
-                Some(DebugSideEffect::ProcessQueuedActions(all_queued))
+                // Enable: pause tasks/subs
+                #[cfg(feature = "tasks")]
+                if let Some(ref handle) = self.task_handle {
+                    handle.pause();
+                }
+                #[cfg(feature = "subscriptions")]
+                if let Some(ref handle) = self.sub_handle {
+                    handle.pause();
+                }
+                self.freeze.enable();
+                self.state_snapshot = None;
+                self.table_scroll_offset = 0;
+                self.table_page_size = 1;
+                self.detail_scroll_offset = 0;
+                self.detail_page_size = 1;
+                None
             }
         } else {
             // Enable: pause tasks/subs
@@ -918,6 +1022,8 @@ impl<A: Action> DebugLayer<A> {
             DebugAction::ActionLogShowDetail => {
                 if let Some(DebugOverlay::ActionLog(ref log)) = self.freeze.overlay {
                     if let Some(detail) = log.selected_detail() {
+                        self.detail_scroll_offset = 0;
+                        self.detail_page_size = 1;
                         self.freeze.set_overlay(DebugOverlay::ActionDetail(detail));
                     }
                 }
@@ -1049,10 +1155,10 @@ impl<A: Action> DebugLayer<A> {
 
     fn render_table_modal(&mut self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
         let modal_width = (app_area.width * 80 / 100)
-            .clamp(30, 120)
+            .clamp(40, 160)
             .min(app_area.width);
-        let modal_height = (app_area.height * 60 / 100)
-            .clamp(8, 40)
+        let modal_height = (app_area.height * 80 / 100)
+            .clamp(12, 50)
             .min(app_area.height);
 
         let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
@@ -1132,11 +1238,11 @@ impl<A: Action> DebugLayer<A> {
     }
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
-        let modal_width = (app_area.width * 90 / 100)
-            .clamp(40, 140)
+        let modal_width = (app_area.width * 80 / 100)
+            .clamp(40, 160)
             .min(app_area.width);
-        let modal_height = (app_area.height * 70 / 100)
-            .clamp(10, 50)
+        let modal_height = (app_area.height * 80 / 100)
+            .clamp(12, 50)
             .min(app_area.height);
 
         let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
@@ -1185,10 +1291,9 @@ impl<A: Action> DebugLayer<A> {
 
         if let Some(scrollbar_area) = scrollbar_area {
             let visible_rows = log_area.height.saturating_sub(1) as usize;
-            let scroll_offset = log.scroll_offset_for(visible_rows);
             let content_length = log.entries.len();
             let mut scrollbar_state = ScrollbarState::new(content_length)
-                .position(scroll_offset)
+                .position(log.selected)
                 .viewport_content_length(visible_rows);
             let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
@@ -1196,16 +1301,16 @@ impl<A: Action> DebugLayer<A> {
     }
 
     fn render_action_detail_modal(
-        &self,
+        &mut self,
         frame: &mut Frame,
         app_area: Rect,
         detail: &super::table::ActionDetailOverlay,
     ) {
         let modal_width = (app_area.width * 80 / 100)
-            .clamp(40, 120)
+            .clamp(40, 160)
             .min(app_area.width);
-        let modal_height = (app_area.height * 50 / 100)
-            .clamp(8, 30)
+        let modal_height = (app_area.height * 80 / 100)
+            .clamp(12, 50)
             .min(app_area.height);
 
         let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
@@ -1222,59 +1327,118 @@ impl<A: Action> DebugLayer<A> {
             .title(title)
             .style(self.style.banner_bg);
 
-        let inner = block.inner(modal_area);
+        let mut detail_area = block.inner(modal_area);
         frame.render_widget(block, modal_area);
 
-        // Build detail content
         use ratatui::text::{Line, Span};
         use ratatui::widgets::Paragraph;
 
         let label_style = Style::default().fg(DebugStyle::text_secondary());
         let value_style = Style::default().fg(DebugStyle::text_primary());
 
-        let mut lines = vec![
-            // Name
+        let header_lines = vec![
             Line::from(vec![
                 Span::styled("Name: ", label_style),
                 Span::styled(&detail.name, value_style),
             ]),
-            // Sequence
             Line::from(vec![
                 Span::styled("Sequence: ", label_style),
                 Span::styled(detail.sequence.to_string(), value_style),
             ]),
-            // Elapsed
             Line::from(vec![
                 Span::styled("Elapsed: ", label_style),
                 Span::styled(&detail.elapsed, value_style),
             ]),
-            // Empty line before params
             Line::from(""),
-            // Parameters header
             Line::from(Span::styled("Parameters:", label_style)),
         ];
 
-        // Parameters content (potentially multi-line)
-        if detail.params.is_empty() {
-            lines.push(Line::from(Span::styled("  (none)", value_style)));
-        } else {
-            for param_line in detail.params.lines() {
-                lines.push(Line::from(Span::styled(
-                    format!("  {}", param_line),
-                    value_style,
-                )));
-            }
+        let mut param_lines = self.detail_params_lines(detail);
+        if param_lines.is_empty() {
+            param_lines.push(Line::from(Span::styled("  (none)", value_style)));
         }
+        let param_lines_len = param_lines.len();
 
-        // Footer hint
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Press Enter/Esc/Backspace to go back",
-            label_style,
-        )));
+        let footer_lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Press Enter/Esc/Backspace to go back",
+                label_style,
+            )),
+        ];
+
+        let header_and_footer = header_lines.len() + footer_lines.len();
+        let available_params = detail_area.height.saturating_sub(header_and_footer as u16) as usize;
+
+        let show_scrollbar =
+            available_params > 0 && param_lines_len > available_params && detail_area.width > 11;
+        let scrollbar_area = if show_scrollbar {
+            let scrollbar_area = Rect {
+                x: detail_area.x + detail_area.width.saturating_sub(1),
+                width: 1,
+                ..detail_area
+            };
+            detail_area.width = detail_area.width.saturating_sub(1);
+            Some(Rect {
+                y: scrollbar_area.y.saturating_add(1),
+                height: scrollbar_area.height.saturating_sub(1),
+                ..scrollbar_area
+            })
+        } else {
+            None
+        };
+
+        self.detail_page_size = available_params.max(1);
+        let max_offset = param_lines_len.saturating_sub(available_params);
+        self.detail_scroll_offset = self.detail_scroll_offset.min(max_offset);
+
+        let params_start = self.detail_scroll_offset.min(param_lines_len);
+        let params_end = (params_start + available_params).min(param_lines_len);
+
+        let mut lines = Vec::new();
+        lines.extend(header_lines);
+        lines.extend(
+            param_lines
+                .into_iter()
+                .skip(params_start)
+                .take(params_end - params_start),
+        );
+        lines.extend(footer_lines);
 
         let paragraph = Paragraph::new(lines);
-        frame.render_widget(paragraph, inner);
+        frame.render_widget(paragraph, detail_area);
+
+        if let Some(scrollbar_area) = scrollbar_area {
+            let mut scrollbar_state = ScrollbarState::new(param_lines_len)
+                .position(self.detail_scroll_offset)
+                .viewport_content_length(self.detail_page_size_value());
+            let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        }
+    }
+
+    fn detail_params_lines(
+        &self,
+        detail: &super::table::ActionDetailOverlay,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        use ratatui::text::{Line, Span};
+
+        if detail.params.is_empty() {
+            return Vec::new();
+        }
+
+        let value_style = Style::default().fg(DebugStyle::text_primary());
+        let ron_style = RonSyntaxStyle::with_base(value_style);
+
+        detail
+            .params
+            .lines()
+            .map(|line| {
+                let mut spans = vec![Span::styled("  ", value_style)];
+                spans.extend(ron_spans(line, &ron_style));
+                Line::from(spans)
+            })
+            .collect()
     }
 
     fn build_inspect_overlay(&self, column: u16, row: u16, snapshot: &Buffer) -> DebugTableOverlay {
@@ -1320,7 +1484,7 @@ mod tests {
         Bar,
     }
 
-    impl crate::Action for TestAction {
+    impl tui_dispatch_core::Action for TestAction {
         fn name(&self) -> &'static str {
             match self {
                 TestAction::Foo => "Foo",
@@ -1329,7 +1493,7 @@ mod tests {
         }
     }
 
-    impl crate::ActionParams for TestAction {
+    impl tui_dispatch_core::ActionParams for TestAction {
         fn params(&self) -> String {
             String::new()
         }

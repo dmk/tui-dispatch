@@ -9,10 +9,14 @@ rust-version.workspace = true
 
 [features]
 default = []
-tasks = ["tui-dispatch-core/tasks"]
-subscriptions = ["tui-dispatch-core/subscriptions"]
+tasks = ["tui-dispatch-core/tasks", "tui-dispatch-debug/tasks"]
+subscriptions = ["tui-dispatch-core/subscriptions", "tui-dispatch-debug/subscriptions"]
 testing-time = ["tui-dispatch-core/testing-time"]
 
 [dependencies]
 tui-dispatch-core.workspace = true
+tui-dispatch-debug.workspace = true
 tui-dispatch-macros.workspace = true
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }

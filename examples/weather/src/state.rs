@@ -5,8 +5,10 @@
 //! - Only reducer can mutate state
 //! - Reducer returns `bool` indicating if re-render needed
 
+use serde::{Deserialize, Serialize};
+
 /// Weather data from Open-Meteo API
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WeatherData {
     pub temperature: f32,
     pub weather_code: u8, // WMO weather code
@@ -14,7 +16,7 @@ pub struct WeatherData {
 }
 
 /// A geographic location
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     pub name: String,
     pub lat: f64,
@@ -22,7 +24,7 @@ pub struct Location {
 }
 
 /// Temperature unit preference
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub enum TempUnit {
     #[default]
     Celsius,
@@ -50,7 +52,8 @@ pub const LOADING_ANIM_TICK_MS: u64 = 15;
 pub const LOADING_ANIM_CYCLE_TICKS: u32 = 60;
 
 /// Application state - everything the UI needs to render
-#[derive(Clone, Debug, tui_dispatch::DebugState)]
+#[derive(Clone, Debug, tui_dispatch::DebugState, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppState {
     // --- Core data (visible in debug) ---
     /// Single location (from geocoding)

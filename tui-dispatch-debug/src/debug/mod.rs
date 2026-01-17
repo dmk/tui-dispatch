@@ -11,7 +11,7 @@
 //! # Quick Start (Recommended)
 //!
 //! ```ignore
-//! use tui_dispatch_core::debug::DebugLayer;
+//! use tui_dispatch_debug::debug::DebugLayer;
 //!
 //! // Minimal setup with sensible defaults (F12 toggle key)
 //! let debug = DebugLayer::<MyAction>::simple().active(args.debug);
@@ -34,7 +34,7 @@
 //!
 //! ```ignore
 //! use crossterm::event::KeyCode;
-//! use tui_dispatch_core::debug::{BannerPosition, DebugLayer, DebugStyle};
+//! use tui_dispatch_debug::debug::{BannerPosition, DebugLayer, DebugStyle};
 //!
 //! let debug = DebugLayer::<MyAction>::new(KeyCode::F(11))
 //!     .with_banner_position(BannerPosition::Top)
@@ -83,7 +83,7 @@
 //! Use [`ActionLoggerMiddleware`] for pattern-based action filtering:
 //!
 //! ```
-//! use tui_dispatch_core::debug::ActionLoggerConfig;
+//! use tui_dispatch_debug::debug::ActionLoggerConfig;
 //!
 //! // Log only Search* and Connect* actions
 //! let config = ActionLoggerConfig::new(Some("Search*,Connect*"), None);
@@ -118,6 +118,7 @@ pub mod action_logger;
 pub mod actions;
 pub mod cell;
 pub mod config;
+pub mod format;
 pub mod layer;
 pub mod state;
 pub mod table;
@@ -128,33 +129,36 @@ pub mod widgets;
 // High-level API (recommended)
 pub use actions::{DebugAction, DebugSideEffect};
 pub use config::{
-    default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
-    KeyStyles, ScrollbarStyle, StatusItem,
+    DebugConfig, DebugStyle, KeyStyles, ScrollbarStyle, StatusItem, default_debug_keybindings,
+    default_debug_keybindings_with_toggle,
 };
 pub use layer::{BannerPosition, DebugLayer, DebugOutcome};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging
 pub use action_logger::{
-    glob_match, ActionLog, ActionLogConfig, ActionLogEntry, ActionLoggerConfig,
-    ActionLoggerMiddleware,
+    ActionLog, ActionLogConfig, ActionLogEntry, ActionLoggerConfig, ActionLoggerMiddleware,
+    glob_match,
 };
 
 // Low-level API
 pub use cell::{
-    format_color_compact, format_modifier_compact, inspect_cell, point_in_rect, CellPreview,
+    CellPreview, format_color_compact, format_modifier_compact, inspect_cell, point_in_rect,
 };
+pub use format::{ron_string, ron_string_compact, ron_string_pretty};
 pub use table::{
     ActionLogDisplayEntry, ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay,
     DebugTableRow,
 };
 pub use widgets::{
-    buffer_to_text, dim_buffer, paint_snapshot, ActionLogStyle, ActionLogWidget, BannerItem,
-    CellPreviewWidget, DebugBanner, DebugTableStyle, DebugTableWidget,
+    ActionLogStyle, ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner, DebugTableStyle,
+    DebugTableWidget, buffer_to_text, dim_buffer, paint_snapshot,
 };
 
-use crate::keybindings::BindingContext;
 use ratatui::buffer::Buffer;
+use tui_dispatch_core::keybindings::BindingContext;
+use tui_dispatch_core::runtime::{DebugAdapter, DebugHooks, RenderContext};
+use tui_dispatch_core::{Action, ActionParams};
 
 // ============================================================================
 // SimpleDebugContext - Built-in context for simple debug layer usage
@@ -169,7 +173,7 @@ use ratatui::buffer::Buffer;
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch_core::debug::default_debug_keybindings;
+/// use tui_dispatch_debug::debug::default_debug_keybindings;
 ///
 /// let keybindings = default_debug_keybindings();
 /// ```
@@ -210,7 +214,7 @@ impl BindingContext for SimpleDebugContext {
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch_core::debug::DebugFreeze;
+/// use tui_dispatch_debug::debug::DebugFreeze;
 ///
 /// // In your app state:
 /// struct AppState {
@@ -357,6 +361,56 @@ impl<A> DebugFreeze<A> {
     }
 }
 
+impl<S, A> DebugAdapter<S, A> for DebugLayer<A>
+where
+    S: DebugState,
+    A: Action + ActionParams,
+{
+    fn render(
+        &mut self,
+        frame: &mut ratatui::Frame,
+        state: &S,
+        render_ctx: RenderContext,
+        render_fn: &mut dyn FnMut(&mut ratatui::Frame, ratatui::layout::Rect, &S, RenderContext),
+    ) {
+        self.render_state(frame, state, |f, area| {
+            render_fn(f, area, state, render_ctx);
+        });
+    }
+
+    fn handle_event(
+        &mut self,
+        event: &tui_dispatch_core::EventKind,
+        state: &S,
+        action_tx: &tokio::sync::mpsc::UnboundedSender<A>,
+    ) -> Option<bool> {
+        self.handle_event_with_state(event, state)
+            .dispatch_queued(|action| {
+                let _ = action_tx.send(action);
+            })
+    }
+
+    fn log_action(&mut self, action: &A) {
+        DebugLayer::log_action(self, action);
+    }
+
+    fn is_enabled(&self) -> bool {
+        DebugLayer::is_enabled(self)
+    }
+}
+
+impl<A: Action> DebugHooks<A> for DebugLayer<A> {
+    #[cfg(feature = "tasks")]
+    fn with_task_manager(self, tasks: &tui_dispatch_core::tasks::TaskManager<A>) -> Self {
+        DebugLayer::with_task_manager(self, tasks)
+    }
+
+    #[cfg(feature = "subscriptions")]
+    fn with_subscriptions(self, subs: &tui_dispatch_core::subscriptions::Subscriptions<A>) -> Self {
+        DebugLayer::with_subscriptions(self, subs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_simple_debug_context_binding_context() {
-        use crate::keybindings::BindingContext;
+        use tui_dispatch_core::keybindings::BindingContext;
 
         // Test name()
         assert_eq!(SimpleDebugContext::Normal.name(), "normal");
