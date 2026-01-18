@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.5.3] - 2026-01-18
+
+Yeah it's me again. Messed up the publish CI. See [0.5.2](#052---2026-01-18)
+
 ## [0.5.2] - 2026-01-18
 
 New `tui-dispatch-debug` crate for LLM-friendly debugging and action replay.
@@ -65,7 +69,7 @@ New `tui-dispatch-components` crate with reusable UI components.
 - Improved `Component` trait API in core
 - Weather example updated to use new components crate
 
-## [0.4.0] - 2025-01-10
+## [0.4.0] - 2026-01-10
 
 Runtime helpers that eliminate event loop boilerplate.
 
@@ -78,15 +82,15 @@ Runtime helpers that eliminate event loop boilerplate.
 
 - All examples updated to use the new runtime helpers
 
-## [0.3.3] - 2025-01-04
+## [0.3.3] - 2026-01-04
 
 Fix some info in LICENSE and Cargo.toml.
 
-## [0.3.2] - 2025-01-04
+## [0.3.2] - 2026-01-04
 
 I'll stop messing up tags at some point, I promise. See changelog for [0.3.1](#031---2025-01-04).
 
-## [0.3.1] - 2025-01-04
+## [0.3.1] - 2026-01-04
 
 ### Added
 
@@ -99,7 +103,7 @@ I'll stop messing up tags at some point, I promise. See changelog for [0.3.1](#0
 
 - Debug table/action log scrollbar positions now use full content length
 
-## [0.3.0] - 2025-01-04
+## [0.3.0] - 2026-01-04
 
 Effects, TaskManager, and Subscriptions for declarative async handling.
 
@@ -128,7 +132,7 @@ Effects, TaskManager, and Subscriptions for declarative async handling.
 
 - Weather example now uses `EffectStore` with `TaskManager` and `Subscriptions`
 
-## [0.2.2] - 2025-01-01
+## [0.2.2] - 2026-01-01
 
 In-memory action logging with debug overlay integration.
 
@@ -148,7 +152,7 @@ In-memory action logging with debug overlay integration.
 - Weather example: full action logging integration
 - Weather example: `--refresh-interval` CLI arg for auto-refresh
 
-## [0.2.1] - 2025-01-01
+## [0.2.1] - 2026-01-01
 
 Runtime feature flags for toggling functionality at runtime.
 
@@ -161,7 +165,7 @@ Runtime feature flags for toggling functionality at runtime.
 - Feature flags documentation page
 - Feature flags example in markdown-preview (L/W/T toggles)
 
-## [0.2.0] - 2024-12-31
+## [0.2.0] - 2025-12-31
 
 Simplified debug layer setup and auto-derive for state inspection.
 
@@ -188,11 +192,11 @@ Simplified debug layer setup and auto-derive for state inspection.
 - `DebugTableStyle` defaults to neon theme
 - `CellPreviewWidget` uses neon styling by default
 
-## [0.1.1] - 2024-12-28
+## [0.1.1] - 2025-12-28
 
 Fix workspace dependency versions for crates.io publishing.
 
-## [0.1.0] - 2024-12-28 [YANKED]
+## [0.1.0] - 2025-12-28 [YANKED]
 
 Initial release - centralized state management for Rust TUI apps.
 
