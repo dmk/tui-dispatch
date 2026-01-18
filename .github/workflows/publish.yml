@@ -58,6 +58,22 @@ jobs:
       - name: Wait for crates.io index update
         run: sleep 30
 
+      - name: Publish tui-dispatch-components
+        run: cargo publish -p tui-dispatch-components
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      - name: Publish tui-dispatch-debug
+        run: cargo publish -p tui-dispatch-debug
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
       - name: Publish tui-dispatch
         run: cargo publish -p tui-dispatch
         env:
@@ -82,6 +98,8 @@ jobs:
 
           [tui-dispatch](https://crates.io/crates/tui-dispatch/$TAG_VERSION) ·
           [tui-dispatch-core](https://crates.io/crates/tui-dispatch-core/$TAG_VERSION) ·
-          [tui-dispatch-macros](https://crates.io/crates/tui-dispatch-macros/$TAG_VERSION)
+          [tui-dispatch-macros](https://crates.io/crates/tui-dispatch-macros/$TAG_VERSION) ·
+          [tui-dispatch-components](https://crates.io/crates/tui-dispatch-components/$TAG_VERSION) ·
+          [tui-dispatch-debug](https://crates.io/crates/tui-dispatch-debug/$TAG_VERSION)
           EOF
           )"
