@@ -4,56 +4,119 @@
 
 ## The Core Idea
 
-Components should be pure functions:
-- **State → UI**: Render based on current state
-- **Events → Actions**: Convert user input to state change requests
-
-State mutations happen in one place (reducers), making apps predictable and testable.
-
-## Architecture
+State mutations happen in one place (reducers), making apps predictable and testable:
 
 ```
-Terminal
-    │
-    ▼
-EventBus (poll + convert)
-    │
-    ▼ Event
-Component::handle_event()
-    │
-    ▼ Vec<Action>
-action_tx.send()
-    │
-    ├──────────────────────┐
-    ▼                      ▼
-Sync Handlers         Async Handlers
-(state mutation)      (spawn task)
-    │                      │
-    ▼                      │ Did* action
-State                      │
-    │◀─────────────────────┘
-    ▼
-Component::render(state)
+Event → Action → Reducer → State Change → Render
 ```
 
-## Key Concepts
+1. Terminal events (keypresses, mouse clicks) are converted to **actions**
+2. Actions are dispatched to the **store**
+3. The **reducer** updates state based on the action
+4. The UI re-renders with the new state
 
-| Concept | Description |
-|---------|-------------|
-| **Action** | A description of a state change (e.g., `NextItem`, `DidLoadData`) |
-| **Store** | Holds the application state and dispatches actions |
-| **Reducer** | A pure function `(state, action) → state` that performs mutations |
-| **Component** | Handles events and renders UI, but never mutates state directly |
-| **EventBus** | Polls terminal events and routes them to components |
+## When to Use tui-dispatch
+
+**Good fit:**
+- Apps with shared state across multiple UI components
+- Apps with async operations (API calls, file I/O)
+- Apps where you want clear separation between UI and logic
+- Apps that need debugging tools (action logging, state inspection)
+
+**Overkill for:**
+- Simple single-screen apps with minimal state
+- Apps where state is naturally local to each widget
+
+## Two Modes of Operation
+
+### Simple Mode (bool reducer)
+
+For apps without async side effects. The reducer returns `true` if state changed:
+
+```rust
+fn reducer(state: &mut AppState, action: AppAction) -> bool {
+    match action {
+        AppAction::Increment => { state.count += 1; true }
+        AppAction::Quit => false,
+    }
+}
+```
+
+Use `DispatchRuntime` or `Store` directly. See the [Counter example](./examples/counter.md).
+
+### Effect Mode (DispatchResult reducer)
+
+For apps with async operations. The reducer returns state change status AND effects to execute:
+
+```rust
+fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
+    match action {
+        AppAction::Fetch => {
+            state.is_loading = true;
+            DispatchResult::changed_with(Effect::FetchData)
+        }
+        AppAction::DidLoad(data) => {
+            state.data = Some(data);
+            state.is_loading = false;
+            DispatchResult::changed()
+        }
+    }
+}
+```
+
+Use `EffectRuntime` or `EffectStore`. See the [Weather example](./examples/weather.md).
+
+## Data Flow
+
+```
+Terminal Input
+      │
+      ▼
+map_event(event) ──► Action
+                        │
+                        ▼
+                 store.dispatch(action)
+                        │
+                        ▼
+                 reducer(state, action)
+                        │
+                        ▼
+            ┌───────────┴───────────┐
+            │                       │
+            ▼                       ▼
+     state changed?          effects to run?
+            │                       │
+            ▼                       ▼
+        render()              handle_effect()
+                                    │
+                                    ▼
+                            spawn async task
+                                    │
+                                    ▼
+                         action_tx.send(DidAction)
+                                    │
+                                    └──► back to dispatch
+```
 
 ## Crate Structure
 
 ```
 tui-dispatch/
-├── tui-dispatch-core/   # Core traits: Action, Component, Event, EventBus
-├── tui-dispatch-macros/ # #[derive(Action, ComponentId, BindingContext)]
-└── tui-dispatch/        # Re-exports + prelude
+├── tui-dispatch/        # Re-exports + prelude
+├── tui-dispatch-core/   # Core: Store, EffectStore, Runtime, Component
+└── tui-dispatch-macros/ # #[derive(Action)], #[derive(DebugState)]
 ```
+
+Optional companion crate:
+```
+tui-dispatch-components/ # Reusable UI components: SelectList, TextInput, etc.
+```
+
+## Next Steps
+
+- **New to tui-dispatch?** Start with [Getting Started](./getting-started.md)
+- **Need terminology?** Check the [Glossary](./glossary.md)
+- **Want to see code?** Browse the [Examples](./examples/README.md)
 
 ## Real-World Usage
 

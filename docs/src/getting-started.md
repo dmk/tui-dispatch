@@ -10,24 +10,20 @@ tui-dispatch = "0.2"
 ratatui = "0.29"
 crossterm = "0.28"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tokio-util = "0.7"
 ```
 
-## Minimal Example
+## Choose Your Pattern
 
-The counter example (~80 lines) shows the core pattern:
+| Need async operations? | Pattern | Example |
+|------------------------|---------|---------|
+| No | Simple (`bool` reducer) | [Counter](./examples/counter.md) |
+| Yes | Effect (`DispatchResult` reducer) | [Weather](./examples/weather.md) |
 
-```bash
-cargo run -p counter
-```
+## Simple Pattern (No Async)
 
-The pattern is simple:
+Best for apps without API calls or background tasks.
 
-```
-Event → Action → Store.dispatch() → reducer() → state change → render
-```
-
-### 1. State - What the app knows
+### 1. Define State
 
 ```rust
 #[derive(Default)]
@@ -36,153 +32,224 @@ struct AppState {
 }
 ```
 
-### 2. Actions - What can happen
+### 2. Define Actions
+
+```rust
+use tui_dispatch::prelude::*;
+
+#[derive(Clone, Debug, Action)]
+enum AppAction {
+    Increment,
+    Decrement,
+    Quit,
+}
+```
+
+### 3. Write Reducer
+
+The reducer returns `true` if state changed (triggering a re-render):
+
+```rust
+fn reducer(state: &mut AppState, action: AppAction) -> bool {
+    match action {
+        AppAction::Increment => { state.count += 1; true }
+        AppAction::Decrement => { state.count -= 1; true }
+        AppAction::Quit => false, // returning false won't trigger render
+    }
+}
+```
+
+### 4. Map Events to Actions
+
+```rust
+fn map_event(event: &Event, _state: &AppState) -> EventOutcome<AppAction> {
+    if let EventKind::Key(key) = &event.kind {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => EventOutcome::Action(AppAction::Increment),
+            KeyCode::Down | KeyCode::Char('j') => EventOutcome::Action(AppAction::Decrement),
+            KeyCode::Char('q') => EventOutcome::Action(AppAction::Quit),
+            _ => EventOutcome::Ignore,
+        }
+    } else {
+        EventOutcome::Ignore
+    }
+}
+```
+
+### 5. Run with DispatchRuntime
+
+```rust
+use tui_dispatch::prelude::*;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let terminal = ratatui::init();
+
+    DispatchRuntime::new(AppState::default(), reducer)
+        .run(
+            terminal,
+            render_app,
+            map_event,
+            |action| matches!(action, AppAction::Quit),
+        )
+        .await?;
+
+    ratatui::restore();
+    Ok(())
+}
+
+fn render_app(frame: &mut Frame, area: Rect, state: &AppState, _ctx: RenderContext) {
+    let text = format!("Count: {}", state.count);
+    frame.render_widget(Paragraph::new(text).centered(), area);
+}
+```
+
+## Effect Pattern (With Async)
+
+Best for apps with API calls, file I/O, or other side effects.
+
+### 1. Define Effects
+
+```rust
+enum Effect {
+    FetchData,
+    SaveFile(PathBuf),
+}
+```
+
+### 2. Write Effect Reducer
+
+Returns `DispatchResult<Effect>` instead of `bool`:
+
+```rust
+fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
+    match action {
+        AppAction::Fetch => {
+            state.is_loading = true;
+            DispatchResult::changed_with(Effect::FetchData)
+        }
+        AppAction::DidLoad(data) => {
+            state.data = Some(data);
+            state.is_loading = false;
+            DispatchResult::changed()
+        }
+        AppAction::DidError(err) => {
+            state.error = Some(err);
+            state.is_loading = false;
+            DispatchResult::changed()
+        }
+        _ => DispatchResult::unchanged(),
+    }
+}
+```
+
+### 3. Handle Effects
+
+```rust
+async fn handle_effect(
+    effect: Effect,
+    ctx: EffectContext<'_, AppAction>,
+) {
+    match effect {
+        Effect::FetchData => {
+            let tx = ctx.action_tx().clone();
+            tokio::spawn(async move {
+                match api::fetch().await {
+                    Ok(data) => tx.send(AppAction::DidLoad(data)).ok(),
+                    Err(e) => tx.send(AppAction::DidError(e.to_string())).ok(),
+                };
+            });
+        }
+        Effect::SaveFile(path) => {
+            // sync effect - no need to spawn
+            std::fs::write(&path, "data").ok();
+        }
+    }
+}
+```
+
+### 4. Run with EffectRuntime
+
+```rust
+EffectRuntime::new(AppState::default(), reducer)
+    .run(
+        terminal,
+        render_app,
+        map_event,
+        |action| matches!(action, AppAction::Quit),
+        handle_effect,
+    )
+    .await?;
+```
+
+## DispatchResult Methods
+
+| Method | State Changed | Effects |
+|--------|---------------|---------|
+| `unchanged()` | No | None |
+| `changed()` | Yes | None |
+| `effect(e)` | No | One |
+| `changed_with(e)` | Yes | One |
+| `changed_with_many(v)` | Yes | Multiple |
+
+## Adding Debug Mode
+
+Add `--debug` CLI flag support:
+
+```rust
+use tui_dispatch::debug::DebugLayer;
+
+DispatchRuntime::new(AppState::default(), reducer)
+    .with_debug(DebugLayer::simple().active(args.debug))
+    .run(...)
+```
+
+Press `F12` to toggle debug overlay when active.
+
+## Action Categories (Optional)
+
+Use `#[action(infer_categories)]` to auto-group actions by name prefix:
 
 ```rust
 #[derive(Clone, Debug, Action)]
 #[action(infer_categories)]
 enum AppAction {
-    CountIncrement,
-    CountDecrement,
-    Quit,
+    SearchStart,      // category: "search"
+    SearchClear,      // category: "search"
+    DidLoadData,      // category: "async_result"
+    Quit,             // no category
 }
 ```
 
-### 3. Reducer - How state changes
+This enables:
+- `action.category()` - returns `Option<&str>`
+- `action.is_search()` - returns `true` for `Search*` variants
+- `reducer_compose!` macro for routing by category
+
+**When to use:** Large apps with many actions that benefit from grouped handling. Skip for simple apps.
+
+## Testing
+
+Use test harnesses for integrated testing:
 
 ```rust
-fn reducer(state: &mut AppState, action: AppAction) -> bool {
-    match action {
-        AppAction::CountIncrement => { state.count += 1; true }
-        AppAction::CountDecrement => { state.count -= 1; true }
-        AppAction::Quit => false,
-    }
-}
-```
+use tui_dispatch::testing::{StoreTestHarness, EffectStoreTestHarness};
 
-### 4. Store - Where state lives
+// Simple reducer
+let mut harness = StoreTestHarness::new(AppState::default(), reducer);
+harness.dispatch(AppAction::Increment);
+assert_eq!(harness.state().count, 1);
 
-```rust
-let mut store = Store::new(AppState::default(), reducer);
-
-// In event loop:
-let state_changed = store.dispatch(action);
-if state_changed { /* render */ }
-```
-
-### 5. Main loop - Event → Action → Dispatch → Render
-
-```rust
-// Map events to actions
-if let EventKind::Key(key) = event {
-    let action = match key.code {
-        KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
-        KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
-        KeyCode::Char('q') => Some(AppAction::Quit),
-        _ => None,
-    };
-    if let Some(a) = action {
-        action_tx.send(a);
-    }
-}
-```
-
-## Action Categories
-
-Use `#[action(infer_categories)]` to auto-categorize actions by prefix:
-
-```rust
-#[derive(Action, Clone, Debug)]
-#[action(infer_categories)]
-enum Action {
-    // Category: "search"
-    SearchStart,
-    SearchAddChar(char),
-    SearchClear,
-
-    // Category: "async_result" (Did* prefix)
-    DidConnect(String),
-    DidLoadData(Vec<Data>),
-
-    // Uncategorized
-    Quit,
-}
-```
-
-Generated methods:
-- `action.name()` - variant name as string
-- `action.category()` - inferred category
-- `action.is_search()` - true for Search* variants
-- `action.is_async_result()` - true for Did* variants
-
-## Async Pattern
-
-Split async work into intent + result actions:
-
-```rust
-// Intent action triggers async work
-Action::DataFetch { id } => {
-    let tx = action_tx.clone();
-    tokio::spawn(async move {
-        match api_call().await {
-            Ok(data) => tx.send(Action::DidLoadData { id, data }),
-            Err(e) => tx.send(Action::DidError { id, error: e.to_string() }),
-        }
-    });
-}
-
-// Result action updates state (in reducer)
-Action::DidLoadData { id, data } => {
-    state.data.insert(id, data);
-    true
-}
-```
-
-## Debug Mode
-
-Add debug overlay with zero overhead when disabled:
-
-```rust
-// CLI flag
-#[arg(long)]
-debug: bool,
-
-// Setup (only active when --debug passed)
-let mut debug = DebugLayer::<Action>::simple().active(args.debug);
-
-// In event loop - handles F12 toggle, overlays, etc.
-if debug.intercepts(&event) {
-    continue;
-}
-
-// In render
-debug.render_state(frame, &state, |f, area| render_app(f, area, state));
-```
-
-## Testing Helpers
-
-Use the harnesses in `tui_dispatch::testing` to combine state, effects, and rendering:
-
-```rust
-use tui_dispatch::testing::{EffectAssertions, EffectStoreTestHarness};
-
+// Effect reducer
 let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
-
-harness.dispatch_collect(Action::WeatherFetch);
-let effects = harness.drain_effects();
-effects.effects_count(1);
-
-let output = harness.render_plain(60, 20, |f, area, state| {
-    component.render(f, area, Props { state });
-});
-assert!(output.contains("expected text"));
+harness.dispatch(AppAction::Fetch);
+assert!(harness.state().is_loading);
+assert_eq!(harness.drain_effects().len(), 1);
 ```
-
-Use `StoreTestHarness` for bool reducers without effects.
 
 ## Next Steps
 
-Check out the [examples](./examples/README.md):
-- [Counter](./examples/counter.md) - minimal example (~80 lines)
-- [Weather](./examples/weather.md) - async API calls, middleware
-- [Markdown Preview](./examples/markdown-preview.md) - debug overlay, feature flags
+- [Async Patterns](./async.md) - TaskManager, Subscriptions, debouncing
+- [Pre-built Components](./components.md) - SelectList, TextInput, Modal
+- [Debug Layer](./debug-layer.md) - State inspection, action logging
+- [Examples](./examples/README.md) - Full working apps

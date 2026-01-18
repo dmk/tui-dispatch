@@ -2,19 +2,17 @@
 
 [Introduction](./introduction.md)
 
+# Core Concepts
+
+- [Glossary](./glossary.md)
+- [Getting Started](./getting-started.md)
+
 # User Guide
 
-- [Getting Started](./getting-started.md)
-- [Pre-built Components](./components.md)
 - [Async Patterns](./async.md)
+- [Pre-built Components](./components.md)
 - [Debug Layer](./debug-layer.md)
 - [Feature Flags](./feature-flags.md)
-- [Reducing Boilerplate](./boilerplate-reduction.md)
-
-# Future
-
-- [Ideas](./ideas.md)
-- [Architectural Additions](./architecture-additions.md)
 
 # Examples
 
@@ -22,3 +20,7 @@
 - [Counter](./examples/counter.md)
 - [Weather](./examples/weather.md)
 - [Markdown Preview](./examples/markdown-preview.md)
+
+# Future
+
+- [Ideas](./ideas.md)
