@@ -1,5 +1,6 @@
 use crate::cli::DebugCliArgs;
-use crate::debug::{ActionLoggerConfig, DebugLayer, DebugState};
+use crate::debug::{glob_match, ActionLoggerConfig, DebugLayer, DebugState};
+use crate::replay::ReplayItem;
 use crate::snapshot::{ActionSnapshot, SnapshotError, StateSnapshot};
 use ratatui::backend::{Backend, TestBackend};
 use ratatui::layout::{Rect, Size};
@@ -129,6 +130,71 @@ impl fmt::Display for DebugSessionError {
 
 impl std::error::Error for DebugSessionError {}
 
+/// Error from replay with await markers.
+#[derive(Debug)]
+pub enum ReplayError {
+    /// Timeout waiting for action to be dispatched.
+    Timeout { pattern: String },
+    /// Broadcast channel closed unexpectedly.
+    ChannelClosed,
+}
+
+impl fmt::Display for ReplayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Timeout { pattern } => {
+                write!(f, "timeout waiting for action matching '{pattern}'")
+            }
+            Self::ChannelClosed => write!(f, "action broadcast channel closed"),
+        }
+    }
+}
+
+impl std::error::Error for ReplayError {}
+
+/// Wait for an action matching one of the patterns to be dispatched.
+async fn wait_for_action(
+    action_rx: &mut tokio::sync::broadcast::Receiver<String>,
+    patterns: &[String],
+    timeout: Duration,
+) -> Result<(), ReplayError> {
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(ReplayError::Timeout {
+                pattern: patterns.join(" | "),
+            });
+        }
+
+        match tokio::time::timeout(remaining, action_rx.recv()).await {
+            Ok(Ok(action_name)) => {
+                // Check if any pattern matches
+                for pattern in patterns {
+                    if glob_match(pattern, &action_name) {
+                        return Ok(());
+                    }
+                }
+                // Not a match, keep waiting
+            }
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
+                return Err(ReplayError::ChannelClosed);
+            }
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => {
+                // Missed some messages, but keep waiting
+                continue;
+            }
+            Err(_) => {
+                // Timeout
+                return Err(ReplayError::Timeout {
+                    pattern: patterns.join(" | "),
+                });
+            }
+        }
+    }
+}
+
 /// Helper for wiring debug CLI flags into an app runtime.
 #[derive(Debug)]
 pub struct DebugSession {
@@ -150,10 +216,6 @@ impl DebugSession {
 
     pub fn render_once(&self) -> bool {
         self.args.render_once
-    }
-
-    pub fn render_wait(&self) -> u64 {
-        self.args.render_wait
     }
 
     pub fn use_alt_screen(&self) -> bool {
@@ -207,17 +269,44 @@ impl DebugSession {
         self.load_state_or_else(|| Ok::<S, std::convert::Infallible>(fallback()))
     }
 
+    /// Load replay items from `--debug-actions-in`.
+    ///
+    /// This auto-detects the format: either a simple `Vec<A>` or `Vec<ReplayItem<A>>`.
+    /// Both formats are supported for backwards compatibility.
+    pub fn load_replay_items<A>(&self) -> DebugSessionResult<Vec<ReplayItem<A>>>
+    where
+        A: DeserializeOwned,
+    {
+        let Some(path) = self.args.actions_in.as_ref() else {
+            return Ok(Vec::new());
+        };
+
+        let contents =
+            std::fs::read_to_string(path).map_err(|e| DebugSessionError::Snapshot(e.into()))?;
+
+        // Try parsing as Vec<ReplayItem<A>> first (supports await markers)
+        if let Ok(items) = serde_json::from_str::<Vec<ReplayItem<A>>>(&contents) {
+            return Ok(items);
+        }
+
+        // Fall back to Vec<A> (simple action list, wrap in ReplayItem::Action)
+        let actions: Vec<A> = serde_json::from_str(&contents)
+            .map_err(|e| DebugSessionError::Snapshot(SnapshotError::Json(e)))?;
+        Ok(actions.into_iter().map(ReplayItem::Action).collect())
+    }
+
+    /// Load actions from `--debug-actions-in` (legacy API, ignores await markers).
+    #[deprecated(note = "Use load_replay_items instead")]
     pub fn load_actions<A>(&self) -> DebugSessionResult<Vec<A>>
     where
         A: DeserializeOwned,
     {
-        if let Some(path) = self.args.actions_in.as_ref() {
-            ActionSnapshot::load_json(path)
-                .map(|snapshot| snapshot.into_actions())
-                .map_err(DebugSessionError::Snapshot)
-        } else {
-            Ok(Vec::new())
-        }
+        self.load_replay_items().map(|items| {
+            items
+                .into_iter()
+                .filter_map(|item| item.into_action())
+                .collect()
+        })
     }
 
     pub fn action_recorder<A: Action>(&self) -> Option<DebugActionRecorder<A>> {
@@ -271,17 +360,27 @@ impl DebugSession {
         }
     }
 
-    /// Save JSON schema for the action type if `--debug-actions-schema-out` was set.
+    /// Save JSON schema for replay items (actions + await markers).
+    ///
+    /// This generates a schema for `Vec<ReplayItem<A>>` which includes:
+    /// - All action variants from `A`
+    /// - `_await` and `_await_any` markers for async coordination
+    /// - An `$defs.awaitable_actions` list of Did* action names
     #[cfg(feature = "json-schema")]
     pub fn save_actions_schema<A>(&self) -> DebugSessionResult<()>
     where
         A: crate::JsonSchema,
     {
         if let Some(path) = self.args.actions_schema_out.as_ref() {
-            crate::save_schema::<A, _>(path).map_err(DebugSessionError::Snapshot)
+            crate::save_replay_schema::<A, _>(path).map_err(DebugSessionError::Snapshot)
         } else {
             Ok(())
         }
+    }
+
+    /// Get the replay timeout duration from CLI args.
+    pub fn replay_timeout(&self) -> Duration {
+        Duration::from_secs(self.args.replay_timeout)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -290,9 +389,9 @@ impl DebugSession {
         terminal: &mut Terminal<B>,
         mut store: St,
         debug_layer: DebugLayer<A>,
-        replay_actions: Vec<A>,
+        replay_items: Vec<ReplayItem<A>>,
         auto_action: Option<A>,
-        render_wait_quit_action: Option<A>,
+        quit_action: Option<A>,
         init_runtime: FInit,
         mut render: FRender,
         mut map_event: FEvent,
@@ -316,31 +415,64 @@ impl DebugSession {
         let height = size.height.max(1);
         let auto_action = auto_action;
 
+        // Check if replay items contain any await markers
+        let has_awaits = replay_items.iter().any(|item| item.is_await());
+        let replay_timeout = self.replay_timeout();
+
         if self.args.render_once {
-            let final_state = if self.args.render_wait > 0 {
-                let mut runtime = EffectRuntime::from_store(store);
+            let final_state = if has_awaits {
+                // Need runtime for effects when replay has await markers
+                let runtime = EffectRuntime::from_store(store);
+                let mut action_rx = runtime.subscribe_actions();
+                let action_tx = runtime.action_tx();
+
+                // Spawn replay task that processes items with await support
+                let replay_items_clone = replay_items;
+                let auto_action_clone = auto_action.clone();
+                let auto_fetch = self.auto_fetch();
+                let replay_handle = tokio::spawn(async move {
+                    for item in replay_items_clone {
+                        match item {
+                            ReplayItem::Action(action) => {
+                                let _ = action_tx.send(action);
+                            }
+                            ReplayItem::AwaitOne { _await: pattern } => {
+                                wait_for_action(&mut action_rx, &[pattern], replay_timeout).await?;
+                            }
+                            ReplayItem::AwaitAny {
+                                _await_any: patterns,
+                            } => {
+                                wait_for_action(&mut action_rx, &patterns, replay_timeout).await?;
+                            }
+                        }
+                    }
+                    if auto_fetch {
+                        if let Some(action) = auto_action_clone {
+                            let _ = action_tx.send(action);
+                        }
+                    }
+                    Ok::<(), ReplayError>(())
+                });
+
+                let mut runtime = runtime;
                 init_runtime(&mut runtime);
 
-                for action in replay_actions {
-                    runtime.enqueue(action);
-                }
-                if self.auto_fetch() {
-                    if let Some(action) = auto_action.clone() {
-                        runtime.enqueue(action);
-                    }
-                }
-
-                let Some(quit_action) = render_wait_quit_action else {
-                    return Err(io::Error::new(
+                let quit_action = quit_action.ok_or_else(|| {
+                    io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "debug render wait requires a quit action",
-                    ));
-                };
-                let wait = self.args.render_wait;
+                        "replay with await markers requires a quit action",
+                    )
+                })?;
+
+                // Send quit after replay completes
                 let action_tx = runtime.action_tx();
+                let quit = quit_action.clone();
                 tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(wait)).await;
-                    let _ = action_tx.send(quit_action);
+                    // Wait for replay to complete
+                    let _ = replay_handle.await;
+                    // Small delay to let final effects settle
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let _ = action_tx.send(quit);
                 });
 
                 let backend = TestBackend::new(width, height);
@@ -357,8 +489,11 @@ impl DebugSession {
 
                 runtime.state().clone()
             } else {
-                for action in replay_actions {
-                    let _ = store.dispatch(action);
+                // Simple dispatch mode (no effects, ignores awaits)
+                for item in replay_items {
+                    if let ReplayItem::Action(action) = item {
+                        let _ = store.dispatch(action);
+                    }
                 }
                 if self.auto_fetch() {
                     if let Some(action) = auto_action.clone() {
@@ -376,14 +511,17 @@ impl DebugSession {
             return Ok(DebugRunOutput::new(final_state, Some(output)));
         }
 
+        // Normal interactive mode - just enqueue actions (ignore awaits)
         let debug_layer = debug_layer
             .with_state_snapshots::<S>()
             .active(self.args.enabled);
         let mut runtime = EffectRuntime::from_store(store).with_debug(debug_layer);
         init_runtime(&mut runtime);
 
-        for action in replay_actions {
-            runtime.enqueue(action);
+        for item in replay_items {
+            if let ReplayItem::Action(action) = item {
+                runtime.enqueue(action);
+            }
         }
         if self.auto_fetch() {
             if let Some(action) = auto_action {

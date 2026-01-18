@@ -15,10 +15,6 @@ pub struct DebugCliArgs {
     #[arg(long = "debug-render-once")]
     pub render_once: bool,
 
-    /// Wait N seconds before rendering once (lets async effects finish)
-    #[arg(long = "debug-render-wait", default_value_t = 0)]
-    pub render_wait: u64,
-
     /// Load initial state from a JSON snapshot
     #[arg(long = "debug-state-in")]
     pub state_in: Option<PathBuf>,
@@ -46,6 +42,10 @@ pub struct DebugCliArgs {
     /// Save JSON schema for action type to file
     #[arg(long = "debug-actions-schema-out")]
     pub actions_schema_out: Option<PathBuf>,
+
+    /// Timeout in seconds for awaiting async actions during replay
+    #[arg(long = "debug-replay-timeout", default_value_t = 30)]
+    pub replay_timeout: u64,
 }
 
 impl DebugCliArgs {

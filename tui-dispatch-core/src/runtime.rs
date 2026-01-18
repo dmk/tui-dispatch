@@ -463,6 +463,8 @@ pub struct EffectRuntime<S, A: Action, E, St: EffectStoreLike<S, A, E> = EffectS
     tasks: TaskManager<A>,
     #[cfg(feature = "subscriptions")]
     subscriptions: Subscriptions<A>,
+    /// Broadcasts action names when dispatched (for replay await functionality).
+    action_broadcast: tokio::sync::broadcast::Sender<String>,
     _state: std::marker::PhantomData<S>,
     _effect: std::marker::PhantomData<E>,
 }
@@ -478,6 +480,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
     /// Create a runtime from an existing effect store.
     pub fn from_store(store: St) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
+        let (action_broadcast, _) = tokio::sync::broadcast::channel(64);
 
         #[cfg(feature = "tasks")]
         let tasks = TaskManager::new(action_tx.clone());
@@ -496,6 +499,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
             tasks,
             #[cfg(feature = "subscriptions")]
             subscriptions,
+            action_broadcast,
             _state: std::marker::PhantomData,
             _effect: std::marker::PhantomData,
         }
@@ -523,6 +527,14 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
     pub fn with_event_poller(mut self, config: PollerConfig) -> Self {
         self.poller_config = config;
         self
+    }
+
+    /// Subscribe to action name broadcasts.
+    ///
+    /// Returns a receiver that will receive action names (from `action.name()`)
+    /// whenever an action is dispatched. Useful for replay await functionality.
+    pub fn subscribe_actions(&self) -> tokio::sync::broadcast::Receiver<String> {
+        self.action_broadcast.subscribe()
     }
 
     /// Send an action into the runtime queue.
@@ -680,6 +692,9 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                     if let Some(debug) = self.debug.as_mut() {
                         debug.log_action(&action);
                     }
+
+                    // Broadcast action name for replay await functionality
+                    let _ = self.action_broadcast.send(action.name().to_string());
 
                     let result = self.store.dispatch(action);
                     if result.has_effects() {

@@ -54,7 +54,9 @@ use tui_dispatch::{
     RenderContext, TaskKey,
 };
 use tui_dispatch_debug::debug::DebugLayer;
-use tui_dispatch_debug::{DebugCliArgs, DebugRunOutput, DebugSession, DebugSessionError};
+use tui_dispatch_debug::{
+    DebugCliArgs, DebugRunOutput, DebugSession, DebugSessionError, ReplayItem,
+};
 
 use crate::action::Action;
 use crate::api::GeocodingError;
@@ -94,9 +96,7 @@ async fn main() -> io::Result<()> {
 
     // Export JSON schemas if requested
     debug.save_state_schema::<AppState>().map_err(debug_error)?;
-    debug
-        .save_actions_schema::<Action>()
-        .map_err(debug_error)?;
+    debug.save_actions_schema::<Action>().map_err(debug_error)?;
 
     let state = debug
         .load_state_or_else_async(move || async move {
@@ -126,7 +126,7 @@ async fn main() -> io::Result<()> {
         .await
         .map_err(debug_error)?;
 
-    let replay_actions = debug.load_actions().map_err(debug_error)?;
+    let replay_actions = debug.load_replay_items().map_err(debug_error)?;
 
     let (middleware, action_recorder) = debug.middleware_with_recorder();
     let store = EffectStoreWithMiddleware::new(state, reducer, middleware);
@@ -251,7 +251,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     debug: &DebugSession,
     store: impl EffectStoreLike<AppState, Action, Effect>,
     refresh_interval: u64,
-    replay_actions: Vec<Action>,
+    replay_actions: Vec<ReplayItem<Action>>,
 ) -> io::Result<DebugRunOutput<AppState>> {
     let ui = RefCell::new(WeatherUi::new());
 

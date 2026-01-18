@@ -148,6 +148,106 @@ where
     Ok(())
 }
 
+/// Generate and save a replay schema for `Vec<ReplayItem<A>>`.
+///
+/// This includes:
+/// - The full schema for replay items (actions + await markers)
+/// - An `awaitable_actions` list extracted from Did* action names
+#[cfg(feature = "json-schema")]
+pub fn save_replay_schema<A, P>(path: P) -> SnapshotResult<()>
+where
+    A: schemars::JsonSchema,
+    P: AsRef<Path>,
+{
+    use crate::replay::ReplayItem;
+
+    // Generate schema for Vec<ReplayItem<A>>
+    let mut schema = schemars::schema_for!(Vec<ReplayItem<A>>);
+
+    // Extract Did* action names from the schema definitions
+    let awaitable = extract_awaitable_actions(&schema);
+
+    // Add awaitable_actions to the schema's extensions
+    if let Some(metadata) = schema.schema.metadata.as_mut() {
+        metadata.description = Some(
+            "Replay items: actions and await markers for async coordination.\n\n\
+             Use `_await` or `_await_any` to pause replay until async effects complete.\n\
+             Only actions listed in `awaitable_actions` should be awaited (Did* pattern)."
+                .to_string(),
+        );
+    }
+
+    // Add awaitable_actions as a custom extension
+    schema.schema.extensions.insert(
+        "awaitable_actions".to_string(),
+        serde_json::Value::Array(
+            awaitable
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
+        ),
+    );
+
+    let json = serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string());
+    fs::write(path, json)?;
+    Ok(())
+}
+
+/// Extract action names containing "Did" from a schema's definitions.
+#[cfg(feature = "json-schema")]
+fn extract_awaitable_actions(schema: &schemars::schema::RootSchema) -> Vec<String> {
+    let mut awaitable = Vec::new();
+
+    // Look through definitions for action enum variants
+    for (name, def) in &schema.definitions {
+        // Skip non-action definitions
+        if !name.ends_with("Action") && name != "Action" {
+            continue;
+        }
+
+        // Extract enum variant names from oneOf
+        if let Some(subschemas) = def.clone().into_object().subschemas {
+            if let Some(one_of) = subschemas.one_of {
+                for variant_schema in one_of {
+                    extract_did_variants(&variant_schema.into_object(), &mut awaitable);
+                }
+            }
+        }
+    }
+
+    awaitable.sort();
+    awaitable.dedup();
+    awaitable
+}
+
+#[cfg(feature = "json-schema")]
+fn extract_did_variants(schema: &schemars::schema::SchemaObject, awaitable: &mut Vec<String>) {
+    // Check for enum values (unit variants like "WeatherDidLoad")
+    if let Some(enum_values) = &schema.enum_values {
+        for val in enum_values {
+            if let Some(name) = val.as_str() {
+                if name.contains("Did") {
+                    awaitable.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    // Check for object properties (struct variants like {"WeatherDidLoad": data})
+    if let Some(obj) = &schema.object {
+        for prop_name in obj.properties.keys() {
+            if prop_name.contains("Did") {
+                awaitable.push(prop_name.clone());
+            }
+        }
+        for prop_name in obj.required.iter() {
+            if prop_name.contains("Did") && !awaitable.contains(prop_name) {
+                awaitable.push(prop_name.clone());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

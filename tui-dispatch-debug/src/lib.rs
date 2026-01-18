@@ -6,14 +6,16 @@
 
 pub mod cli;
 pub mod debug;
+pub mod replay;
 pub mod session;
 pub mod snapshot;
 
 pub use cli::DebugCliArgs;
+pub use replay::ReplayItem;
 pub use session::{DebugActionRecorder, DebugRunOutput, DebugSession, DebugSessionError};
 pub use snapshot::{
     load_json, save_json, ActionSnapshot, SnapshotError, SnapshotResult, StateSnapshot,
 };
 
 #[cfg(feature = "json-schema")]
-pub use snapshot::{generate_schema, save_schema, schema_json, JsonSchema};
+pub use snapshot::{generate_schema, save_replay_schema, save_schema, schema_json, JsonSchema};
