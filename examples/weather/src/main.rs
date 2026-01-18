@@ -92,6 +92,12 @@ async fn main() -> io::Result<()> {
 
     let debug = DebugSession::new(debug_args);
 
+    // Export JSON schemas if requested
+    debug.save_state_schema::<AppState>().map_err(debug_error)?;
+    debug
+        .save_actions_schema::<Action>()
+        .map_err(debug_error)?;
+
     let state = debug
         .load_state_or_else_async(move || async move {
             // Geocode city before entering TUI mode

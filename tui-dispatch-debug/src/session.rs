@@ -175,7 +175,7 @@ impl DebugSession {
         E: Error + Send + Sync + 'static,
     {
         if let Some(path) = self.args.state_in.as_ref() {
-            StateSnapshot::load_ron(path)
+            StateSnapshot::load_json(path)
                 .map(|snapshot| snapshot.into_state())
                 .map_err(DebugSessionError::Snapshot)
         } else {
@@ -191,7 +191,7 @@ impl DebugSession {
         E: Error + Send + Sync + 'static,
     {
         if let Some(path) = self.args.state_in.as_ref() {
-            StateSnapshot::load_ron(path)
+            StateSnapshot::load_json(path)
                 .map(|snapshot| snapshot.into_state())
                 .map_err(DebugSessionError::Snapshot)
         } else {
@@ -212,7 +212,7 @@ impl DebugSession {
         A: DeserializeOwned,
     {
         if let Some(path) = self.args.actions_in.as_ref() {
-            ActionSnapshot::load_ron(path)
+            ActionSnapshot::load_json(path)
                 .map(|snapshot| snapshot.into_actions())
                 .map_err(DebugSessionError::Snapshot)
         } else {
@@ -254,8 +254,34 @@ impl DebugSession {
             });
         };
         ActionSnapshot::new(recorder.actions())
-            .save_ron(path)
+            .save_json(path)
             .map_err(DebugSessionError::Snapshot)
+    }
+
+    /// Save JSON schema for the state type if `--debug-state-schema-out` was set.
+    #[cfg(feature = "json-schema")]
+    pub fn save_state_schema<S>(&self) -> DebugSessionResult<()>
+    where
+        S: crate::JsonSchema,
+    {
+        if let Some(path) = self.args.state_schema_out.as_ref() {
+            crate::save_schema::<S, _>(path).map_err(DebugSessionError::Snapshot)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Save JSON schema for the action type if `--debug-actions-schema-out` was set.
+    #[cfg(feature = "json-schema")]
+    pub fn save_actions_schema<A>(&self) -> DebugSessionResult<()>
+    where
+        A: crate::JsonSchema,
+    {
+        if let Some(path) = self.args.actions_schema_out.as_ref() {
+            crate::save_schema::<A, _>(path).map_err(DebugSessionError::Snapshot)
+        } else {
+            Ok(())
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

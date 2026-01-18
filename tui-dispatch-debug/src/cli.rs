@@ -19,15 +19,15 @@ pub struct DebugCliArgs {
     #[arg(long = "debug-render-wait", default_value_t = 0)]
     pub render_wait: u64,
 
-    /// Load initial state from a RON snapshot
+    /// Load initial state from a JSON snapshot
     #[arg(long = "debug-state-in")]
     pub state_in: Option<PathBuf>,
 
-    /// Load and replay actions from a RON snapshot
+    /// Load and replay actions from a JSON snapshot
     #[arg(long = "debug-actions-in")]
     pub actions_in: Option<PathBuf>,
 
-    /// Save dispatched actions to a RON snapshot
+    /// Save dispatched actions to a JSON snapshot
     #[arg(long = "debug-actions-out")]
     pub actions_out: Option<PathBuf>,
 
@@ -38,6 +38,14 @@ pub struct DebugCliArgs {
     /// Exclude action patterns when recording debug actions (comma-separated)
     #[arg(long = "debug-actions-exclude")]
     pub actions_exclude: Option<String>,
+
+    /// Save JSON schema for state type to file
+    #[arg(long = "debug-state-schema-out")]
+    pub state_schema_out: Option<PathBuf>,
+
+    /// Save JSON schema for action type to file
+    #[arg(long = "debug-actions-schema-out")]
+    pub actions_schema_out: Option<PathBuf>,
 }
 
 impl DebugCliArgs {

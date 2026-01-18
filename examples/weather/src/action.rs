@@ -5,6 +5,7 @@
 //! - "Did" prefix indicates async result
 //! - Verbs at end: Fetch, Load, Clear, Toggle, Quit
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::state::{Location, WeatherData};
@@ -16,7 +17,7 @@ use crate::state::{Location, WeatherData};
 /// - `search`: SearchOpen, SearchClose, SearchQuery*, SearchDidLoad, etc.
 /// - `ui`: UiToggleUnits, UiTerminalResize
 /// - `uncategorized`: Tick, Quit
-#[derive(tui_dispatch::Action, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(tui_dispatch::Action, Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[action(infer_categories)]
 pub enum Action {
     // ===== Weather category =====

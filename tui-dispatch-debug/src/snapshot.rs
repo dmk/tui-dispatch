@@ -7,8 +7,7 @@ pub type SnapshotResult<T> = Result<T, SnapshotError>;
 #[derive(Debug)]
 pub enum SnapshotError {
     Io(std::io::Error),
-    Ron(ron::Error),
-    RonSpanned(ron::error::SpannedError),
+    Json(serde_json::Error),
 }
 
 impl From<std::io::Error> for SnapshotError {
@@ -17,15 +16,9 @@ impl From<std::io::Error> for SnapshotError {
     }
 }
 
-impl From<ron::Error> for SnapshotError {
-    fn from(error: ron::Error) -> Self {
-        Self::Ron(error)
-    }
-}
-
-impl From<ron::error::SpannedError> for SnapshotError {
-    fn from(error: ron::error::SpannedError) -> Self {
-        Self::RonSpanned(error)
+impl From<serde_json::Error> for SnapshotError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
     }
 }
 
@@ -52,8 +45,8 @@ impl<S> StateSnapshot<S>
 where
     S: Serialize,
 {
-    pub fn save_ron<P: AsRef<Path>>(&self, path: P) -> SnapshotResult<()> {
-        save_ron(path, &self.state)
+    pub fn save_json<P: AsRef<Path>>(&self, path: P) -> SnapshotResult<()> {
+        save_json(path, &self.state)
     }
 }
 
@@ -61,8 +54,8 @@ impl<S> StateSnapshot<S>
 where
     S: DeserializeOwned,
 {
-    pub fn load_ron<P: AsRef<Path>>(path: P) -> SnapshotResult<Self> {
-        let state = load_ron(path)?;
+    pub fn load_json<P: AsRef<Path>>(path: P) -> SnapshotResult<Self> {
+        let state = load_json(path)?;
         Ok(Self { state })
     }
 }
@@ -90,8 +83,8 @@ impl<A> ActionSnapshot<A>
 where
     A: Serialize,
 {
-    pub fn save_ron<P: AsRef<Path>>(&self, path: P) -> SnapshotResult<()> {
-        save_ron(path, &self.actions)
+    pub fn save_json<P: AsRef<Path>>(&self, path: P) -> SnapshotResult<()> {
+        save_json(path, &self.actions)
     }
 }
 
@@ -99,30 +92,59 @@ impl<A> ActionSnapshot<A>
 where
     A: DeserializeOwned,
 {
-    pub fn load_ron<P: AsRef<Path>>(path: P) -> SnapshotResult<Self> {
-        let actions = load_ron(path)?;
+    pub fn load_json<P: AsRef<Path>>(path: P) -> SnapshotResult<Self> {
+        let actions = load_json(path)?;
         Ok(Self { actions })
     }
 }
 
-pub fn load_ron<T, P>(path: P) -> SnapshotResult<T>
+pub fn load_json<T, P>(path: P) -> SnapshotResult<T>
 where
     T: DeserializeOwned,
     P: AsRef<Path>,
 {
     let contents = fs::read_to_string(path)?;
-    let value = ron::from_str(&contents)?;
+    let value = serde_json::from_str(&contents)?;
     Ok(value)
 }
 
-pub fn save_ron<T, P>(path: P, value: &T) -> SnapshotResult<()>
+pub fn save_json<T, P>(path: P, value: &T) -> SnapshotResult<()>
 where
     T: Serialize,
     P: AsRef<Path>,
 {
-    let pretty = ron::ser::PrettyConfig::default();
-    let data = ron::ser::to_string_pretty(value, pretty)?;
+    let data = serde_json::to_string_pretty(value)?;
     fs::write(path, data)?;
+    Ok(())
+}
+
+// JSON Schema generation (requires "json-schema" feature)
+
+#[cfg(feature = "json-schema")]
+pub use schemars::JsonSchema;
+
+/// Generate a JSON schema for type T.
+#[cfg(feature = "json-schema")]
+pub fn generate_schema<T: schemars::JsonSchema>() -> schemars::schema::RootSchema {
+    schemars::schema_for!(T)
+}
+
+/// Generate a JSON schema as a pretty-printed JSON string.
+#[cfg(feature = "json-schema")]
+pub fn schema_json<T: schemars::JsonSchema>() -> String {
+    let schema = generate_schema::<T>();
+    serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Save a JSON schema to a file.
+#[cfg(feature = "json-schema")]
+pub fn save_schema<T, P>(path: P) -> SnapshotResult<()>
+where
+    T: schemars::JsonSchema,
+    P: AsRef<Path>,
+{
+    let json = schema_json::<T>();
+    fs::write(path, json)?;
     Ok(())
 }
 
@@ -139,7 +161,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        path.push(format!("tui-dispatch-debug-{label}-{nanos}.ron"));
+        path.push(format!("tui-dispatch-debug-{label}-{nanos}.json"));
         path
     }
 
@@ -160,10 +182,10 @@ mod tests {
 
         let path = temp_path("state");
         StateSnapshot::new(state.clone())
-            .save_ron(&path)
+            .save_json(&path)
             .expect("save state snapshot");
 
-        let loaded = StateSnapshot::<TestState>::load_ron(&path)
+        let loaded = StateSnapshot::<TestState>::load_json(&path)
             .expect("load state snapshot")
             .into_state();
 
@@ -183,10 +205,10 @@ mod tests {
         let path = temp_path("actions");
 
         ActionSnapshot::new(actions.clone())
-            .save_ron(&path)
+            .save_json(&path)
             .expect("save action snapshot");
 
-        let loaded = ActionSnapshot::<TestAction>::load_ron(&path)
+        let loaded = ActionSnapshot::<TestAction>::load_json(&path)
             .expect("load action snapshot")
             .into_actions();
 
@@ -195,11 +217,11 @@ mod tests {
     }
 
     #[test]
-    fn test_load_ron_missing_file() {
+    fn test_load_json_missing_file() {
         let path = temp_path("missing");
         let _ = std::fs::remove_file(&path);
 
-        match load_ron::<u32, _>(&path) {
+        match load_json::<u32, _>(&path) {
             Err(SnapshotError::Io(_)) => {}
             other => panic!("expected io error, got {other:?}"),
         }

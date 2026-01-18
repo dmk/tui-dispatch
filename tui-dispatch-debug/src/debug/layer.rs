@@ -511,7 +511,7 @@ impl<A: Action> DebugLayer<A> {
     where
         S: DebugState + Serialize + 'static,
     {
-        self.with_state_snapshotter::<S, _>(|state, path| crate::save_ron(path, state))
+        self.with_state_snapshotter::<S, _>(|state, path| crate::save_json(path, state))
     }
 
     /// Check if the debug layer is active.
@@ -1039,7 +1039,7 @@ impl<A: Action> DebugLayer<A> {
             snapshotter(state as &dyn Any, &path)
         } else {
             let snapshot = DebugStateSnapshot::from_state(state, "Application State");
-            crate::save_ron(&path, &snapshot)
+            crate::save_json(&path, &snapshot)
         };
 
         match result {
@@ -1057,7 +1057,7 @@ impl<A: Action> DebugLayer<A> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        PathBuf::from(format!("debug-state-{timestamp}.ron"))
+        PathBuf::from(format!("debug-state-{timestamp}.json"))
     }
 
     #[allow(dead_code)]

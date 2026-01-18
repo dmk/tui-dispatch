@@ -11,6 +11,7 @@ rust-version.workspace = true
 default = []
 tasks = ["tui-dispatch-core/tasks"]
 subscriptions = ["tui-dispatch-core/subscriptions"]
+json-schema = ["schemars"]
 
 [dependencies]
 tui-dispatch-core = { workspace = true, features = ["debug"] }
@@ -24,3 +25,4 @@ serde_json.workspace = true
 ron.workspace = true
 base64 = "0.22"
 clap.workspace = true
+schemars = { version = "0.8", optional = true }

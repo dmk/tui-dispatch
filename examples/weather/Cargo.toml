@@ -16,7 +16,8 @@ path = "src/main.rs"
 [dependencies]
 tui-dispatch = { workspace = true, features = ["tasks", "subscriptions"] }
 tui-dispatch-components.workspace = true
-tui-dispatch-debug.workspace = true
+tui-dispatch-debug = { workspace = true, features = ["json-schema"] }
+schemars = "0.8"
 tokio.workspace = true
 tokio-util.workspace = true
 reqwest.workspace = true

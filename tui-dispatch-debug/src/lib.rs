@@ -12,5 +12,8 @@ pub mod snapshot;
 pub use cli::DebugCliArgs;
 pub use session::{DebugActionRecorder, DebugRunOutput, DebugSession, DebugSessionError};
 pub use snapshot::{
-    load_ron, save_ron, ActionSnapshot, SnapshotError, SnapshotResult, StateSnapshot,
+    load_json, save_json, ActionSnapshot, SnapshotError, SnapshotResult, StateSnapshot,
 };
+
+#[cfg(feature = "json-schema")]
+pub use snapshot::{generate_schema, save_schema, schema_json, JsonSchema};
