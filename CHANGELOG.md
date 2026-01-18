@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.2] - 2026-01-18
+
+New `tui-dispatch-debug` crate for LLM-friendly debugging and action replay.
+
+### Added
+
+- `tui-dispatch-debug` crate - debug tooling extracted from core
+  - `DebugSession` - CLI integration helper for debug flags
+  - `StateSnapshot` / `ActionSnapshot` - JSON serialization for state and actions
+  - `ReplayItem` - action replay with `_await` and `_await_any` markers for async coordination
+  - `DebugActionRecorder` - middleware for recording dispatched actions
+  - `DebugCliArgs` - clap args struct for standard debug CLI flags
+- JSON Schema generation (`json-schema` feature)
+  - `generate_schema<T>()` / `schema_json<T>()` - generate JSON schema for any type
+  - `save_schema<T>(path)` - save schema to file
+  - `save_replay_schema<A>(path)` - schema for replay items with `awaitable_actions` list
+- New CLI flags in `DebugCliArgs`:
+  - `--debug-state-schema-out` - export state JSON schema
+  - `--debug-actions-schema-out` - export actions JSON schema
+  - `--debug-replay-timeout` - timeout for async await markers (default 30s)
+- `tui-dispatch-components` additions:
+  - `ScrollView` - scrollable container with keyboard navigation
+  - `StatusBar` - customizable status line component
+  - `TreeView` - collapsible tree navigation component
+
+### Changed
+
+- Debug layer code moved from `tui-dispatch-core` to `tui-dispatch-debug`
+- Weather example updated to use new debug crate and demonstrate replay
+
 ## [0.5.1] - 2026-01-11
 
 Testing harnesses and reducer composition macro.
