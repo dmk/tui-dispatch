@@ -6,8 +6,9 @@ use ratatui::{
 };
 use tui_dispatch::EventKind;
 use tui_dispatch_components::{
-    InputStyle, Line, ListBehavior, ListStyle, ModalStyle, Padding, SelectList, SelectListProps,
-    SelectionStyle, TextInput, TextInputProps, centered_rect, highlight_substring, render_modal,
+    InputStyle, Line, ListBehavior, ListStyle, ModalStyle, Padding, ScrollbarStyle, SelectList,
+    SelectListProps, SelectionStyle, TextInput, TextInputProps, centered_rect, highlight_substring,
+    render_modal,
 };
 
 use super::Component;
@@ -115,6 +116,7 @@ impl Component<Action> for SearchOverlay {
                             bg: None,
                             fg: None,
                             selection: SelectionStyle::default(),
+                            scrollbar: ScrollbarStyle::default(),
                         },
                         behavior: ListBehavior::default(),
                         on_select: props.on_select,
@@ -208,6 +210,7 @@ impl Component<Action> for SearchOverlay {
                 bg: None,
                 fg: None,
                 selection: SelectionStyle::default(),
+                scrollbar: ScrollbarStyle::default(),
             },
             behavior: ListBehavior::default(),
             on_select: props.on_select,

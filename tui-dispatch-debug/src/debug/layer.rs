@@ -10,13 +10,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
+use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
-use ratatui::Frame;
+use ratatui::style::{Modifier, Style};
 use serde::Serialize;
 
+use super::DebugFreeze;
 use super::action_logger::{ActionLog, ActionLogConfig};
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
@@ -24,15 +24,20 @@ use super::config::DebugStyle;
 use super::state::DebugState;
 use super::table::{ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay};
 use super::widgets::{
-    dim_buffer, paint_snapshot, ron_spans, ActionLogWidget, BannerItem, CellPreviewWidget,
-    DebugBanner, DebugTableWidget, RonSyntaxStyle,
+    ActionLogStyle, CellPreviewWidget, DebugTableStyle, RonSyntaxStyle, dim_buffer, paint_snapshot,
+    ron_spans,
 };
-use super::DebugFreeze;
+
+use tui_dispatch_components::{
+    ModalStyle, Padding, ScrollBehavior, ScrollView, ScrollViewProps, ScrollViewStyle,
+    ScrollbarStyle as ComponentScrollbarStyle, StatusBar, StatusBarItem, StatusBarProps,
+    StatusBarSection, StatusBarStyle, centered_rect, render_modal,
+};
+use tui_dispatch_core::Action;
 #[cfg(feature = "subscriptions")]
 use tui_dispatch_core::subscriptions::SubPauseHandle;
 #[cfg(feature = "tasks")]
 use tui_dispatch_core::tasks::TaskPauseHandle;
-use tui_dispatch_core::Action;
 
 type StateSnapshotter = Box<dyn Fn(&dyn Any, &Path) -> crate::SnapshotResult<()> + 'static>;
 
@@ -686,34 +691,101 @@ impl<A: Action> DebugLayer<A> {
         PathBuf::from(format!("debug-state-{timestamp}.ron"))
     }
 
-    fn update_table_scroll(&mut self, table: &DebugTableOverlay, table_area: Rect) {
-        let visible_rows = table_area.height.saturating_sub(1) as usize;
+    fn update_table_scroll(&mut self, table: &DebugTableOverlay, visible_rows: usize) {
         self.table_page_size = visible_rows.max(1);
         let max_offset = table.rows.len().saturating_sub(visible_rows);
         self.table_scroll_offset = self.table_scroll_offset.min(max_offset);
     }
 
-    fn build_scrollbar(&self, orientation: ScrollbarOrientation) -> Scrollbar<'static> {
-        let mut scrollbar = Scrollbar::new(orientation)
-            .thumb_style(self.style.scrollbar.thumb)
-            .track_style(self.style.scrollbar.track)
-            .begin_style(self.style.scrollbar.begin)
-            .end_style(self.style.scrollbar.end);
+    fn overlay_modal_area(&self, app_area: Rect) -> Rect {
+        let modal_width = (app_area.width * 80 / 100)
+            .clamp(40, 160)
+            .min(app_area.width);
+        let modal_height = (app_area.height * 80 / 100)
+            .clamp(12, 50)
+            .min(app_area.height);
+        centered_rect(modal_width, modal_height, app_area)
+    }
 
-        if let Some(symbol) = self.style.scrollbar.thumb_symbol {
-            scrollbar = scrollbar.thumb_symbol(symbol);
+    fn overlay_modal_style(&self) -> ModalStyle {
+        ModalStyle {
+            dim_factor: 0.0,
+            border: None,
+            padding: Padding::all(1),
+            bg: Some(DebugStyle::overlay_bg()),
         }
-        if let Some(symbol) = self.style.scrollbar.track_symbol {
-            scrollbar = scrollbar.track_symbol(Some(symbol));
-        }
-        if let Some(symbol) = self.style.scrollbar.begin_symbol {
-            scrollbar = scrollbar.begin_symbol(Some(symbol));
-        }
-        if let Some(symbol) = self.style.scrollbar.end_symbol {
-            scrollbar = scrollbar.end_symbol(Some(symbol));
+    }
+
+    fn render_overlay_container(&self, frame: &mut Frame, app_area: Rect, title: &str) -> Rect {
+        let modal_area = self.overlay_modal_area(app_area);
+        let content_area = render_modal(frame, modal_area, &self.overlay_modal_style());
+
+        if content_area.height == 0 || content_area.width == 0 {
+            return content_area;
         }
 
-        scrollbar
+        self.render_overlay_title(frame, content_area, title)
+    }
+
+    fn render_overlay_title(&self, frame: &mut Frame, area: Rect, title: &str) -> Rect {
+        if area.height == 0 || area.width == 0 {
+            return area;
+        }
+
+        use ratatui::text::Span;
+
+        let title_style = Style::default()
+            .fg(DebugStyle::accent())
+            .add_modifier(Modifier::BOLD);
+        let title_items = [StatusBarItem::span(Span::styled(
+            format!(" {title} "),
+            title_style,
+        ))];
+        let title_bar_style = StatusBarStyle {
+            border: None,
+            padding: Padding::default(),
+            bg: None,
+            text: Style::default().fg(DebugStyle::accent()),
+            hint_key: title_style,
+            hint_label: Style::default().fg(DebugStyle::accent()),
+            separator: Style::default().fg(DebugStyle::accent()),
+        };
+        let title_area = Rect { height: 1, ..area };
+
+        let mut status_bar = StatusBar::new();
+        <StatusBar as tui_dispatch_core::Component<()>>::render(
+            &mut status_bar,
+            frame,
+            title_area,
+            StatusBarProps {
+                left: StatusBarSection::empty(),
+                center: StatusBarSection::items(&title_items),
+                right: StatusBarSection::empty(),
+                style: title_bar_style,
+                is_focused: false,
+            },
+        );
+
+        Rect {
+            x: area.x,
+            y: area.y.saturating_add(title_area.height),
+            width: area.width,
+            height: area.height.saturating_sub(title_area.height),
+        }
+    }
+
+    fn component_scrollbar_style(&self) -> ComponentScrollbarStyle {
+        let style = &self.style.scrollbar;
+        ComponentScrollbarStyle {
+            thumb: style.thumb,
+            track: style.track,
+            begin: style.begin,
+            end: style.end,
+            thumb_symbol: style.thumb_symbol,
+            track_symbol: style.track_symbol,
+            begin_symbol: style.begin_symbol,
+            end_symbol: style.end_symbol,
+        }
     }
 
     fn table_page_size_value(&self) -> usize {
@@ -1188,185 +1260,366 @@ impl<A: Action> DebugLayer<A> {
             return;
         }
 
+        use ratatui::text::Span;
+
         let keys = &self.style.key_styles;
         let toggle_key_str = format_key(self.toggle_key);
-        let mut banner = DebugBanner::new()
-            .title("DEBUG")
-            .title_style(self.style.title_style)
-            .label_style(self.style.label_style)
-            .background(self.style.banner_bg);
+        let label_style = self.style.label_style;
+        let value_style = self.style.value_style;
 
-        // Add standard debug commands with hardcoded keys
-        banner = banner.item(BannerItem::new(&toggle_key_str, "resume", keys.toggle));
-        banner = banner.item(BannerItem::new("a", "actions", keys.actions));
-        banner = banner.item(BannerItem::new("s", "state", keys.state));
-        banner = banner.item(BannerItem::new("w", "save", keys.state));
-        banner = banner.item(BannerItem::new(
+        let mut left_items: Vec<StatusBarItem<'static>> = Vec::new();
+        left_items.push(StatusBarItem::span(Span::styled(
+            " DEBUG ",
+            self.style.title_style,
+        )));
+        left_items.push(StatusBarItem::text(" "));
+
+        let push_item =
+            |items: &mut Vec<StatusBarItem<'static>>, key: &str, label: &str, key_style: Style| {
+                items.push(StatusBarItem::span(Span::styled(
+                    format!(" {key} "),
+                    key_style,
+                )));
+                items.push(StatusBarItem::span(Span::styled(
+                    format!(" {label} "),
+                    label_style,
+                )));
+            };
+
+        push_item(&mut left_items, &toggle_key_str, "resume", keys.toggle);
+        push_item(&mut left_items, "a", "actions", keys.actions);
+        push_item(&mut left_items, "s", "state", keys.state);
+        push_item(&mut left_items, "w", "save", keys.state);
+        push_item(
+            &mut left_items,
             "b",
             self.banner_position.label(),
             keys.actions,
-        ));
-        banner = banner.item(BannerItem::new("y", "copy", keys.copy));
+        );
+        push_item(&mut left_items, "y", "copy", keys.copy);
 
         if self.freeze.mouse_capture_enabled {
-            banner = banner.item(BannerItem::new("click", "inspect", keys.mouse));
+            push_item(&mut left_items, "click", "inspect", keys.mouse);
         } else {
-            banner = banner.item(BannerItem::new("i", "mouse", keys.mouse));
+            push_item(&mut left_items, "i", "mouse", keys.mouse);
         }
 
-        // Add message if present
+        let mut right_items: Vec<StatusBarItem<'static>> = Vec::new();
         if let Some(ref msg) = self.freeze.message {
-            banner = banner.item(BannerItem::new("", msg, self.style.value_style));
+            right_items.push(StatusBarItem::span(Span::styled(
+                format!(" {msg} "),
+                value_style,
+            )));
         }
 
-        frame.render_widget(banner, banner_area);
+        let style = StatusBarStyle {
+            border: None,
+            padding: Padding::default(),
+            bg: self.style.banner_bg.bg,
+            text: label_style,
+            hint_key: keys.toggle,
+            hint_label: label_style,
+            separator: label_style,
+        };
+
+        let left = StatusBarSection::items(&left_items).with_separator("");
+        let right = if right_items.is_empty() {
+            StatusBarSection::empty()
+        } else {
+            StatusBarSection::items(&right_items).with_separator("")
+        };
+
+        let mut status_bar = StatusBar::new();
+        <StatusBar as tui_dispatch_core::Component<()>>::render(
+            &mut status_bar,
+            frame,
+            banner_area,
+            StatusBarProps {
+                left,
+                center: StatusBarSection::empty(),
+                right,
+                style,
+                is_focused: false,
+            },
+        );
     }
 
     fn render_table_modal(&mut self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
-        let modal_width = (app_area.width * 80 / 100)
-            .clamp(40, 160)
-            .min(app_area.width);
-        let modal_height = (app_area.height * 80 / 100)
-            .clamp(12, 50)
-            .min(app_area.height);
+        let content_area = self.render_overlay_container(frame, app_area, &table.title);
 
-        let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
-        let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
+        if content_area.height == 0 || content_area.width == 0 {
+            return;
+        }
 
-        let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
-
-        frame.render_widget(Clear, modal_area);
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" {} ", table.title))
-            .style(self.style.banner_bg);
-
-        let inner = block.inner(modal_area);
-        frame.render_widget(block, modal_area);
-
-        let mut table_area = if let Some(ref preview) = table.cell_preview {
-            if inner.height > 3 {
-                let preview_height = 2u16;
+        let mut table_area = content_area;
+        if let Some(ref preview) = table.cell_preview {
+            if table_area.height > 1 {
                 let preview_area = Rect {
-                    x: inner.x,
-                    y: inner.y,
-                    width: inner.width,
                     height: 1,
+                    ..table_area
                 };
-                let table_area = Rect {
-                    x: inner.x,
-                    y: inner.y.saturating_add(preview_height),
-                    width: inner.width,
-                    height: inner.height.saturating_sub(preview_height),
-                };
-
                 let preview_widget = CellPreviewWidget::new(preview)
                     .label_style(Style::default().fg(DebugStyle::text_secondary()))
                     .value_style(Style::default().fg(DebugStyle::text_primary()));
                 frame.render_widget(preview_widget, preview_area);
-                table_area
-            } else {
-                inner
+
+                table_area = Rect {
+                    y: table_area.y.saturating_add(1),
+                    height: table_area.height.saturating_sub(1),
+                    ..table_area
+                };
             }
-        } else {
-            inner
-        };
-
-        let visible_rows = table_area.height.saturating_sub(1) as usize;
-        let show_scrollbar =
-            visible_rows > 0 && table.rows.len() > visible_rows && table_area.width > 11;
-        let scrollbar_area = if show_scrollbar {
-            let scrollbar_area = Rect {
-                x: table_area.x + table_area.width.saturating_sub(1),
-                width: 1,
-                ..table_area
-            };
-            table_area.width = table_area.width.saturating_sub(1);
-            Some(Rect {
-                y: scrollbar_area.y.saturating_add(1),
-                height: scrollbar_area.height.saturating_sub(1),
-                ..scrollbar_area
-            })
-        } else {
-            None
-        };
-
-        self.update_table_scroll(table, table_area);
-        let table_widget = DebugTableWidget::new(table).scroll_offset(self.table_scroll_offset);
-        frame.render_widget(table_widget, table_area);
-
-        if let Some(scrollbar_area) = scrollbar_area {
-            let content_length = table.rows.len();
-            let mut scrollbar_state = ScrollbarState::new(content_length)
-                .position(self.table_scroll_offset)
-                .viewport_content_length(self.table_page_size_value());
-            let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
-            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
         }
+
+        if table_area.height == 0 || table_area.width == 0 {
+            return;
+        }
+
+        use ratatui::text::{Line, Span};
+        use ratatui::widgets::Paragraph;
+
+        let header_area = Rect {
+            height: 1,
+            ..table_area
+        };
+        let rows_area = Rect {
+            y: table_area.y.saturating_add(1),
+            height: table_area.height.saturating_sub(1),
+            ..table_area
+        };
+
+        let style = DebugTableStyle::default();
+        let show_scrollbar = rows_area.height > 0
+            && table.rows.len() > rows_area.height as usize
+            && table_area.width > 1;
+        let text_width = if show_scrollbar {
+            table_area.width.saturating_sub(1)
+        } else {
+            table_area.width
+        } as usize;
+
+        if text_width == 0 {
+            return;
+        }
+
+        let max_key_len = table
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                super::table::DebugTableRow::Entry { key, .. } => Some(key.chars().count()),
+                super::table::DebugTableRow::Section(_) => None,
+            })
+            .max()
+            .unwrap_or(0);
+        let max_label = text_width.saturating_sub(8).max(10);
+        let label_width = (max_key_len + 2).clamp(12, 30).min(max_label);
+        let value_width = text_width.saturating_sub(label_width + 2).max(1);
+
+        let header_line = Line::from(vec![
+            Span::styled(pad_text("Field", label_width), style.header),
+            Span::styled("  ", style.header),
+            Span::styled(pad_text("Value", value_width), style.header),
+        ]);
+        frame.render_widget(Paragraph::new(header_line), header_area);
+
+        if rows_area.height == 0 {
+            return;
+        }
+
+        let ron_style = RonSyntaxStyle::with_base(style.value);
+        let mut rows = Vec::new();
+        let mut entry_index = 0usize;
+        for row in table.rows.iter() {
+            match row {
+                super::table::DebugTableRow::Section(title) => {
+                    entry_index = 0;
+                    let mut text = format!(" {title} ");
+                    text = truncate_with_ellipsis(&text, text_width);
+                    text = pad_text(&text, text_width);
+                    rows.push(Line::from(vec![Span::styled(text, style.section)]));
+                }
+                super::table::DebugTableRow::Entry { key, value } => {
+                    let row_style = if entry_index % 2 == 0 {
+                        style.row_styles.0
+                    } else {
+                        style.row_styles.1
+                    };
+                    entry_index = entry_index.saturating_add(1);
+                    let key_text = pad_text(key, label_width);
+                    let mut value_text = truncate_with_ellipsis(value, value_width);
+                    value_text = pad_text(&value_text, value_width);
+
+                    let mut value_spans: Vec<Span<'static>> = ron_spans(&value_text, &ron_style)
+                        .into_iter()
+                        .map(|span| span.patch_style(row_style))
+                        .collect();
+
+                    let mut spans = vec![
+                        Span::styled(key_text, style.key).patch_style(row_style),
+                        Span::styled("  ", row_style),
+                    ];
+                    spans.append(&mut value_spans);
+
+                    rows.push(Line::from(spans));
+                }
+            }
+        }
+
+        self.update_table_scroll(table, rows_area.height as usize);
+        let scroll_style = ScrollViewStyle {
+            border: None,
+            padding: Padding::default(),
+            bg: None,
+            fg: None,
+            scrollbar: self.component_scrollbar_style(),
+        };
+        let props = ScrollViewProps {
+            lines: &rows,
+            content_len: rows.len(),
+            line_offset: 0,
+            scroll_offset: self.table_scroll_offset,
+            is_focused: true,
+            style: scroll_style,
+            behavior: ScrollBehavior::default(),
+            on_scroll: |_| (),
+        };
+        let mut scroll_view = ScrollView::new();
+        <ScrollView as tui_dispatch_core::Component<()>>::render(
+            &mut scroll_view,
+            frame,
+            rows_area,
+            props,
+        );
     }
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
-        let modal_width = (app_area.width * 80 / 100)
-            .clamp(40, 160)
-            .min(app_area.width);
-        let modal_height = (app_area.height * 80 / 100)
-            .clamp(12, 50)
-            .min(app_area.height);
-
-        let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
-        let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
-
-        let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
-
-        frame.render_widget(Clear, modal_area);
-
         let entry_count = log.entries.len();
         let title = if entry_count > 0 {
-            format!(" {} ({} entries) ", log.title, entry_count)
+            format!("{} ({} entries)", log.title, entry_count)
         } else {
-            format!(" {} (empty) ", log.title)
+            format!("{} (empty)", log.title)
         };
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .style(self.style.banner_bg);
-
-        let mut log_area = block.inner(modal_area);
-        frame.render_widget(block, modal_area);
-
-        let visible_rows = log_area.height.saturating_sub(1) as usize;
-        let show_scrollbar =
-            visible_rows > 0 && log.entries.len() > visible_rows && log_area.width > 31;
-        let scrollbar_area = if show_scrollbar {
-            let scrollbar_area = Rect {
-                x: log_area.x + log_area.width.saturating_sub(1),
-                width: 1,
-                ..log_area
-            };
-            log_area.width = log_area.width.saturating_sub(1);
-            Some(Rect {
-                y: scrollbar_area.y.saturating_add(1),
-                height: scrollbar_area.height.saturating_sub(1),
-                ..scrollbar_area
-            })
-        } else {
-            None
-        };
-
-        let widget = ActionLogWidget::new(log);
-        frame.render_widget(widget, log_area);
-
-        if let Some(scrollbar_area) = scrollbar_area {
-            let visible_rows = log_area.height.saturating_sub(1) as usize;
-            let content_length = log.entries.len();
-            let mut scrollbar_state = ScrollbarState::new(content_length)
-                .position(log.selected)
-                .viewport_content_length(visible_rows);
-            let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
-            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        let log_area = self.render_overlay_container(frame, app_area, &title);
+        if log_area.height == 0 || log_area.width == 0 {
+            return;
         }
+
+        use ratatui::text::{Line, Span};
+        use ratatui::widgets::Paragraph;
+
+        let style = ActionLogStyle::default();
+        let spacing = 1usize;
+        let seq_width = 5usize;
+        let name_width = 20usize;
+        let elapsed_width = 8usize;
+
+        let header_area = Rect {
+            height: 1,
+            ..log_area
+        };
+        let body_area = Rect {
+            y: log_area.y.saturating_add(1),
+            height: log_area.height.saturating_sub(1),
+            ..log_area
+        };
+
+        let show_scrollbar = body_area.height > 0
+            && log.entries.len() > body_area.height as usize
+            && log_area.width > 1;
+        let text_width = if show_scrollbar {
+            log_area.width.saturating_sub(1)
+        } else {
+            log_area.width
+        } as usize;
+        let params_width = text_width
+            .saturating_sub(seq_width + name_width + elapsed_width + spacing * 3)
+            .max(1);
+
+        let header_line = Line::from(vec![
+            Span::styled(pad_text("#", seq_width), style.header),
+            Span::styled(" ", style.header),
+            Span::styled(pad_text("Action", name_width), style.header),
+            Span::styled(" ", style.header),
+            Span::styled(pad_text("Params", params_width), style.header),
+            Span::styled(" ", style.header),
+            Span::styled(pad_text("Elapsed", elapsed_width), style.header),
+        ]);
+        frame.render_widget(Paragraph::new(header_line), header_area);
+
+        if body_area.height == 0 {
+            return;
+        }
+
+        let ron_style = RonSyntaxStyle::with_base(style.params);
+        let rows: Vec<Line> = log
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                let row_style = if idx == log.selected {
+                    style.selected
+                } else if idx % 2 == 0 {
+                    style.row_styles.0
+                } else {
+                    style.row_styles.1
+                };
+
+                let seq_text = pad_text(&entry.sequence.to_string(), seq_width);
+                let name_text = pad_text(&entry.name, name_width);
+                let elapsed_text = pad_text(&entry.elapsed, elapsed_width);
+
+                let params_compact = entry.params.replace('\n', " ");
+                let params_compact = params_compact
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let params_trimmed = truncate_with_ellipsis(&params_compact, params_width);
+                let params_text = pad_text(&params_trimmed, params_width);
+                let mut params_spans: Vec<Span<'static>> = ron_spans(&params_text, &ron_style)
+                    .into_iter()
+                    .map(|span| span.patch_style(row_style))
+                    .collect();
+
+                let mut spans = vec![
+                    Span::styled(seq_text, style.sequence).patch_style(row_style),
+                    Span::styled(" ", row_style),
+                    Span::styled(name_text, style.name).patch_style(row_style),
+                    Span::styled(" ", row_style),
+                ];
+                spans.append(&mut params_spans);
+                spans.push(Span::styled(" ", row_style));
+                spans.push(Span::styled(elapsed_text, style.elapsed).patch_style(row_style));
+
+                Line::from(spans)
+            })
+            .collect();
+
+        let scroll_style = ScrollViewStyle {
+            border: None,
+            padding: Padding::default(),
+            bg: None,
+            fg: None,
+            scrollbar: self.component_scrollbar_style(),
+        };
+        let scroll_offset = log.scroll_offset_for(body_area.height as usize);
+        let props = ScrollViewProps {
+            lines: &rows,
+            content_len: log.entries.len(),
+            line_offset: 0,
+            scroll_offset,
+            is_focused: true,
+            style: scroll_style,
+            behavior: ScrollBehavior::default(),
+            on_scroll: |_| (),
+        };
+        let mut scroll_view = ScrollView::new();
+        <ScrollView as tui_dispatch_core::Component<()>>::render(
+            &mut scroll_view,
+            frame,
+            body_area,
+            props,
+        );
     }
 
     fn render_action_detail_modal(
@@ -1375,29 +1628,12 @@ impl<A: Action> DebugLayer<A> {
         app_area: Rect,
         detail: &super::table::ActionDetailOverlay,
     ) {
-        let modal_width = (app_area.width * 80 / 100)
-            .clamp(40, 160)
-            .min(app_area.width);
-        let modal_height = (app_area.height * 80 / 100)
-            .clamp(12, 50)
-            .min(app_area.height);
+        let title = format!("Action #{} - {}", detail.sequence, detail.name);
+        let detail_area = self.render_overlay_container(frame, app_area, &title);
 
-        let modal_x = app_area.x + (app_area.width.saturating_sub(modal_width)) / 2;
-        let modal_y = app_area.y + (app_area.height.saturating_sub(modal_height)) / 2;
-
-        let modal_area = Rect::new(modal_x, modal_y, modal_width, modal_height);
-
-        frame.render_widget(Clear, modal_area);
-
-        let title = format!(" Action #{} - {} ", detail.sequence, detail.name);
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .style(self.style.banner_bg);
-
-        let mut detail_area = block.inner(modal_area);
-        frame.render_widget(block, modal_area);
+        if detail_area.height == 0 || detail_area.width == 0 {
+            return;
+        }
 
         use ratatui::text::{Line, Span};
         use ratatui::widgets::Paragraph;
@@ -1436,53 +1672,74 @@ impl<A: Action> DebugLayer<A> {
             )),
         ];
 
-        let header_and_footer = header_lines.len() + footer_lines.len();
-        let available_params = detail_area.height.saturating_sub(header_and_footer as u16) as usize;
+        let header_height = header_lines.len() as u16;
+        let footer_height = footer_lines.len() as u16;
 
-        let show_scrollbar =
-            available_params > 0 && param_lines_len > available_params && detail_area.width > 11;
-        let scrollbar_area = if show_scrollbar {
-            let scrollbar_area = Rect {
-                x: detail_area.x + detail_area.width.saturating_sub(1),
-                width: 1,
-                ..detail_area
-            };
-            detail_area.width = detail_area.width.saturating_sub(1);
-            Some(Rect {
-                y: scrollbar_area.y.saturating_add(1),
-                height: scrollbar_area.height.saturating_sub(1),
-                ..scrollbar_area
-            })
-        } else {
-            None
+        let header_area_height = header_height.min(detail_area.height);
+        let header_area = Rect {
+            height: header_area_height,
+            ..detail_area
+        };
+        if header_area.height > 0 {
+            let paragraph = Paragraph::new(header_lines);
+            frame.render_widget(paragraph, header_area);
+        }
+
+        let footer_area_height =
+            footer_height.min(detail_area.height.saturating_sub(header_area_height));
+        let footer_area = Rect {
+            x: detail_area.x,
+            y: detail_area
+                .y
+                .saturating_add(detail_area.height.saturating_sub(footer_area_height)),
+            width: detail_area.width,
+            height: footer_area_height,
+        };
+        if footer_area.height > 0 {
+            let paragraph = Paragraph::new(footer_lines);
+            frame.render_widget(paragraph, footer_area);
+        }
+
+        let params_area = Rect {
+            x: detail_area.x,
+            y: detail_area.y.saturating_add(header_area_height),
+            width: detail_area.width,
+            height: detail_area
+                .height
+                .saturating_sub(header_area_height + footer_area_height),
         };
 
+        let available_params = params_area.height as usize;
         self.detail_page_size = available_params.max(1);
-        let max_offset = param_lines_len.saturating_sub(available_params);
+        let max_offset = param_lines_len.saturating_sub(self.detail_page_size);
         self.detail_scroll_offset = self.detail_scroll_offset.min(max_offset);
 
-        let params_start = self.detail_scroll_offset.min(param_lines_len);
-        let params_end = (params_start + available_params).min(param_lines_len);
+        if params_area.height > 0 {
+            let scroll_style = ScrollViewStyle {
+                border: None,
+                padding: Padding::default(),
+                bg: Some(DebugStyle::overlay_bg_dark()),
+                fg: None,
+                scrollbar: self.component_scrollbar_style(),
+            };
 
-        let mut lines = Vec::new();
-        lines.extend(header_lines);
-        lines.extend(
-            param_lines
-                .into_iter()
-                .skip(params_start)
-                .take(params_end - params_start),
-        );
-        lines.extend(footer_lines);
-
-        let paragraph = Paragraph::new(lines);
-        frame.render_widget(paragraph, detail_area);
-
-        if let Some(scrollbar_area) = scrollbar_area {
-            let mut scrollbar_state = ScrollbarState::new(param_lines_len)
-                .position(self.detail_scroll_offset)
-                .viewport_content_length(self.detail_page_size_value());
-            let scrollbar = self.build_scrollbar(ScrollbarOrientation::VerticalRight);
-            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+            let props = ScrollViewProps {
+                lines: &param_lines,
+                content_len: param_lines_len,
+                line_offset: 0,
+                scroll_offset: self.detail_scroll_offset,
+                is_focused: true,
+                style: scroll_style,
+                behavior: ScrollBehavior::default(),
+                on_scroll: |_| (),
+            };
+            let mut scroll_view = ScrollView::new();
+            <ScrollView as tui_dispatch_core::Component<()>>::render(
+                &mut scroll_view,
+                frame,
+                params_area,
+                props,
+            );
         }
     }
 
@@ -1566,6 +1823,34 @@ impl DebugStateSnapshot {
             sections,
         }
     }
+}
+
+fn pad_text(value: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let mut text: String = value.chars().take(width).collect();
+    let len = text.chars().count();
+    if len < width {
+        text.push_str(&" ".repeat(width - len));
+    }
+    text
+}
+
+fn truncate_with_ellipsis(value: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let count = value.chars().count();
+    if count <= width {
+        return value.to_string();
+    }
+    if width <= 3 {
+        return value.chars().take(width).collect();
+    }
+    let mut text: String = value.chars().take(width - 3).collect();
+    text.push_str("...");
+    text
 }
 
 /// Format a KeyCode for display in the banner.

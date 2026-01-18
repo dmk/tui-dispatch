@@ -14,6 +14,7 @@ subscriptions = ["tui-dispatch-core/subscriptions"]
 
 [dependencies]
 tui-dispatch-core = { workspace = true, features = ["debug"] }
+tui-dispatch-components.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 tokio.workspace = true

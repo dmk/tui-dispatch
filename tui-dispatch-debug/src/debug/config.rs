@@ -13,10 +13,16 @@ const NEON_GREEN: Color = Color::Rgb(80, 255, 120);
 const ELECTRIC_BLUE: Color = Color::Rgb(80, 180, 255);
 const KINDA_GREEN: Color = Color::Rgb(40, 220, 80);
 
+const ACCENT_MINT: Color = Color::Rgb(0x36, 0xE3, 0x95);
+
 const BG_DEEP: Color = Color::Rgb(12, 14, 22);
 const BG_PANEL: Color = Color::Rgb(18, 21, 32);
 const BG_SURFACE: Color = Color::Rgb(26, 30, 44);
 const BG_HIGHLIGHT: Color = Color::Rgb(45, 50, 70);
+
+const OVERLAY_BG: Color = Color::Rgb(46, 46, 58);
+const OVERLAY_BG_ALT: Color = Color::Rgb(36, 36, 48);
+const OVERLAY_BG_DARK: Color = Color::Rgb(28, 28, 40);
 
 const TEXT_PRIMARY: Color = Color::Rgb(240, 240, 245);
 const TEXT_SECONDARY: Color = Color::Rgb(150, 150, 160);
@@ -41,7 +47,7 @@ pub struct DebugStyle {
 }
 
 /// Style and symbol overrides for debug scrollbars
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ScrollbarStyle {
     /// Style for the scrollbar thumb
     pub thumb: Style,
@@ -59,6 +65,21 @@ pub struct ScrollbarStyle {
     pub begin_symbol: Option<&'static str>,
     /// Override for the end symbol
     pub end_symbol: Option<&'static str>,
+}
+
+impl Default for ScrollbarStyle {
+    fn default() -> Self {
+        Self {
+            thumb: Style::default().fg(ACCENT_MINT),
+            track: Style::default().fg(ACCENT_MINT),
+            begin: Style::default().fg(ACCENT_MINT),
+            end: Style::default().fg(ACCENT_MINT),
+            thumb_symbol: Some("█"),
+            track_symbol: Some("│"),
+            begin_symbol: None,
+            end_symbol: None,
+        }
+    }
 }
 
 /// Styles for different debug key hints
@@ -129,6 +150,10 @@ impl DebugStyle {
     pub const fn neon_green() -> Color {
         NEON_GREEN
     }
+    /// Get the accent mint color
+    pub const fn accent() -> Color {
+        ACCENT_MINT
+    }
     /// Get the deep background color
     pub const fn bg_deep() -> Color {
         BG_DEEP
@@ -144,6 +169,18 @@ impl DebugStyle {
     /// Get the highlight background color (for selected items)
     pub const fn bg_highlight() -> Color {
         BG_HIGHLIGHT
+    }
+    /// Get the overlay background color
+    pub const fn overlay_bg() -> Color {
+        OVERLAY_BG
+    }
+    /// Get the alternate overlay background color
+    pub const fn overlay_bg_alt() -> Color {
+        OVERLAY_BG_ALT
+    }
+    /// Get the darker overlay background color
+    pub const fn overlay_bg_dark() -> Color {
+        OVERLAY_BG_DARK
     }
     /// Get the primary text color
     pub const fn text_primary() -> Color {

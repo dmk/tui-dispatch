@@ -7,13 +7,17 @@
 //! # Components
 //!
 //! - [`SelectList`] - Scrollable selection list with keyboard navigation
+//! - [`ScrollView`] - Scrollable view for pre-wrapped lines
+//! - [`StatusBar`] - Left/center/right status bar with hints
 //! - [`TextInput`] - Single-line text input with cursor
-//! - [`Modal`] - Overlay with dimmed background snapshot
+//! - [`Modal`] - Overlay with dimmed background
 //!
 //! # Styling
 //!
 //! All components use unified styling objects:
 //! - [`ListStyle`] - Styling for SelectList (border, padding, selection)
+//! - [`ScrollViewStyle`] - Styling for ScrollView (border, padding, scrollbar)
+//! - [`StatusBarStyle`] - Styling for StatusBar (colors, hints, separators)
 //! - [`InputStyle`] - Styling for TextInput (border, padding, colors)
 //! - [`ModalStyle`] - Styling for Modal (dim factor, background, border)
 //!
@@ -39,16 +43,22 @@
 //! ```
 
 mod modal;
+mod scroll_view;
 mod select_list;
+mod status_bar;
 pub mod style;
 mod text_input;
 
 pub use modal::{centered_rect, render_modal, ModalStyle};
 pub use ratatui::text::Line;
+pub use scroll_view::{ScrollBehavior, ScrollView, ScrollViewProps, ScrollViewStyle};
 pub use select_list::{ListBehavior, ListStyle, SelectList, SelectListProps};
+pub use status_bar::{
+    StatusBar, StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle,
+};
 pub use style::{
-    highlight_substring, BorderStyle, Color, ComponentStyle, Modifier, Padding, SelectionStyle,
-    Style,
+    highlight_substring, BorderStyle, Color, ComponentStyle, Modifier, Padding, ScrollbarStyle,
+    SelectionStyle, Style,
 };
 pub use text_input::{InputStyle, TextInput, TextInputProps};
 
@@ -56,7 +66,9 @@ pub use text_input::{InputStyle, TextInput, TextInputProps};
 pub mod prelude {
     pub use crate::{
         centered_rect, render_modal, BorderStyle, ComponentStyle, InputStyle, ListBehavior,
-        ListStyle, ModalStyle, Padding, SelectList, SelectListProps, SelectionStyle, TextInput,
+        ListStyle, ModalStyle, Padding, ScrollBehavior, ScrollView, ScrollViewProps,
+        ScrollViewStyle, ScrollbarStyle, SelectList, SelectListProps, SelectionStyle, StatusBar,
+        StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle, TextInput,
         TextInputProps,
     };
     pub use ratatui::style::{Color, Modifier, Style};

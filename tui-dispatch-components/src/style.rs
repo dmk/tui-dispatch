@@ -10,6 +10,8 @@
 pub use ratatui::style::{Color, Modifier, Style};
 pub use ratatui::widgets::Borders;
 
+use ratatui::widgets::{Scrollbar, ScrollbarOrientation};
+
 /// Trait for component styles that follow the standard pattern.
 ///
 /// All component styles in this crate implement this trait, ensuring
@@ -171,6 +173,62 @@ impl SelectionStyle {
             marker: None,
             disabled: false,
         }
+    }
+}
+
+/// Scrollbar styling configuration
+#[derive(Debug, Clone)]
+pub struct ScrollbarStyle {
+    /// Style for the scrollbar thumb
+    pub thumb: Style,
+    /// Style for the scrollbar track
+    pub track: Style,
+    /// Style for the scrollbar begin symbol
+    pub begin: Style,
+    /// Style for the scrollbar end symbol
+    pub end: Style,
+    /// Override the thumb symbol (None = ratatui default)
+    pub thumb_symbol: Option<&'static str>,
+    /// Override the track symbol (None = no track)
+    pub track_symbol: Option<&'static str>,
+    /// Override the begin symbol (None = no symbol)
+    pub begin_symbol: Option<&'static str>,
+    /// Override the end symbol (None = no symbol)
+    pub end_symbol: Option<&'static str>,
+}
+
+impl Default for ScrollbarStyle {
+    fn default() -> Self {
+        Self {
+            thumb: Style::default().fg(Color::Cyan),
+            track: Style::default().fg(Color::DarkGray),
+            begin: Style::default().fg(Color::DarkGray),
+            end: Style::default().fg(Color::DarkGray),
+            thumb_symbol: Some("█"),
+            track_symbol: Some("│"),
+            begin_symbol: None,
+            end_symbol: None,
+        }
+    }
+}
+
+impl ScrollbarStyle {
+    /// Build a ratatui Scrollbar widget from this style
+    pub fn build(&self, orientation: ScrollbarOrientation) -> Scrollbar<'static> {
+        let mut scrollbar = Scrollbar::new(orientation)
+            .thumb_style(self.thumb)
+            .track_style(self.track)
+            .begin_style(self.begin)
+            .end_style(self.end)
+            .track_symbol(self.track_symbol)
+            .begin_symbol(self.begin_symbol)
+            .end_symbol(self.end_symbol);
+
+        if let Some(symbol) = self.thumb_symbol {
+            scrollbar = scrollbar.thumb_symbol(symbol);
+        }
+
+        scrollbar
     }
 }
 

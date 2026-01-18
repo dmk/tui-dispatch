@@ -12,6 +12,8 @@ tui-dispatch-components = "0.4"
 ## Available Components
 
 - **SelectList** - Scrollable selection list with keyboard navigation
+- **ScrollView** - Scrollable view for pre-wrapped lines
+- **StatusBar** - Left/center/right status bar with hints
 - **TextInput** - Single-line text input with cursor
 - **Modal** - Overlay with dimmed background
 
@@ -93,7 +95,7 @@ fn render_items(items: &[MyItem], query: &str) -> Vec<Line<'static>> {
 ### Styling
 
 ```rust
-use tui_dispatch_components::{ListStyle, Padding, BorderStyle, SelectionStyle};
+use tui_dispatch_components::{ListStyle, Padding, BorderStyle, ScrollbarStyle, SelectionStyle};
 use ratatui::style::{Color, Style};
 
 let style = ListStyle {
@@ -105,6 +107,7 @@ let style = ListStyle {
         marker: Some("> "),
         disabled: false,
     },
+    scrollbar: ScrollbarStyle::default(),
 };
 ```
 
@@ -149,6 +152,66 @@ let props = SelectListProps {
     // ...
 };
 ```
+
+## ScrollView
+
+A scrollable view for pre-wrapped lines with a controlled scroll offset.
+
+### Basic Usage
+
+```rust
+use tui_dispatch_components::{Line, ScrollBehavior, ScrollView, ScrollViewProps, ScrollViewStyle};
+
+let lines: Vec<Line> = state.lines.iter().map(|line| Line::raw(line)).collect();
+
+let props = ScrollViewProps {
+    lines: &lines,
+    content_len: state.total_lines,
+    line_offset: state.slice_start,
+    scroll_offset: state.scroll_offset,
+    is_focused: state.focus == Focus::Content,
+    style: ScrollViewStyle::default(),
+    behavior: ScrollBehavior::default(),
+    on_scroll: Action::ScrollTo,
+};
+
+scroll_view.render(frame, area, props);
+```
+
+The `line_offset` and `content_len` fields let you virtualize large buffers by
+providing only the visible slice of lines.
+
+## StatusBar
+
+A left/center/right status bar for mode info, ephemeral messages, and key hints.
+
+### Basic Usage
+
+```rust
+use tui_dispatch_components::{
+    StatusBar, StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle,
+};
+
+let left = [StatusBarItem::text("NORMAL")];
+let center = [StatusBarItem::text("No file")];
+let hints = [
+    StatusBarHint::new("/", "search"),
+    StatusBarHint::new("F1", "help"),
+];
+
+let props = StatusBarProps {
+    left: StatusBarSection::items(&left),
+    center: StatusBarSection::items(&center),
+    right: StatusBarSection::hints(&hints),
+    style: StatusBarStyle::default(),
+    is_focused: false,
+};
+
+status_bar.render(frame, area, props);
+```
+
+Sections are clipped to the available width, with the center section placed
+between the left and right content.
 
 ## TextInput
 
@@ -300,6 +363,13 @@ SelectionStyle::style_only(Style::default().fg(Color::Yellow))
 
 // User handles everything
 SelectionStyle::disabled()
+```
+
+### ScrollbarStyle
+
+```rust
+// Default thumb/track styling
+ScrollbarStyle::default()
 ```
 
 ## Prelude

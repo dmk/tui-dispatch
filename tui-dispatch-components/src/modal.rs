@@ -4,7 +4,6 @@
 //! modal content on top.
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget, Frame};
-use tui_dispatch_debug::debug::dim_buffer;
 
 use crate::style::{BorderStyle, ComponentStyle, Padding};
 
@@ -88,7 +87,9 @@ impl ComponentStyle for ModalStyle {
 /// ```
 pub fn render_modal(frame: &mut Frame, area: Rect, style: &ModalStyle) -> Rect {
     // Dim the background (everything rendered so far)
-    dim_buffer(frame.buffer_mut(), style.dim_factor);
+    if style.dim_factor > 0.0 {
+        dim_buffer(frame.buffer_mut(), style.dim_factor);
+    }
 
     // Fill modal area with background color
     if let Some(bg) = style.bg {
@@ -147,6 +148,118 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect::new(x, y, width, height)
+}
+
+/// Dim a buffer by scaling colors towards black
+///
+/// `factor` ranges from 0.0 (no change) to 1.0 (fully dimmed/black).
+/// Emoji characters are replaced with spaces (they can't be dimmed).
+fn dim_buffer(buffer: &mut Buffer, factor: f32) {
+    let factor = factor.clamp(0.0, 1.0);
+    let scale = 1.0 - factor;
+
+    for cell in buffer.content.iter_mut() {
+        if contains_emoji(cell.symbol()) {
+            cell.set_symbol(" ");
+        }
+        cell.fg = dim_color(cell.fg, scale);
+        cell.bg = dim_color(cell.bg, scale);
+    }
+}
+
+fn contains_emoji(s: &str) -> bool {
+    s.chars().any(is_emoji)
+}
+
+fn is_emoji(c: char) -> bool {
+    let cp = c as u32;
+    matches!(
+        cp,
+        0x1F300..=0x1F5FF |
+        0x1F600..=0x1F64F |
+        0x1F680..=0x1F6FF |
+        0x1F900..=0x1F9FF |
+        0x1FA00..=0x1FA6F |
+        0x1FA70..=0x1FAFF |
+        0x1F1E0..=0x1F1FF
+    )
+}
+
+fn dim_color(color: Color, scale: f32) -> Color {
+    match color {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            ((r as f32) * scale) as u8,
+            ((g as f32) * scale) as u8,
+            ((b as f32) * scale) as u8,
+        ),
+        Color::Indexed(idx) => indexed_to_rgb(idx)
+            .map(|(r, g, b)| {
+                Color::Rgb(
+                    ((r as f32) * scale) as u8,
+                    ((g as f32) * scale) as u8,
+                    ((b as f32) * scale) as u8,
+                )
+            })
+            .unwrap_or(color),
+        Color::Black => Color::Black,
+        Color::Red => dim_named_color(205, 0, 0, scale),
+        Color::Green => dim_named_color(0, 205, 0, scale),
+        Color::Yellow => dim_named_color(205, 205, 0, scale),
+        Color::Blue => dim_named_color(0, 0, 238, scale),
+        Color::Magenta => dim_named_color(205, 0, 205, scale),
+        Color::Cyan => dim_named_color(0, 205, 205, scale),
+        Color::Gray => dim_named_color(229, 229, 229, scale),
+        Color::DarkGray => dim_named_color(127, 127, 127, scale),
+        Color::LightRed => dim_named_color(255, 0, 0, scale),
+        Color::LightGreen => dim_named_color(0, 255, 0, scale),
+        Color::LightYellow => dim_named_color(255, 255, 0, scale),
+        Color::LightBlue => dim_named_color(92, 92, 255, scale),
+        Color::LightMagenta => dim_named_color(255, 0, 255, scale),
+        Color::LightCyan => dim_named_color(0, 255, 255, scale),
+        Color::White => dim_named_color(255, 255, 255, scale),
+        Color::Reset => Color::Reset,
+    }
+}
+
+fn dim_named_color(r: u8, g: u8, b: u8, scale: f32) -> Color {
+    Color::Rgb(
+        ((r as f32) * scale) as u8,
+        ((g as f32) * scale) as u8,
+        ((b as f32) * scale) as u8,
+    )
+}
+
+fn indexed_to_rgb(idx: u8) -> Option<(u8, u8, u8)> {
+    match idx {
+        0 => Some((0, 0, 0)),
+        1 => Some((128, 0, 0)),
+        2 => Some((0, 128, 0)),
+        3 => Some((128, 128, 0)),
+        4 => Some((0, 0, 128)),
+        5 => Some((128, 0, 128)),
+        6 => Some((0, 128, 128)),
+        7 => Some((192, 192, 192)),
+        8 => Some((128, 128, 128)),
+        9 => Some((255, 0, 0)),
+        10 => Some((0, 255, 0)),
+        11 => Some((255, 255, 0)),
+        12 => Some((0, 0, 255)),
+        13 => Some((255, 0, 255)),
+        14 => Some((0, 255, 255)),
+        15 => Some((255, 255, 255)),
+        16..=231 => {
+            let idx = idx - 16;
+            let r = (idx / 36) % 6;
+            let g = (idx / 6) % 6;
+            let b = idx % 6;
+            let to_rgb = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
+            Some((to_rgb(r), to_rgb(g), to_rgb(b)))
+        }
+        232..=255 => {
+            let gray = 8 + (idx - 232) * 10;
+            Some((gray, gray, gray))
+        }
+    }
 }
 
 #[cfg(test)]

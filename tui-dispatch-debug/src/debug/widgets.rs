@@ -350,18 +350,20 @@ impl Default for DebugTableStyle {
         use super::config::DebugStyle;
         Self {
             header: Style::default()
-                .fg(DebugStyle::neon_cyan())
+                .fg(DebugStyle::accent())
+                .bg(DebugStyle::overlay_bg_dark())
                 .add_modifier(Modifier::BOLD),
             section: Style::default()
                 .fg(DebugStyle::neon_purple())
+                .bg(DebugStyle::overlay_bg_dark())
                 .add_modifier(Modifier::BOLD),
             key: Style::default()
                 .fg(DebugStyle::neon_amber())
                 .add_modifier(Modifier::BOLD),
             value: Style::default().fg(DebugStyle::text_primary()),
             row_styles: (
-                Style::default().bg(DebugStyle::bg_panel()),
-                Style::default().bg(DebugStyle::bg_surface()),
+                Style::default().bg(DebugStyle::overlay_bg()),
+                Style::default().bg(DebugStyle::overlay_bg_alt()),
             ),
         }
     }
@@ -707,7 +709,8 @@ impl Default for ActionLogStyle {
         use super::config::DebugStyle;
         Self {
             header: Style::default()
-                .fg(DebugStyle::neon_cyan())
+                .fg(DebugStyle::accent())
+                .bg(DebugStyle::overlay_bg_dark())
                 .add_modifier(Modifier::BOLD),
             sequence: Style::default().fg(DebugStyle::text_secondary()),
             name: Style::default()
@@ -719,8 +722,8 @@ impl Default for ActionLogStyle {
                 .bg(DebugStyle::bg_highlight())
                 .add_modifier(Modifier::BOLD),
             row_styles: (
-                Style::default().bg(DebugStyle::bg_panel()),
-                Style::default().bg(DebugStyle::bg_surface()),
+                Style::default().bg(DebugStyle::overlay_bg()),
+                Style::default().bg(DebugStyle::overlay_bg_alt()),
             ),
         }
     }

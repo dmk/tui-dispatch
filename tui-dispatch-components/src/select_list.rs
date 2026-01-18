@@ -5,12 +5,12 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, List, ListItem, ListState, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, List, ListItem, ListState, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use tui_dispatch_core::{Component, EventKind};
 
-use crate::style::{BorderStyle, ComponentStyle, Padding, SelectionStyle};
+use crate::style::{BorderStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
 
 /// Unified styling for SelectList
 #[derive(Debug, Clone)]
@@ -25,6 +25,8 @@ pub struct ListStyle {
     pub fg: Option<ratatui::style::Color>,
     /// Selection indication styling
     pub selection: SelectionStyle,
+    /// Scrollbar styling
+    pub scrollbar: ScrollbarStyle,
 }
 
 impl Default for ListStyle {
@@ -35,6 +37,7 @@ impl Default for ListStyle {
             bg: None,
             fg: Some(ratatui::style::Color::Reset),
             selection: SelectionStyle::default(),
+            scrollbar: ScrollbarStyle::default(),
         }
     }
 }
@@ -56,6 +59,7 @@ impl ListStyle {
             bg: None,
             fg: Some(ratatui::style::Color::Reset),
             selection: SelectionStyle::default(),
+            scrollbar: ScrollbarStyle::default(),
         }
     }
 }
@@ -243,16 +247,44 @@ impl<A> Component<A> for SelectList {
             height: area.height.saturating_sub(style.padding.vertical()),
         };
 
-        // Calculate viewport height (account for borders if shown)
-        let border_offset = if style.border.is_some() { 2 } else { 0 };
-        let viewport_height = content_area.height.saturating_sub(border_offset) as usize;
+        let mut inner_area = content_area;
+        if let Some(border) = &style.border {
+            let block = Block::default()
+                .borders(border.borders)
+                .border_style(border.style_for_focus(props.is_focused));
+            inner_area = block.inner(content_area);
+            frame.render_widget(block, content_area);
+        }
 
+        let viewport_height = inner_area.height as usize;
         let render_selected = props.selected.min(props.items.len().saturating_sub(1));
 
         // Ensure selected item is visible
-        if !props.items.is_empty() {
+        if !props.items.is_empty() && viewport_height > 0 {
             self.ensure_visible(render_selected, viewport_height);
         }
+
+        if viewport_height > 0 {
+            let max_offset = props.count.saturating_sub(viewport_height);
+            self.scroll_offset = self.scroll_offset.min(max_offset);
+        }
+
+        let show_scrollbar = props.behavior.show_scrollbar
+            && viewport_height > 0
+            && props.count > viewport_height
+            && inner_area.width > 1;
+        let mut list_area = inner_area;
+        let scrollbar_area = if show_scrollbar {
+            let scrollbar_area = Rect {
+                x: inner_area.x + inner_area.width.saturating_sub(1),
+                width: 1,
+                ..inner_area
+            };
+            list_area.width = list_area.width.saturating_sub(1);
+            Some(scrollbar_area)
+        } else {
+            None
+        };
 
         // Build list items with optional selection styling
         let items: Vec<ListItem> = props
@@ -302,15 +334,7 @@ impl<A> Component<A> for SelectList {
         } else {
             style.selection.style.unwrap_or_default()
         };
-        let mut list = List::new(items).highlight_style(highlight_style);
-
-        if let Some(border) = &style.border {
-            list = list.block(
-                Block::default()
-                    .borders(border.borders)
-                    .border_style(border.style_for_focus(props.is_focused)),
-            );
-        }
+        let list = List::new(items).highlight_style(highlight_style);
 
         // Use ListState to handle scroll offset
         let selected = if props.items.is_empty() {
@@ -321,31 +345,17 @@ impl<A> Component<A> for SelectList {
         let mut state = ListState::default().with_selected(selected);
         *state.offset_mut() = self.scroll_offset;
 
-        frame.render_stateful_widget(list, content_area, &mut state);
+        frame.render_stateful_widget(list, list_area, &mut state);
 
-        // Render scrollbar if enabled and content exceeds viewport
-        if props.behavior.show_scrollbar && props.count > viewport_height {
-            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some("│"))
-                .thumb_symbol("█")
-                .style(Style::default().fg(tui_dispatch_core::Color::Cyan));
-
-            let mut scrollbar_state = ScrollbarState::new(props.count).position(props.selected);
-
-            // Render scrollbar in the inner area (account for border if shown)
-            let scrollbar_area = if style.border.is_some() {
-                Rect {
-                    x: content_area.x,
-                    y: content_area.y + 1,
-                    width: content_area.width,
-                    height: content_area.height.saturating_sub(2),
-                }
-            } else {
-                content_area
-            };
-
+        if let Some(scrollbar_area) = scrollbar_area {
+            let scrollbar = style.scrollbar.build(ScrollbarOrientation::VerticalRight);
+            let scrollbar_len = props
+                .count
+                .saturating_sub(viewport_height)
+                .saturating_add(1);
+            let mut scrollbar_state = ScrollbarState::new(scrollbar_len)
+                .position(self.scroll_offset)
+                .viewport_content_length(viewport_height.max(1));
             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
         }
     }
