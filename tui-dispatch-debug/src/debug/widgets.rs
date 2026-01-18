@@ -3,14 +3,14 @@
 //! Provides theme-agnostic widgets for rendering debug information.
 //! Applications provide their own styles to customize appearance.
 
-use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Cell, Clear, Paragraph, Row, Table, Widget};
+use ratatui::Frame;
 
-use super::cell::{CellPreview, format_color_compact, format_modifier_compact};
+use super::cell::{format_color_compact, format_modifier_compact, CellPreview};
 use super::config::DebugStyle;
 use super::table::{ActionLogOverlay, DebugTableOverlay, DebugTableRow};
 
@@ -574,6 +574,7 @@ pub(crate) fn ron_spans(value: &str, style: &RonSyntaxStyle) -> Vec<Span<'static
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut chars = value.chars().peekable();
 
+    #[allow(clippy::while_let_on_iterator)]
     while let Some(ch) = chars.next() {
         if ch == '"' || ch == '\'' {
             let quote = ch;

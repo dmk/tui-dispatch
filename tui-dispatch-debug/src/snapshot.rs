@@ -125,3 +125,83 @@ where
     fs::write(path, data)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("tui-dispatch-debug-{label}-{nanos}.ron"));
+        path
+    }
+
+    #[test]
+    fn test_state_snapshot_round_trip() {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        struct TestState {
+            name: String,
+            count: usize,
+            flags: Vec<bool>,
+        }
+
+        let state = TestState {
+            name: "alpha".to_string(),
+            count: 42,
+            flags: vec![true, false, true],
+        };
+
+        let path = temp_path("state");
+        StateSnapshot::new(state.clone())
+            .save_ron(&path)
+            .expect("save state snapshot");
+
+        let loaded = StateSnapshot::<TestState>::load_ron(&path)
+            .expect("load state snapshot")
+            .into_state();
+
+        assert_eq!(loaded, state);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_action_snapshot_round_trip() {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        enum TestAction {
+            Tick,
+            Set { value: i32 },
+        }
+
+        let actions = vec![TestAction::Tick, TestAction::Set { value: 7 }];
+        let path = temp_path("actions");
+
+        ActionSnapshot::new(actions.clone())
+            .save_ron(&path)
+            .expect("save action snapshot");
+
+        let loaded = ActionSnapshot::<TestAction>::load_ron(&path)
+            .expect("load action snapshot")
+            .into_actions();
+
+        assert_eq!(loaded, actions);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_ron_missing_file() {
+        let path = temp_path("missing");
+        let _ = std::fs::remove_file(&path);
+
+        match load_ron::<u32, _>(&path) {
+            Err(SnapshotError::Io(_)) => {}
+            other => panic!("expected io error, got {other:?}"),
+        }
+    }
+}

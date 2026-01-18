@@ -27,6 +27,7 @@
 //! // - B: Toggle debug banner position
 //! // - J/K, arrows, PgUp/PgDn, g/G: Scroll overlays
 //! // - Y: Copy frozen frame to clipboard
+//! // - W: Save state snapshot to a RON file
 //! // - I: Toggle mouse capture for cell inspection
 //! ```
 //!
@@ -129,21 +130,21 @@ pub mod widgets;
 // High-level API (recommended)
 pub use actions::{DebugAction, DebugSideEffect};
 pub use config::{
-    DebugConfig, DebugStyle, KeyStyles, ScrollbarStyle, StatusItem, default_debug_keybindings,
-    default_debug_keybindings_with_toggle,
+    default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
+    KeyStyles, ScrollbarStyle, StatusItem,
 };
 pub use layer::{BannerPosition, DebugLayer, DebugOutcome};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging
 pub use action_logger::{
-    ActionLog, ActionLogConfig, ActionLogEntry, ActionLoggerConfig, ActionLoggerMiddleware,
-    glob_match,
+    glob_match, ActionLog, ActionLogConfig, ActionLogEntry, ActionLoggerConfig,
+    ActionLoggerMiddleware,
 };
 
 // Low-level API
 pub use cell::{
-    CellPreview, format_color_compact, format_modifier_compact, inspect_cell, point_in_rect,
+    format_color_compact, format_modifier_compact, inspect_cell, point_in_rect, CellPreview,
 };
 pub use format::{ron_string, ron_string_compact, ron_string_pretty};
 pub use table::{
@@ -151,8 +152,8 @@ pub use table::{
     DebugTableRow,
 };
 pub use widgets::{
-    ActionLogStyle, ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner, DebugTableStyle,
-    DebugTableWidget, buffer_to_text, dim_buffer, paint_snapshot,
+    buffer_to_text, dim_buffer, paint_snapshot, ActionLogStyle, ActionLogWidget, BannerItem,
+    CellPreviewWidget, DebugBanner, DebugTableStyle, DebugTableWidget,
 };
 
 use ratatui::buffer::Buffer;
@@ -363,7 +364,7 @@ impl<A> DebugFreeze<A> {
 
 impl<S, A> DebugAdapter<S, A> for DebugLayer<A>
 where
-    S: DebugState,
+    S: DebugState + 'static,
     A: Action + ActionParams,
 {
     fn render(

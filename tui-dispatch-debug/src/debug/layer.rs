@@ -3,17 +3,20 @@
 //! Provides a self-contained debug overlay with automatic pause/resume of
 //! tasks and subscriptions.
 
-use std::io::Write;
+use std::any::Any;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
-use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::Frame;
+use serde::Serialize;
 
-use super::DebugFreeze;
 use super::action_logger::{ActionLog, ActionLogConfig};
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
@@ -21,14 +24,17 @@ use super::config::DebugStyle;
 use super::state::DebugState;
 use super::table::{ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay};
 use super::widgets::{
-    ActionLogWidget, BannerItem, CellPreviewWidget, DebugBanner, DebugTableWidget, RonSyntaxStyle,
-    dim_buffer, paint_snapshot, ron_spans,
+    dim_buffer, paint_snapshot, ron_spans, ActionLogWidget, BannerItem, CellPreviewWidget,
+    DebugBanner, DebugTableWidget, RonSyntaxStyle,
 };
-use tui_dispatch_core::Action;
+use super::DebugFreeze;
 #[cfg(feature = "subscriptions")]
 use tui_dispatch_core::subscriptions::SubPauseHandle;
 #[cfg(feature = "tasks")]
 use tui_dispatch_core::tasks::TaskPauseHandle;
+use tui_dispatch_core::Action;
+
+type StateSnapshotter = Box<dyn Fn(&dyn Any, &Path) -> crate::SnapshotResult<()> + 'static>;
 
 /// Location of the debug banner relative to the app area.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,6 +155,8 @@ pub struct DebugLayer<A> {
     action_log: ActionLog,
     /// Cached state snapshot for the state overlay
     state_snapshot: Option<DebugTableOverlay>,
+    /// Optional serializer for saving state snapshots
+    state_snapshotter: Option<StateSnapshotter>,
     /// Scroll offset for state/inspect table overlays
     table_scroll_offset: usize,
     /// Cached page size for table overlay scrolling
@@ -173,6 +181,7 @@ impl<A> std::fmt::Debug for DebugLayer<A> {
             .field("enabled", &self.freeze.enabled)
             .field("has_snapshot", &self.freeze.snapshot.is_some())
             .field("has_state_snapshot", &self.state_snapshot.is_some())
+            .field("has_state_snapshotter", &self.state_snapshotter.is_some())
             .field("banner_position", &self.banner_position)
             .field("table_scroll_offset", &self.table_scroll_offset)
             .field("detail_scroll_offset", &self.detail_scroll_offset)
@@ -200,6 +209,7 @@ impl<A: Action> DebugLayer<A> {
             active: true,
             action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
             state_snapshot: None,
+            state_snapshotter: None,
             table_scroll_offset: 0,
             table_page_size: 1,
             detail_scroll_offset: 0,
@@ -267,6 +277,32 @@ impl<A: Action> DebugLayer<A> {
     pub fn with_style(mut self, style: DebugStyle) -> Self {
         self.style = style;
         self
+    }
+
+    /// Provide a custom serializer for saving state snapshots (W key).
+    pub fn with_state_snapshotter<S, F>(mut self, snapshotter: F) -> Self
+    where
+        S: DebugState + 'static,
+        F: Fn(&S, &Path) -> crate::SnapshotResult<()> + 'static,
+    {
+        self.state_snapshotter = Some(Box::new(move |state, path| {
+            let state = state.downcast_ref::<S>().ok_or_else(|| {
+                crate::SnapshotError::Io(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "debug state snapshot type mismatch",
+                ))
+            })?;
+            snapshotter(state, path)
+        }));
+        self
+    }
+
+    /// Save full state snapshots using serde (loadable by `--debug-state-in`).
+    pub fn with_state_snapshots<S>(self) -> Self
+    where
+        S: DebugState + Serialize + 'static,
+    {
+        self.with_state_snapshotter::<S, _>(|state, path| crate::save_ron(path, state))
     }
 
     /// Check if the debug layer is active.
@@ -440,7 +476,7 @@ impl<A: Action> DebugLayer<A> {
     }
 
     /// Handle a debug event with access to state (for the state overlay).
-    pub fn handle_event_with_state<S: DebugState>(
+    pub fn handle_event_with_state<S: DebugState + 'static>(
         &mut self,
         event: &tui_dispatch_core::EventKind,
         state: &S,
@@ -461,7 +497,7 @@ impl<A: Action> DebugLayer<A> {
     /// Check if debug layer intercepts an event with access to app state.
     ///
     /// Use this to populate the state overlay when `S` is pressed.
-    pub fn intercepts_with_effects_and_state<S: DebugState>(
+    pub fn intercepts_with_effects_and_state<S: DebugState + 'static>(
         &mut self,
         event: &tui_dispatch_core::EventKind,
         state: &S,
@@ -470,7 +506,7 @@ impl<A: Action> DebugLayer<A> {
     }
 
     /// Check if debug layer intercepts an event with access to app state.
-    pub fn intercepts_with_state<S: DebugState>(
+    pub fn intercepts_with_state<S: DebugState + 'static>(
         &mut self,
         event: &tui_dispatch_core::EventKind,
         state: &S,
@@ -479,7 +515,7 @@ impl<A: Action> DebugLayer<A> {
             .is_some()
     }
 
-    fn handle_event_internal<S: DebugState>(
+    fn handle_event_internal<S: DebugState + 'static>(
         &mut self,
         event: &tui_dispatch_core::EventKind,
         state: Option<&S>,
@@ -499,7 +535,7 @@ impl<A: Action> DebugLayer<A> {
         DebugOutcome::consumed(queued_actions)
     }
 
-    fn intercepts_with_effects_internal<S: DebugState>(
+    fn intercepts_with_effects_internal<S: DebugState + 'static>(
         &mut self,
         event: &tui_dispatch_core::EventKind,
         state: Option<&S>,
@@ -609,6 +645,45 @@ impl<A: Action> DebugLayer<A> {
         }
         self.state_snapshot = Some(table.clone());
         self.freeze.set_overlay(DebugOverlay::State(table));
+    }
+
+    fn save_state_snapshot<S: DebugState + 'static>(&mut self, state: Option<&S>) {
+        if !matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
+            self.freeze.set_message("Open state overlay (S) to save");
+            return;
+        }
+
+        let Some(state) = state else {
+            self.freeze
+                .set_message("State unavailable: call render_state() first");
+            return;
+        };
+
+        let path = self.state_snapshot_path();
+
+        let result = if let Some(snapshotter) = self.state_snapshotter.as_ref() {
+            snapshotter(state as &dyn Any, &path)
+        } else {
+            let snapshot = DebugStateSnapshot::from_state(state, "Application State");
+            crate::save_ron(&path, &snapshot)
+        };
+
+        match result {
+            Ok(()) => self
+                .freeze
+                .set_message(format!("Saved state: {}", path.display())),
+            Err(err) => self
+                .freeze
+                .set_message(format!("State save failed: {err:?}")),
+        }
+    }
+
+    fn state_snapshot_path(&self) -> PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        PathBuf::from(format!("debug-state-{timestamp}.ron"))
     }
 
     fn update_table_scroll(&mut self, table: &DebugTableOverlay, table_area: Rect) {
@@ -773,7 +848,7 @@ impl<A: Action> DebugLayer<A> {
         }
     }
 
-    fn handle_key_event<S: DebugState>(
+    fn handle_key_event<S: DebugState + 'static>(
         &mut self,
         key: KeyEvent,
         state: Option<&S>,
@@ -819,6 +894,10 @@ impl<A: Action> DebugLayer<A> {
                         .finish("Application State");
                     self.freeze.set_overlay(DebugOverlay::State(table));
                 }
+                return Some(vec![]);
+            }
+            KeyCode::Char('w') | KeyCode::Char('W') => {
+                self.save_state_snapshot(state);
                 return Some(vec![]);
             }
             _ => {}
@@ -902,6 +981,8 @@ impl<A: Action> DebugLayer<A> {
             self.state_snapshot = None;
             self.table_scroll_offset = 0;
             self.table_page_size = 1;
+            self.detail_scroll_offset = 0;
+            self.detail_page_size = 1;
 
             // Combine queued actions from freeze and task manager
             let mut all_queued = queued;
@@ -910,22 +991,7 @@ impl<A: Action> DebugLayer<A> {
             if all_queued.is_empty() {
                 None
             } else {
-                // Enable: pause tasks/subs
-                #[cfg(feature = "tasks")]
-                if let Some(ref handle) = self.task_handle {
-                    handle.pause();
-                }
-                #[cfg(feature = "subscriptions")]
-                if let Some(ref handle) = self.sub_handle {
-                    handle.pause();
-                }
-                self.freeze.enable();
-                self.state_snapshot = None;
-                self.table_scroll_offset = 0;
-                self.table_page_size = 1;
-                self.detail_scroll_offset = 0;
-                self.detail_page_size = 1;
-                None
+                Some(DebugSideEffect::ProcessQueuedActions(all_queued))
             }
         } else {
             // Enable: pause tasks/subs
@@ -941,6 +1007,8 @@ impl<A: Action> DebugLayer<A> {
             self.state_snapshot = None;
             self.table_scroll_offset = 0;
             self.table_page_size = 1;
+            self.detail_scroll_offset = 0;
+            self.detail_page_size = 1;
             None
         }
     }
@@ -1132,6 +1200,7 @@ impl<A: Action> DebugLayer<A> {
         banner = banner.item(BannerItem::new(&toggle_key_str, "resume", keys.toggle));
         banner = banner.item(BannerItem::new("a", "actions", keys.actions));
         banner = banner.item(BannerItem::new("s", "state", keys.state));
+        banner = banner.item(BannerItem::new("w", "save", keys.state));
         banner = banner.item(BannerItem::new(
             "b",
             self.banner_position.label(),
@@ -1453,6 +1522,49 @@ impl<A: Action> DebugLayer<A> {
         }
 
         builder.finish(format!("Inspect ({column}, {row})"))
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DebugStateSnapshot {
+    title: String,
+    sections: Vec<DebugStateSnapshotSection>,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugStateSnapshotSection {
+    title: String,
+    entries: Vec<DebugStateSnapshotEntry>,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugStateSnapshotEntry {
+    key: String,
+    value: String,
+}
+
+impl DebugStateSnapshot {
+    fn from_state<S: DebugState>(state: &S, title: &str) -> Self {
+        let sections = state
+            .debug_sections()
+            .into_iter()
+            .map(|section| DebugStateSnapshotSection {
+                title: section.title,
+                entries: section
+                    .entries
+                    .into_iter()
+                    .map(|entry| DebugStateSnapshotEntry {
+                        key: entry.key,
+                        value: entry.value,
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        Self {
+            title: title.to_string(),
+            sections,
+        }
     }
 }
 

@@ -34,8 +34,12 @@ Default keybindings (when debug mode is active):
 - `A` - Show/hide action log
 - `J/K`, arrows, `PgUp/PgDn`, `g/G`, mouse wheel - Scroll tables
 - `Y` - Copy frozen frame to clipboard
+- `W` - Save state snapshot to a RON file
 - `I` - Toggle mouse capture for cell inspection
 - `Esc` / `Q` - Close overlay
+
+To save loadable snapshots for `--debug-state-in`, configure the layer with
+`DebugLayer::with_state_snapshots::<AppState>()`.
 
 ## Custom Toggle Key
 

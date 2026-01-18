@@ -638,7 +638,12 @@ mod tests {
 
     #[test]
     fn test_action_log_entry_elapsed() {
-        let entry = ActionLogEntry::new("Test", "test_params".to_string(), 0);
+        let entry = ActionLogEntry::new(
+            "Test",
+            "test_params".to_string(),
+            "test_params".to_string(),
+            0,
+        );
         // Should have "0ms" as default elapsed
         assert_eq!(entry.elapsed, "0ms");
     }
