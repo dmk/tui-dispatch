@@ -228,9 +228,9 @@ Also includes `DynamicFeatures` for runtime-only flags without the derive macro.
 
 ---
 
-## ~~tui-dispatch-components~~ DONE (partial)
+## ~~tui-dispatch-components~~ DONE
 
-> Implemented in v0.5.x: `SelectList`, `TextInput`, and modal overlays (`Modal`, `ModalStyle`, `centered_rect`)
+> Implemented in v0.5.x: `SelectList`, `TextInput`, `ScrollView`, `StatusBar`, `TreeView`, `Modal`
 
 A companion crate providing reusable TUI components that integrate with tui-dispatch patterns.
 
@@ -495,7 +495,9 @@ async fn test_async_flow() {
 
 ---
 
-## LLM-Aware Debugging
+## ~~LLM-Aware Debugging~~ DONE
+
+> Implemented in `tui-dispatch-debug` crate: `DebugSession`, `StateSnapshot`, `ActionSnapshot`, `ReplayItem` with `_await`/`_await_any` markers, JSON schema generation, CLI integration.
 
 **Killer feature**: Let AI agents debug TUI apps autonomously. TUI renders to text - LLMs can literally "see" it.
 
@@ -649,7 +651,7 @@ Ideas for keeping larger tui-dispatch apps (like memtui) organized and maintaina
 
 ### ~~Reducer Composition~~ DONE
 
-> Implemented in v0.5.1 (`reducer_compose!`)
+> Implemented in v0.5.1: `reducer_compose!` macro for routing actions by category/context/pattern
 
 Large apps end up with 1000+ line reducers. Use a macro for context-aware dispatch:
 
@@ -773,16 +775,21 @@ src/
 
 | Idea | Effort | Value | Status |
 |------|--------|-------|--------|
-| `DebugLayer::simple()` | Low | High | Done |
-| `#[derive(DebugState)]` | Medium | Medium | Done |
-| Feature flags | Medium | High | Done |
-| Runtime helpers | Medium | High | Done |
-| Component trait in core | Low | High | Done |
-| `SelectList` component | Medium | High | Done |
-| `TextInput` component | Medium | High | Done |
-| `StoreTestHarness` / `EffectStoreTestHarness` | Low | Medium | Done |
+| `DebugLayer::simple()` | Low | High | ✅ Done |
+| `#[derive(DebugState)]` | Medium | Medium | ✅ Done |
+| Feature flags | Medium | High | ✅ Done |
+| Runtime helpers | Medium | High | ✅ Done |
+| Component trait in core | Low | High | ✅ Done |
+| `SelectList` component | Medium | High | ✅ Done |
+| `TextInput` component | Medium | High | ✅ Done |
+| `ScrollView` component | Low | Medium | ✅ Done |
+| `StatusBar` component | Low | Medium | ✅ Done |
+| `TreeView` component | Medium | Medium | ✅ Done |
+| `StoreTestHarness` / `EffectStoreTestHarness` | Low | Medium | ✅ Done |
+| Reducer composition macro | Low | High | ✅ Done |
+| LLM-aware debugging | Medium | **Very High** | ✅ Done (tui-dispatch-debug) |
 | Theme system | Medium | Medium | Planned |
 | `CmdLine` component | Medium-High | High | Planned |
+| `Tabs`/`TabBar` component | Medium | Medium | Planned |
+| Unified component API | Medium | Medium | Planned |
 | Animation system | High | Medium | Future |
-| LLM-aware debugging | Medium | **Very High** | Planned |
-| Reducer composition macro | Low | High | Done |

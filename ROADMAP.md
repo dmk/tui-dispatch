@@ -3,138 +3,85 @@
 An opinionated Redux/Elm-inspired architecture for Rust TUI apps.
 Not trying to be everything - just making the core patterns ergonomic.
 
-## Current State
+## Current State (v0.5.x)
 
-**Core (Done):**
+**Core:**
 - [x] `Store` with reducer dispatch and middleware
 - [x] `EventBus` with subscriptions, focus, component areas
 - [x] `Keybindings` with context-aware lookup, merge, serde
 - [x] `#[derive(Action)]` with category inference, dispatcher generation
 - [x] `#[derive(BindingContext)]`, `#[derive(ComponentId)]`
-- [x] Testing: `TestHarness`, `RenderHarness`, fluent assertions, key helpers, time control
+- [x] Testing: `TestHarness`, `RenderHarness`, fluent assertions, key helpers
 
-**Added in v0.2.x:**
+**Debug & Dev Tools:**
 - [x] `DebugLayer::simple()` - one-liner debug overlay setup
 - [x] `#[derive(DebugState)]` with `#[debug(section, skip, label)]` attributes
 - [x] `#[derive(FeatureFlags)]` with runtime toggle, export/import
 - [x] `ActionLoggerMiddleware` with pattern-based filtering
+- [x] `tui-dispatch-debug` crate: snapshots, replay, JSON schema generation
+- [x] Action replay with `_await` / `_await_any` markers for async coordination
+
+**Runtime & Effects:**
+- [x] `EffectStore` with `DispatchResult<E>` for effect-based reducers
+- [x] `TaskManager` (spawn, debounce, cancel)
+- [x] `Subscriptions` (intervals, streams)
+- [x] `DispatchRuntime` / `EffectRuntime` for event loop boilerplate
+- [x] `Component<A>` trait in core
+
+**Components (`tui-dispatch-components`):**
+- [x] `SelectList` - scrollable selection with keyboard nav
+- [x] `TextInput` - single-line input with cursor, selection
+- [x] `ScrollView` - scrollable container
+- [x] `StatusBar` - customizable status line
+- [x] `TreeView` - collapsible tree navigation
+- [x] `Modal` - overlay helpers
+
+**Testing:**
+- [x] `StoreTestHarness` / `EffectStoreTestHarness`
+- [x] `reducer_compose!` macro for large reducers
 
 ---
 
-## Plans
+## Remaining for 1.0
 
-### 1. Document Component Trait Pattern (High Priority)
+### Documentation (High Priority)
 
-The core `Component` trait receives `EventKind` instead of the full `Event`
-with context. This is intentional - focus is passed via props.
-
-**Design (Option A - current):**
-```rust
-// Component receives EventKind, focus passed via Props
-fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> Vec<impl Action>;
-
-// Props include focus info
-struct MyProps<'a> {
-    state: &'a AppState,
-    is_focused: bool,  // caller determines this
-}
-```
-
-- [ ] Document this pattern clearly in the Component trait docs
-- [ ] Add example showing focus handling via props
-
-### 2. Documentation (High Priority)
-
+- [ ] Document Component trait pattern (focus via props)
 - [ ] Architecture overview in lib.rs (the "why" and data flow)
 - [ ] Make doc examples compile (remove `ignore` where possible)
-- [ ] Add a minimal working example in examples/
-- [ ] Document the Component pattern with focus handling
+- [ ] Document `#[action(category = "foo")]` in derive macro docs
 
-### 3. Split Testing Module (Medium Priority)
+### Code Quality (Medium Priority)
 
-`testing.rs` at 1400+ lines is unwieldy. Split into:
-```
-testing/
-├── mod.rs          // re-exports
-├── assertions.rs   // ActionAssertions, macros
-├── harness.rs      // TestHarness
-├── render.rs       // RenderHarness, buffer_to_string
-├── keys.rs         // key(), keys(), key_event()
-└── time.rs         // pause_time, advance_time (feature-gated)
-```
-
-### 4. Explicit Category Attribute (Low Priority)
-
-~~For actions that don't follow prefix convention~~ **Already supported:**
-
-```rust
-#[derive(Action)]
-#[action(infer_categories)]
-enum Action {
-    #[action(category = "search")]
-    StartSearch,  // explicit override
-
-    SearchAddChar(char),  // inferred: "search"
-}
-```
-
-- [x] `#[action(category = "foo")]` works on variants
-- [ ] Document this in the derive macro docs
+- [ ] Split testing module (~1400 lines → assertions, harness, render, keys, time)
+- [ ] Unify examples to use consistent runtime patterns
 
 ---
 
 ## Non-Goals (Opinionated Choices)
 
-These are intentionally not planned:
-
-- **Async middleware** - Keep middleware simple/sync. Async belongs in effect handlers.
+- **Async middleware** - Keep middleware sync. Async belongs in effect handlers.
 - **Selector/memoization** - Use regular functions. No magic caching.
-- **Time-travel debugging** - Cool but overkill. Use tracing + LoggingMiddleware.
+- **Time-travel debugging** - Use tracing + ActionLoggerMiddleware.
 - **Global state injection** - Pass state explicitly through props.
-- **Component lifecycle hooks** - Mount/unmount complexity not worth it for TUI.
+- **Component lifecycle hooks** - Not worth the complexity for TUI.
 
 ---
 
-## Nice-to-Have (Post 1.0)
+## Post 1.0 Ideas
 
-- [ ] `ComponentHarness` for isolated component testing
-- [ ] Insta integration helpers for render snapshots
-- [ ] More key format variants (vim-style `<C-p>`, emacs-style `C-p`)
+See [Ideas](docs/src/ideas.md) for full details.
 
----
-
-## Draft Issue List (Ideas Backlog)
-
-Minimal issue list derived from remaining items in `docs/src/ideas.md`:
-
-- [ ] Debug layer middleware helper (`DebugLayer::middleware` / `ActionLoggerMiddleware::for_debug`)
-- [ ] Theme system (`Theme` trait + derive + presets)
-- [ ] Animation system (registry + tween/spring/keyframes)
-- [ ] Components backlog: CmdLine, CommandPalette, CommandSuggestions, ScrollView, Tabs/TabBar, Tree, Toast/Notification
-- [ ] Components extras: command definition macro, building blocks, shared utilities
-- [ ] Testing helpers: scenario macro, async test harness
-- [ ] LLM-aware debugging feature (llm-debug, DebugSession, snapshots)
-- [ ] Large-project docs: AppState/UiState split, project structure guide
-
----
-
-## Post 1.0 Directions
-
-See [Ideas](docs/src/ideas.md) for exploratory features and
-[Architectural Additions](docs/src/architecture-additions.md) for
-larger architectural proposals.
-
-**Likely next:**
-- Effects/Command pipeline (`EffectReducer`, `DispatchResult`)
-- Task manager (spawn, debounce, cancel)
-- `tui-dispatch-components` crate (SelectList, TextInput, CmdLine)
+**Likely:**
+- Theme system (`Theme` trait + derive + presets)
+- Unified component API (BaseStyle, standardized Props/Callbacks)
+- More components: CmdLine, CommandPalette, Tabs/TabBar, Toast
 
 **Maybe:**
-- Theme system
-- Input routing / focus tree
-- `StoreTestHarness`
+- Animation system
+- Scenario test macro
+- Unix socket action injection (live LLM debugging)
 
-**Unlikely (non-goals):**
+**Unlikely:**
 - Selectors / memoization
 - Time-travel debugging
-- Async middleware
