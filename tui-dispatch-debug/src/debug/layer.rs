@@ -4,42 +4,232 @@
 //! tasks and subscriptions.
 
 use std::any::Any;
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
 use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
-use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::Frame;
 use serde::Serialize;
 
-use super::DebugFreeze;
 use super::action_logger::{ActionLog, ActionLogConfig};
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
 use super::config::DebugStyle;
 use super::state::DebugState;
-use super::table::{ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay};
-use super::widgets::{
-    ActionLogStyle, CellPreviewWidget, DebugTableStyle, RonSyntaxStyle, dim_buffer, paint_snapshot,
-    ron_spans,
+use super::table::{
+    ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay, DebugTableRow,
 };
+use super::widgets::{
+    dim_buffer, paint_snapshot, ron_spans, ActionLogStyle, CellPreviewWidget, DebugTableStyle,
+    RonSyntaxStyle,
+};
+use super::DebugFreeze;
 
 use tui_dispatch_components::{
-    ModalStyle, Padding, ScrollBehavior, ScrollView, ScrollViewProps, ScrollViewStyle,
-    ScrollbarStyle as ComponentScrollbarStyle, StatusBar, StatusBarItem, StatusBarProps,
-    StatusBarSection, StatusBarStyle, centered_rect, render_modal,
+    centered_rect, BaseStyle, LinesScroller, Modal, ModalBehavior, ModalProps, ModalStyle, Padding,
+    ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewStyle,
+    ScrollbarStyle as ComponentScrollbarStyle, SelectionStyle, StatusBar, StatusBarItem,
+    StatusBarProps, StatusBarSection, StatusBarStyle, TreeBranchMode, TreeBranchStyle, TreeNode,
+    TreeNodeRender, TreeView, TreeViewBehavior, TreeViewProps, TreeViewStyle,
 };
-use tui_dispatch_core::Action;
+
 #[cfg(feature = "subscriptions")]
 use tui_dispatch_core::subscriptions::SubPauseHandle;
 #[cfg(feature = "tasks")]
 use tui_dispatch_core::tasks::TaskPauseHandle;
+use tui_dispatch_core::{Action, Component, EventKind};
 
 type StateSnapshotter = Box<dyn Fn(&dyn Any, &Path) -> crate::SnapshotResult<()> + 'static>;
+
+#[derive(Debug, Clone)]
+enum StateTreeAction {
+    Select(String),
+    Toggle(String, bool),
+}
+
+fn state_tree_select(id: &str) -> StateTreeAction {
+    StateTreeAction::Select(id.to_owned())
+}
+
+fn state_tree_toggle(id: &str, expanded: bool) -> StateTreeAction {
+    StateTreeAction::Toggle(id.to_owned(), expanded)
+}
+
+struct InlineValueStyle {
+    base: Style,
+    key: Style,
+    string: Style,
+    number: Style,
+    r#type: Style,
+}
+
+fn state_tree_label_width(node: &TreeNode<String, String>) -> usize {
+    let value = node.value.as_str();
+    if node.children.is_empty() {
+        if let Some((key, _)) = value.split_once(": ") {
+            return key.chars().count().saturating_add(1);
+        }
+    }
+    value.chars().count()
+}
+
+fn ron_value_spans(value: &str, style: &InlineValueStyle) -> Vec<Span<'static>> {
+    let chars: Vec<char> = value.chars().collect();
+    let mut spans = Vec::new();
+    let mut idx = 0;
+
+    while idx < chars.len() {
+        let current = chars[idx];
+        if current == '"' {
+            let start = idx;
+            idx += 1;
+            while idx < chars.len() {
+                if chars[idx] == '"' && chars.get(idx.saturating_sub(1)) != Some(&'\\') {
+                    idx += 1;
+                    break;
+                }
+                idx += 1;
+            }
+            let text: String = chars[start..idx].iter().collect();
+            spans.push(Span::styled(text, style.string));
+            continue;
+        }
+
+        if current.is_ascii_digit()
+            || (current == '-' && chars.get(idx + 1).is_some_and(|c| c.is_ascii_digit()))
+        {
+            let start = idx;
+            idx += 1;
+            while idx < chars.len() {
+                let c = chars[idx];
+                if c.is_ascii_digit() || matches!(c, '.' | '_' | 'e' | 'E' | '+' | '-') {
+                    idx += 1;
+                } else {
+                    break;
+                }
+            }
+            let text: String = chars[start..idx].iter().collect();
+            spans.push(Span::styled(text, style.number));
+            continue;
+        }
+
+        if current.is_alphanumeric() || current == '_' {
+            let start = idx;
+            idx += 1;
+            while idx < chars.len() {
+                let c = chars[idx];
+                if c.is_alphanumeric() || c == '_' {
+                    idx += 1;
+                } else {
+                    break;
+                }
+            }
+            let mut text: String = chars[start..idx].iter().collect();
+            let mut span_style = style.base;
+
+            if idx < chars.len() && chars[idx] == ':' {
+                text.push(':');
+                idx += 1;
+                span_style = style.key;
+            } else if text == "true" || text == "false" {
+                span_style = style.number;
+            } else if text.chars().next().is_some_and(|c| c.is_uppercase()) {
+                span_style = style.r#type;
+            }
+
+            spans.push(Span::styled(text, span_style));
+            continue;
+        }
+
+        spans.push(Span::styled(current.to_string(), style.base));
+        idx += 1;
+    }
+
+    spans
+}
+
+fn render_state_tree_node(ctx: TreeNodeRender<'_, String, String>) -> Line<'static> {
+    let label_style = Style::default()
+        .fg(DebugStyle::accent())
+        .add_modifier(Modifier::BOLD);
+    let key_style = Style::default()
+        .fg(DebugStyle::text_secondary())
+        .add_modifier(Modifier::DIM);
+    let value_style = Style::default().fg(DebugStyle::text_primary());
+    let type_style = Style::default().fg(DebugStyle::neon_cyan());
+    let string_style = Style::default().fg(DebugStyle::neon_green());
+    let number_style = Style::default().fg(DebugStyle::neon_purple());
+    let selection_patch = if ctx.is_selected {
+        Style::default().bg(DebugStyle::bg_highlight())
+    } else {
+        Style::default()
+    };
+
+    let content_width = ctx.available_width.max(1);
+    let tree_width = ctx.tree_column_width.max(1).min(content_width);
+    let value_width = content_width.saturating_sub(tree_width);
+
+    let mut spans = Vec::new();
+
+    if ctx.has_children {
+        let text = truncate_with_ellipsis(&ctx.node.value, tree_width);
+        let label_len = text.chars().count();
+        let label = Span::styled(text, label_style).patch_style(selection_patch);
+        spans.push(label);
+        let padding = tree_width.saturating_sub(label_len);
+        if padding > 0 {
+            spans.push(Span::styled(" ".repeat(padding), value_style));
+        }
+        return Line::from(spans);
+    }
+
+    if let Some((key, value)) = ctx.node.value.split_once(": ") {
+        let field_text = format!("{key}:");
+        let field_text = truncate_with_ellipsis(&field_text, tree_width);
+        let field_len = field_text.chars().count();
+        let field = Span::styled(field_text, key_style).patch_style(selection_patch);
+        spans.push(field);
+        let padding = tree_width.saturating_sub(field_len);
+        if padding > 0 {
+            spans.push(Span::styled(" ".repeat(padding), value_style));
+        }
+
+        if value_width > 0 {
+            let value_text = truncate_with_ellipsis(value, value_width);
+            let inline_style = InlineValueStyle {
+                base: value_style,
+                key: key_style,
+                string: string_style,
+                number: number_style,
+                r#type: type_style,
+            };
+            let value_spans = ron_value_spans(&value_text, &inline_style);
+            for span in value_spans {
+                spans.push(span.patch_style(selection_patch));
+            }
+        }
+
+        return Line::from(spans);
+    }
+
+    let text = truncate_with_ellipsis(&ctx.node.value, tree_width);
+    let label_len = text.chars().count();
+    let label = Span::styled(text, value_style).patch_style(selection_patch);
+    spans.push(label);
+    let padding = tree_width.saturating_sub(label_len);
+    if padding > 0 {
+        spans.push(Span::styled(" ".repeat(padding), value_style));
+    }
+
+    Line::from(spans)
+}
 
 /// Location of the debug banner relative to the app area.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +352,14 @@ pub struct DebugLayer<A> {
     state_snapshot: Option<DebugTableOverlay>,
     /// Optional serializer for saving state snapshots
     state_snapshotter: Option<StateSnapshotter>,
+    /// Tree view component for state overlay
+    state_tree_view: TreeView<String>,
+    /// Cached tree nodes for state overlay
+    state_tree_nodes: Vec<TreeNode<String, String>>,
+    /// Currently selected tree node id
+    state_tree_selected: Option<String>,
+    /// Expanded node ids for the state tree
+    state_tree_expanded: HashSet<String>,
     /// Scroll offset for state/inspect table overlays
     table_scroll_offset: usize,
     /// Cached page size for table overlay scrolling
@@ -187,6 +385,8 @@ impl<A> std::fmt::Debug for DebugLayer<A> {
             .field("has_snapshot", &self.freeze.snapshot.is_some())
             .field("has_state_snapshot", &self.state_snapshot.is_some())
             .field("has_state_snapshotter", &self.state_snapshotter.is_some())
+            .field("state_tree_nodes", &self.state_tree_nodes.len())
+            .field("state_tree_selected", &self.state_tree_selected)
             .field("banner_position", &self.banner_position)
             .field("table_scroll_offset", &self.table_scroll_offset)
             .field("detail_scroll_offset", &self.detail_scroll_offset)
@@ -215,6 +415,10 @@ impl<A: Action> DebugLayer<A> {
             action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
             state_snapshot: None,
             state_snapshotter: None,
+            state_tree_view: TreeView::new(),
+            state_tree_nodes: Vec::new(),
+            state_tree_selected: None,
+            state_tree_expanded: HashSet::new(),
             table_scroll_offset: 0,
             table_page_size: 1,
             detail_scroll_offset: 0,
@@ -576,7 +780,7 @@ impl<A: Action> DebugLayer<A> {
                 // Consume mouse events when capturing
                 Some(vec![])
             }
-            EventKind::Scroll { delta, .. } => {
+            EventKind::Scroll { delta, column, row } => {
                 if !self.freeze.enabled {
                     return None;
                 }
@@ -590,7 +794,31 @@ impl<A: Action> DebugLayer<A> {
                         };
                         self.handle_action(action);
                     }
-                    Some(DebugOverlay::State(table)) | Some(DebugOverlay::Inspect(table)) => {
+                    Some(DebugOverlay::State(_)) => {
+                        self.sync_state_tree_state();
+                        let nodes = &self.state_tree_nodes;
+                        let selected_id = self.state_tree_selected.as_ref();
+                        let expanded_ids = &self.state_tree_expanded;
+                        let style = self.state_tree_style();
+                        let props =
+                            Self::build_state_tree_props(nodes, selected_id, expanded_ids, style);
+                        let actions: Vec<_> = self
+                            .state_tree_view
+                            .handle_event(
+                                &EventKind::Scroll {
+                                    delta: *delta,
+                                    column: *column,
+                                    row: *row,
+                                },
+                                props,
+                            )
+                            .into_iter()
+                            .collect();
+                        if !actions.is_empty() {
+                            self.apply_state_tree_actions(actions);
+                        }
+                    }
+                    Some(DebugOverlay::Inspect(table)) => {
                         if *delta > 0 {
                             self.scroll_table_up();
                         } else {
@@ -645,11 +873,152 @@ impl<A: Action> DebugLayer<A> {
     // =========================================================================
 
     fn set_state_overlay(&mut self, table: DebugTableOverlay) {
-        if !matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
+        let is_new_overlay = !matches!(self.freeze.overlay, Some(DebugOverlay::State(_)));
+        if is_new_overlay {
             self.table_scroll_offset = 0;
+            self.state_tree_view = TreeView::new();
+            self.state_tree_selected = None;
+            self.state_tree_expanded.clear();
         }
+
+        self.state_tree_nodes = self.build_state_tree_nodes(&table);
+        if is_new_overlay {
+            self.state_tree_expanded = self
+                .state_tree_nodes
+                .iter()
+                .map(|node| node.id.clone())
+                .collect();
+        }
+        self.sync_state_tree_state();
         self.state_snapshot = Some(table.clone());
         self.freeze.set_overlay(DebugOverlay::State(table));
+    }
+
+    fn build_state_tree_nodes(&self, table: &DebugTableOverlay) -> Vec<TreeNode<String, String>> {
+        let mut sections: Vec<TreeNode<String, String>> = Vec::new();
+        let mut current: Option<TreeNode<String, String>> = None;
+        let mut section_index = 0usize;
+        let mut entry_index = 0usize;
+        let mut current_section_index = 0usize;
+
+        for row in &table.rows {
+            match row {
+                DebugTableRow::Section(title) => {
+                    if let Some(section) = current.take() {
+                        sections.push(section);
+                    }
+                    current_section_index = section_index;
+                    entry_index = 0;
+                    let id = format!("section:{section_index}:{title}");
+                    section_index = section_index.saturating_add(1);
+                    current = Some(TreeNode::with_children(id, title.clone(), Vec::new()));
+                }
+                DebugTableRow::Entry { key, value } => {
+                    if current.is_none() {
+                        current_section_index = section_index;
+                        entry_index = 0;
+                        let id = format!("section:{section_index}:State");
+                        section_index = section_index.saturating_add(1);
+                        current =
+                            Some(TreeNode::with_children(id, "State".to_string(), Vec::new()));
+                    }
+                    if let Some(section) = current.as_mut() {
+                        let entry_id = format!("entry:{current_section_index}:{entry_index}:{key}");
+                        entry_index = entry_index.saturating_add(1);
+                        section
+                            .children
+                            .push(TreeNode::new(entry_id, format!("{key}: {value}")));
+                    }
+                }
+            }
+        }
+
+        if let Some(section) = current.take() {
+            sections.push(section);
+        }
+
+        sections
+    }
+
+    fn sync_state_tree_state(&mut self) {
+        let nodes = &self.state_tree_nodes;
+        self.state_tree_expanded
+            .retain(|id| Self::tree_contains_id(nodes, id));
+
+        let selected_valid = self
+            .state_tree_selected
+            .as_deref()
+            .map(|id| self.state_tree_contains_id(id))
+            .unwrap_or(false);
+
+        if !selected_valid {
+            self.state_tree_selected = self.state_tree_nodes.first().map(|node| node.id.clone());
+        }
+    }
+
+    fn state_tree_contains_id(&self, id: &str) -> bool {
+        Self::tree_contains_id(&self.state_tree_nodes, id)
+    }
+
+    fn tree_contains_id(nodes: &[TreeNode<String, String>], id: &str) -> bool {
+        nodes
+            .iter()
+            .any(|node| node.id == id || Self::tree_contains_id(&node.children, id))
+    }
+
+    fn state_tree_style(&self) -> TreeViewStyle {
+        TreeViewStyle {
+            base: BaseStyle {
+                border: None,
+                padding: Padding::default(),
+                bg: Some(DebugStyle::overlay_bg()),
+                fg: Some(DebugStyle::text_primary()),
+            },
+            selection: SelectionStyle::disabled(),
+            scrollbar: self.component_scrollbar_style(),
+            branches: TreeBranchStyle {
+                mode: TreeBranchMode::Branch,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn build_state_tree_props<'a>(
+        nodes: &'a [TreeNode<String, String>],
+        selected_id: Option<&'a String>,
+        expanded_ids: &'a HashSet<String>,
+        style: TreeViewStyle,
+    ) -> TreeViewProps<'a, String, String, StateTreeAction> {
+        TreeViewProps {
+            nodes,
+            selected_id,
+            expanded_ids,
+            is_focused: true,
+            style,
+            behavior: TreeViewBehavior::default(),
+            measure_node: Some(&state_tree_label_width),
+            column_padding: 2,
+            on_select: |id| state_tree_select(id),
+            on_toggle: |id, expanded| state_tree_toggle(id, expanded),
+            render_node: &render_state_tree_node,
+        }
+    }
+
+    fn apply_state_tree_actions(&mut self, actions: impl IntoIterator<Item = StateTreeAction>) {
+        for action in actions {
+            match action {
+                StateTreeAction::Select(id) => {
+                    self.state_tree_selected = Some(id);
+                }
+                StateTreeAction::Toggle(id, expand) => {
+                    if expand {
+                        self.state_tree_expanded.insert(id);
+                    } else {
+                        self.state_tree_expanded.remove(&id);
+                    }
+                }
+            }
+        }
     }
 
     fn save_state_snapshot<S: DebugState + 'static>(&mut self, state: Option<&S>) {
@@ -691,6 +1060,7 @@ impl<A: Action> DebugLayer<A> {
         PathBuf::from(format!("debug-state-{timestamp}.ron"))
     }
 
+    #[allow(dead_code)]
     fn update_table_scroll(&mut self, table: &DebugTableOverlay, visible_rows: usize) {
         self.table_page_size = visible_rows.max(1);
         let max_offset = table.rows.len().saturating_sub(visible_rows);
@@ -710,21 +1080,52 @@ impl<A: Action> DebugLayer<A> {
     fn overlay_modal_style(&self) -> ModalStyle {
         ModalStyle {
             dim_factor: 0.0,
-            border: None,
-            padding: Padding::all(1),
-            bg: Some(DebugStyle::overlay_bg()),
+            base: BaseStyle {
+                border: None,
+                padding: Padding::all(1),
+                bg: Some(DebugStyle::overlay_bg()),
+                fg: None,
+            },
         }
     }
 
-    fn render_overlay_container(&self, frame: &mut Frame, app_area: Rect, title: &str) -> Rect {
+    fn render_overlay_container<F>(
+        &self,
+        frame: &mut Frame,
+        app_area: Rect,
+        title: &str,
+        mut render_body: F,
+    ) where
+        F: FnMut(&mut Frame, Rect),
+    {
         let modal_area = self.overlay_modal_area(app_area);
-        let content_area = render_modal(frame, modal_area, &self.overlay_modal_style());
+        let mut modal = Modal::new();
+        let mut render_content = |frame: &mut Frame, content_area: Rect| {
+            if content_area.height == 0 || content_area.width == 0 {
+                return;
+            }
 
-        if content_area.height == 0 || content_area.width == 0 {
-            return content_area;
-        }
+            let content_area = self.render_overlay_title(frame, content_area, title);
+            if content_area.height == 0 || content_area.width == 0 {
+                return;
+            }
 
-        self.render_overlay_title(frame, content_area, title)
+            render_body(frame, content_area);
+        };
+
+        modal.render(
+            frame,
+            app_area,
+            ModalProps {
+                is_open: true,
+                is_focused: false,
+                area: modal_area,
+                style: self.overlay_modal_style(),
+                behavior: ModalBehavior::default(),
+                on_close: || (),
+                render_content: &mut render_content,
+            },
+        );
     }
 
     fn render_overlay_title(&self, frame: &mut Frame, area: Rect, title: &str) -> Rect {
@@ -742,9 +1143,12 @@ impl<A: Action> DebugLayer<A> {
             title_style,
         ))];
         let title_bar_style = StatusBarStyle {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
+            base: BaseStyle {
+                border: None,
+                padding: Padding::default(),
+                bg: None,
+                fg: None,
+            },
             text: Style::default().fg(DebugStyle::accent()),
             hint_key: title_style,
             hint_label: Style::default().fg(DebugStyle::accent()),
@@ -1007,7 +1411,24 @@ impl<A: Action> DebugLayer<A> {
                     return Some(vec![]);
                 }
             }
-            Some(DebugOverlay::State(table)) | Some(DebugOverlay::Inspect(table)) => {
+            Some(DebugOverlay::State(_)) => {
+                self.sync_state_tree_state();
+                let nodes = &self.state_tree_nodes;
+                let selected_id = self.state_tree_selected.as_ref();
+                let expanded_ids = &self.state_tree_expanded;
+                let style = self.state_tree_style();
+                let props = Self::build_state_tree_props(nodes, selected_id, expanded_ids, style);
+                let actions: Vec<_> = self
+                    .state_tree_view
+                    .handle_event(&EventKind::Key(key), props)
+                    .into_iter()
+                    .collect();
+                if !actions.is_empty() {
+                    self.apply_state_tree_actions(actions);
+                    return Some(vec![]);
+                }
+            }
+            Some(DebugOverlay::Inspect(table)) => {
                 if self.handle_table_scroll_key(key.code, table.rows.len()) {
                     return Some(vec![]);
                 }
@@ -1051,6 +1472,10 @@ impl<A: Action> DebugLayer<A> {
             let queued = self.freeze.take_queued();
             self.freeze.disable();
             self.state_snapshot = None;
+            self.state_tree_nodes.clear();
+            self.state_tree_selected = None;
+            self.state_tree_expanded.clear();
+            self.state_tree_view = TreeView::new();
             self.table_scroll_offset = 0;
             self.table_page_size = 1;
             self.detail_scroll_offset = 0;
@@ -1077,6 +1502,10 @@ impl<A: Action> DebugLayer<A> {
             }
             self.freeze.enable();
             self.state_snapshot = None;
+            self.state_tree_nodes.clear();
+            self.state_tree_selected = None;
+            self.state_tree_expanded.clear();
+            self.state_tree_view = TreeView::new();
             self.table_scroll_offset = 0;
             self.table_page_size = 1;
             self.detail_scroll_offset = 0;
@@ -1239,8 +1668,11 @@ impl<A: Action> DebugLayer<A> {
             dim_buffer(frame.buffer_mut(), self.style.dim_factor);
 
             match overlay {
-                DebugOverlay::Inspect(table) | DebugOverlay::State(table) => {
+                DebugOverlay::Inspect(table) => {
                     self.render_table_modal(frame, app_area, table);
+                }
+                DebugOverlay::State(table) => {
+                    self.render_state_tree_modal(frame, app_area, table);
                 }
                 DebugOverlay::ActionLog(log) => {
                     self.render_action_log_modal(frame, app_area, log);
@@ -1313,9 +1745,12 @@ impl<A: Action> DebugLayer<A> {
         }
 
         let style = StatusBarStyle {
-            border: None,
-            padding: Padding::default(),
-            bg: self.style.banner_bg.bg,
+            base: BaseStyle {
+                border: None,
+                padding: Padding::default(),
+                bg: self.style.banner_bg.bg,
+                fg: None,
+            },
             text: label_style,
             hint_key: keys.toggle,
             hint_label: label_style,
@@ -1344,152 +1779,206 @@ impl<A: Action> DebugLayer<A> {
         );
     }
 
-    fn render_table_modal(&mut self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
-        let content_area = self.render_overlay_container(frame, app_area, &table.title);
+    fn render_state_tree_modal(
+        &mut self,
+        frame: &mut Frame,
+        app_area: Rect,
+        table: &DebugTableOverlay,
+    ) {
+        self.sync_state_tree_state();
 
-        if content_area.height == 0 || content_area.width == 0 {
-            return;
-        }
+        // Inline the overlay container logic to avoid borrow issues
+        let modal_area = self.overlay_modal_area(app_area);
+        let modal_style = self.overlay_modal_style();
+        let title = &table.title;
 
-        let mut table_area = content_area;
-        if let Some(ref preview) = table.cell_preview {
-            if table_area.height > 1 {
-                let preview_area = Rect {
-                    height: 1,
-                    ..table_area
-                };
-                let preview_widget = CellPreviewWidget::new(preview)
-                    .label_style(Style::default().fg(DebugStyle::text_secondary()))
-                    .value_style(Style::default().fg(DebugStyle::text_primary()));
-                frame.render_widget(preview_widget, preview_area);
-
-                table_area = Rect {
-                    y: table_area.y.saturating_add(1),
-                    height: table_area.height.saturating_sub(1),
-                    ..table_area
-                };
+        let mut modal = Modal::new();
+        let mut render_content = |frame: &mut Frame, content_area: Rect| {
+            if content_area.height == 0 || content_area.width == 0 {
+                return;
             }
-        }
 
-        if table_area.height == 0 || table_area.width == 0 {
-            return;
-        }
-
-        use ratatui::text::{Line, Span};
-        use ratatui::widgets::Paragraph;
-
-        let header_area = Rect {
-            height: 1,
-            ..table_area
-        };
-        let rows_area = Rect {
-            y: table_area.y.saturating_add(1),
-            height: table_area.height.saturating_sub(1),
-            ..table_area
-        };
-
-        let style = DebugTableStyle::default();
-        let show_scrollbar = rows_area.height > 0
-            && table.rows.len() > rows_area.height as usize
-            && table_area.width > 1;
-        let text_width = if show_scrollbar {
-            table_area.width.saturating_sub(1)
-        } else {
-            table_area.width
-        } as usize;
-
-        if text_width == 0 {
-            return;
-        }
-
-        let max_key_len = table
-            .rows
-            .iter()
-            .filter_map(|row| match row {
-                super::table::DebugTableRow::Entry { key, .. } => Some(key.chars().count()),
-                super::table::DebugTableRow::Section(_) => None,
-            })
-            .max()
-            .unwrap_or(0);
-        let max_label = text_width.saturating_sub(8).max(10);
-        let label_width = (max_key_len + 2).clamp(12, 30).min(max_label);
-        let value_width = text_width.saturating_sub(label_width + 2).max(1);
-
-        let header_line = Line::from(vec![
-            Span::styled(pad_text("Field", label_width), style.header),
-            Span::styled("  ", style.header),
-            Span::styled(pad_text("Value", value_width), style.header),
-        ]);
-        frame.render_widget(Paragraph::new(header_line), header_area);
-
-        if rows_area.height == 0 {
-            return;
-        }
-
-        let ron_style = RonSyntaxStyle::with_base(style.value);
-        let mut rows = Vec::new();
-        let mut entry_index = 0usize;
-        for row in table.rows.iter() {
-            match row {
-                super::table::DebugTableRow::Section(title) => {
-                    entry_index = 0;
-                    let mut text = format!(" {title} ");
-                    text = truncate_with_ellipsis(&text, text_width);
-                    text = pad_text(&text, text_width);
-                    rows.push(Line::from(vec![Span::styled(text, style.section)]));
-                }
-                super::table::DebugTableRow::Entry { key, value } => {
-                    let row_style = if entry_index % 2 == 0 {
-                        style.row_styles.0
-                    } else {
-                        style.row_styles.1
-                    };
-                    entry_index = entry_index.saturating_add(1);
-                    let key_text = pad_text(key, label_width);
-                    let mut value_text = truncate_with_ellipsis(value, value_width);
-                    value_text = pad_text(&value_text, value_width);
-
-                    let mut value_spans: Vec<Span<'static>> = ron_spans(&value_text, &ron_style)
-                        .into_iter()
-                        .map(|span| span.patch_style(row_style))
-                        .collect();
-
-                    let mut spans = vec![
-                        Span::styled(key_text, style.key).patch_style(row_style),
-                        Span::styled("  ", row_style),
-                    ];
-                    spans.append(&mut value_spans);
-
-                    rows.push(Line::from(spans));
-                }
+            let content_area = self.render_overlay_title(frame, content_area, title);
+            if content_area.height == 0 || content_area.width == 0 {
+                return;
             }
-        }
 
-        self.update_table_scroll(table, rows_area.height as usize);
-        let scroll_style = ScrollViewStyle {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
-            fg: None,
-            scrollbar: self.component_scrollbar_style(),
+            let nodes = &self.state_tree_nodes;
+            let selected_id = self.state_tree_selected.as_ref();
+            let expanded_ids = &self.state_tree_expanded;
+            let style = self.state_tree_style();
+            let props = Self::build_state_tree_props(nodes, selected_id, expanded_ids, style);
+
+            <TreeView<String> as tui_dispatch_core::Component<StateTreeAction>>::render(
+                &mut self.state_tree_view,
+                frame,
+                content_area,
+                props,
+            );
         };
-        let props = ScrollViewProps {
-            lines: &rows,
-            content_len: rows.len(),
-            line_offset: 0,
-            scroll_offset: self.table_scroll_offset,
-            is_focused: true,
-            style: scroll_style,
-            behavior: ScrollBehavior::default(),
-            on_scroll: |_| (),
-        };
-        let mut scroll_view = ScrollView::new();
-        <ScrollView as tui_dispatch_core::Component<()>>::render(
-            &mut scroll_view,
+
+        modal.render(
             frame,
-            rows_area,
-            props,
+            app_area,
+            ModalProps {
+                is_open: true,
+                is_focused: false,
+                area: modal_area,
+                style: modal_style,
+                behavior: ModalBehavior::default(),
+                on_close: || (),
+                render_content: &mut render_content,
+            },
         );
+    }
+
+    fn render_table_modal(&mut self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
+        let scrollbar_style = self.component_scrollbar_style();
+        let table_scroll_offset = self.table_scroll_offset;
+
+        self.render_overlay_container(frame, app_area, &table.title, |frame, content_area| {
+            let mut table_area = content_area;
+            if let Some(ref preview) = table.cell_preview {
+                if table_area.height > 1 {
+                    let preview_area = Rect {
+                        height: 1,
+                        ..table_area
+                    };
+                    let preview_widget = CellPreviewWidget::new(preview)
+                        .label_style(Style::default().fg(DebugStyle::text_secondary()))
+                        .value_style(Style::default().fg(DebugStyle::text_primary()));
+                    frame.render_widget(preview_widget, preview_area);
+
+                    table_area = Rect {
+                        y: table_area.y.saturating_add(1),
+                        height: table_area.height.saturating_sub(1),
+                        ..table_area
+                    };
+                }
+            }
+
+            if table_area.height == 0 || table_area.width == 0 {
+                return;
+            }
+
+            use ratatui::text::{Line, Span};
+            use ratatui::widgets::Paragraph;
+
+            let header_area = Rect {
+                height: 1,
+                ..table_area
+            };
+            let rows_area = Rect {
+                y: table_area.y.saturating_add(1),
+                height: table_area.height.saturating_sub(1),
+                ..table_area
+            };
+
+            let style = DebugTableStyle::default();
+            let show_scrollbar = rows_area.height > 0
+                && table.rows.len() > rows_area.height as usize
+                && table_area.width > 1;
+            let text_width = if show_scrollbar {
+                table_area.width.saturating_sub(1)
+            } else {
+                table_area.width
+            } as usize;
+
+            if text_width == 0 {
+                return;
+            }
+
+            let max_key_len = table
+                .rows
+                .iter()
+                .filter_map(|row| match row {
+                    super::table::DebugTableRow::Entry { key, .. } => Some(key.chars().count()),
+                    super::table::DebugTableRow::Section(_) => None,
+                })
+                .max()
+                .unwrap_or(0);
+            let max_label = text_width.saturating_sub(8).max(10);
+            let label_width = (max_key_len + 2).clamp(12, 30).min(max_label);
+            let value_width = text_width.saturating_sub(label_width + 2).max(1);
+
+            let header_line = Line::from(vec![
+                Span::styled(pad_text("Field", label_width), style.header),
+                Span::styled("  ", style.header),
+                Span::styled(pad_text("Value", value_width), style.header),
+            ]);
+            frame.render_widget(Paragraph::new(header_line), header_area);
+
+            if rows_area.height == 0 {
+                return;
+            }
+
+            let ron_style = RonSyntaxStyle::with_base(style.value);
+            let mut rows = Vec::new();
+            let mut entry_index = 0usize;
+            for row in table.rows.iter() {
+                match row {
+                    super::table::DebugTableRow::Section(title) => {
+                        entry_index = 0;
+                        let mut text = format!(" {title} ");
+                        text = truncate_with_ellipsis(&text, text_width);
+                        text = pad_text(&text, text_width);
+                        rows.push(Line::from(vec![Span::styled(text, style.section)]));
+                    }
+                    super::table::DebugTableRow::Entry { key, value } => {
+                        let row_style = if entry_index % 2 == 0 {
+                            style.row_styles.0
+                        } else {
+                            style.row_styles.1
+                        };
+                        entry_index = entry_index.saturating_add(1);
+                        let key_text = pad_text(key, label_width);
+                        let mut value_text = truncate_with_ellipsis(value, value_width);
+                        value_text = pad_text(&value_text, value_width);
+
+                        let mut value_spans: Vec<Span<'static>> =
+                            ron_spans(&value_text, &ron_style)
+                                .into_iter()
+                                .map(|span| span.patch_style(row_style))
+                                .collect();
+
+                        let mut spans = vec![
+                            Span::styled(key_text, style.key).patch_style(row_style),
+                            Span::styled("  ", row_style),
+                        ];
+                        spans.append(&mut value_spans);
+
+                        rows.push(Line::from(spans));
+                    }
+                }
+            }
+
+            // Note: page size update removed to avoid borrow issues
+            let scroll_style = ScrollViewStyle {
+                base: BaseStyle {
+                    border: None,
+                    padding: Padding::default(),
+                    bg: None,
+                    fg: None,
+                },
+                scrollbar: scrollbar_style.clone(),
+            };
+            let scroller = LinesScroller::new(&rows);
+            let mut scroll_view = ScrollView::new();
+            <ScrollView as tui_dispatch_core::Component<()>>::render(
+                &mut scroll_view,
+                frame,
+                rows_area,
+                ScrollViewProps {
+                    content_height: scroller.content_height(),
+                    scroll_offset: table_scroll_offset,
+                    is_focused: true,
+                    style: scroll_style,
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: |_| (),
+                    render_content: &mut scroller.renderer(),
+                },
+            );
+        });
     }
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
@@ -1500,126 +1989,124 @@ impl<A: Action> DebugLayer<A> {
             format!("{} (empty)", log.title)
         };
 
-        let log_area = self.render_overlay_container(frame, app_area, &title);
-        if log_area.height == 0 || log_area.width == 0 {
-            return;
-        }
+        self.render_overlay_container(frame, app_area, &title, |frame, log_area| {
+            use ratatui::text::{Line, Span};
+            use ratatui::widgets::Paragraph;
 
-        use ratatui::text::{Line, Span};
-        use ratatui::widgets::Paragraph;
+            let style = ActionLogStyle::default();
+            let spacing = 1usize;
+            let seq_width = 5usize;
+            let name_width = 20usize;
+            let elapsed_width = 8usize;
 
-        let style = ActionLogStyle::default();
-        let spacing = 1usize;
-        let seq_width = 5usize;
-        let name_width = 20usize;
-        let elapsed_width = 8usize;
+            let header_area = Rect {
+                height: 1,
+                ..log_area
+            };
+            let body_area = Rect {
+                y: log_area.y.saturating_add(1),
+                height: log_area.height.saturating_sub(1),
+                ..log_area
+            };
 
-        let header_area = Rect {
-            height: 1,
-            ..log_area
-        };
-        let body_area = Rect {
-            y: log_area.y.saturating_add(1),
-            height: log_area.height.saturating_sub(1),
-            ..log_area
-        };
+            let show_scrollbar = body_area.height > 0
+                && log.entries.len() > body_area.height as usize
+                && log_area.width > 1;
+            let text_width = if show_scrollbar {
+                log_area.width.saturating_sub(1)
+            } else {
+                log_area.width
+            } as usize;
+            let params_width = text_width
+                .saturating_sub(seq_width + name_width + elapsed_width + spacing * 3)
+                .max(1);
 
-        let show_scrollbar = body_area.height > 0
-            && log.entries.len() > body_area.height as usize
-            && log_area.width > 1;
-        let text_width = if show_scrollbar {
-            log_area.width.saturating_sub(1)
-        } else {
-            log_area.width
-        } as usize;
-        let params_width = text_width
-            .saturating_sub(seq_width + name_width + elapsed_width + spacing * 3)
-            .max(1);
+            let header_line = Line::from(vec![
+                Span::styled(pad_text("#", seq_width), style.header),
+                Span::styled(" ", style.header),
+                Span::styled(pad_text("Action", name_width), style.header),
+                Span::styled(" ", style.header),
+                Span::styled(pad_text("Params", params_width), style.header),
+                Span::styled(" ", style.header),
+                Span::styled(pad_text("Elapsed", elapsed_width), style.header),
+            ]);
+            frame.render_widget(Paragraph::new(header_line), header_area);
 
-        let header_line = Line::from(vec![
-            Span::styled(pad_text("#", seq_width), style.header),
-            Span::styled(" ", style.header),
-            Span::styled(pad_text("Action", name_width), style.header),
-            Span::styled(" ", style.header),
-            Span::styled(pad_text("Params", params_width), style.header),
-            Span::styled(" ", style.header),
-            Span::styled(pad_text("Elapsed", elapsed_width), style.header),
-        ]);
-        frame.render_widget(Paragraph::new(header_line), header_area);
+            if body_area.height == 0 {
+                return;
+            }
 
-        if body_area.height == 0 {
-            return;
-        }
+            let ron_style = RonSyntaxStyle::with_base(style.params);
+            let rows: Vec<Line> = log
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(idx, entry)| {
+                    let row_style = if idx == log.selected {
+                        style.selected
+                    } else if idx % 2 == 0 {
+                        style.row_styles.0
+                    } else {
+                        style.row_styles.1
+                    };
 
-        let ron_style = RonSyntaxStyle::with_base(style.params);
-        let rows: Vec<Line> = log
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(idx, entry)| {
-                let row_style = if idx == log.selected {
-                    style.selected
-                } else if idx % 2 == 0 {
-                    style.row_styles.0
-                } else {
-                    style.row_styles.1
-                };
+                    let seq_text = pad_text(&entry.sequence.to_string(), seq_width);
+                    let name_text = pad_text(&entry.name, name_width);
+                    let elapsed_text = pad_text(&entry.elapsed, elapsed_width);
 
-                let seq_text = pad_text(&entry.sequence.to_string(), seq_width);
-                let name_text = pad_text(&entry.name, name_width);
-                let elapsed_text = pad_text(&entry.elapsed, elapsed_width);
+                    let params_compact = entry.params.replace('\n', " ");
+                    let params_compact = params_compact
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let params_trimmed = truncate_with_ellipsis(&params_compact, params_width);
+                    let params_text = pad_text(&params_trimmed, params_width);
+                    let mut params_spans: Vec<Span<'static>> = ron_spans(&params_text, &ron_style)
+                        .into_iter()
+                        .map(|span| span.patch_style(row_style))
+                        .collect();
 
-                let params_compact = entry.params.replace('\n', " ");
-                let params_compact = params_compact
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let params_trimmed = truncate_with_ellipsis(&params_compact, params_width);
-                let params_text = pad_text(&params_trimmed, params_width);
-                let mut params_spans: Vec<Span<'static>> = ron_spans(&params_text, &ron_style)
-                    .into_iter()
-                    .map(|span| span.patch_style(row_style))
-                    .collect();
+                    let mut spans = vec![
+                        Span::styled(seq_text, style.sequence).patch_style(row_style),
+                        Span::styled(" ", row_style),
+                        Span::styled(name_text, style.name).patch_style(row_style),
+                        Span::styled(" ", row_style),
+                    ];
+                    spans.append(&mut params_spans);
+                    spans.push(Span::styled(" ", row_style));
+                    spans.push(Span::styled(elapsed_text, style.elapsed).patch_style(row_style));
 
-                let mut spans = vec![
-                    Span::styled(seq_text, style.sequence).patch_style(row_style),
-                    Span::styled(" ", row_style),
-                    Span::styled(name_text, style.name).patch_style(row_style),
-                    Span::styled(" ", row_style),
-                ];
-                spans.append(&mut params_spans);
-                spans.push(Span::styled(" ", row_style));
-                spans.push(Span::styled(elapsed_text, style.elapsed).patch_style(row_style));
+                    Line::from(spans)
+                })
+                .collect();
 
-                Line::from(spans)
-            })
-            .collect();
-
-        let scroll_style = ScrollViewStyle {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
-            fg: None,
-            scrollbar: self.component_scrollbar_style(),
-        };
-        let scroll_offset = log.scroll_offset_for(body_area.height as usize);
-        let props = ScrollViewProps {
-            lines: &rows,
-            content_len: log.entries.len(),
-            line_offset: 0,
-            scroll_offset,
-            is_focused: true,
-            style: scroll_style,
-            behavior: ScrollBehavior::default(),
-            on_scroll: |_| (),
-        };
-        let mut scroll_view = ScrollView::new();
-        <ScrollView as tui_dispatch_core::Component<()>>::render(
-            &mut scroll_view,
-            frame,
-            body_area,
-            props,
-        );
+            let scroll_style = ScrollViewStyle {
+                base: BaseStyle {
+                    border: None,
+                    padding: Padding::default(),
+                    bg: None,
+                    fg: None,
+                },
+                scrollbar: self.component_scrollbar_style(),
+            };
+            let scroll_offset = log.scroll_offset_for(body_area.height as usize);
+            let scroller = LinesScroller::new(&rows);
+            let mut scroll_view = ScrollView::new();
+            <ScrollView as tui_dispatch_core::Component<()>>::render(
+                &mut scroll_view,
+                frame,
+                body_area,
+                ScrollViewProps {
+                    content_height: log.entries.len(),
+                    scroll_offset,
+                    is_focused: true,
+                    style: scroll_style,
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: |_| (),
+                    render_content: &mut scroller.renderer(),
+                },
+            );
+        });
     }
 
     fn render_action_detail_modal(
@@ -1629,118 +2116,119 @@ impl<A: Action> DebugLayer<A> {
         detail: &super::table::ActionDetailOverlay,
     ) {
         let title = format!("Action #{} - {}", detail.sequence, detail.name);
-        let detail_area = self.render_overlay_container(frame, app_area, &title);
+        let param_lines = self.detail_params_lines(detail);
+        let scrollbar_style = self.component_scrollbar_style();
+        let detail_scroll_offset = self.detail_scroll_offset;
+        let detail_page_size = self.detail_page_size;
 
-        if detail_area.height == 0 || detail_area.width == 0 {
-            return;
-        }
+        self.render_overlay_container(frame, app_area, &title, |frame, detail_area| {
+            use ratatui::text::{Line, Span};
+            use ratatui::widgets::Paragraph;
 
-        use ratatui::text::{Line, Span};
-        use ratatui::widgets::Paragraph;
+            let label_style = Style::default().fg(DebugStyle::text_secondary());
+            let value_style = Style::default().fg(DebugStyle::text_primary());
 
-        let label_style = Style::default().fg(DebugStyle::text_secondary());
-        let value_style = Style::default().fg(DebugStyle::text_primary());
+            let header_lines = vec![
+                Line::from(vec![
+                    Span::styled("Name: ", label_style),
+                    Span::styled(&detail.name, value_style),
+                ]),
+                Line::from(vec![
+                    Span::styled("Sequence: ", label_style),
+                    Span::styled(detail.sequence.to_string(), value_style),
+                ]),
+                Line::from(vec![
+                    Span::styled("Elapsed: ", label_style),
+                    Span::styled(&detail.elapsed, value_style),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled("Parameters:", label_style)),
+            ];
 
-        let header_lines = vec![
-            Line::from(vec![
-                Span::styled("Name: ", label_style),
-                Span::styled(&detail.name, value_style),
-            ]),
-            Line::from(vec![
-                Span::styled("Sequence: ", label_style),
-                Span::styled(detail.sequence.to_string(), value_style),
-            ]),
-            Line::from(vec![
-                Span::styled("Elapsed: ", label_style),
-                Span::styled(&detail.elapsed, value_style),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled("Parameters:", label_style)),
-        ];
+            let mut param_lines = param_lines.clone();
+            if param_lines.is_empty() {
+                param_lines.push(Line::from(Span::styled("  (none)", value_style)));
+            }
+            let param_lines_len = param_lines.len();
 
-        let mut param_lines = self.detail_params_lines(detail);
-        if param_lines.is_empty() {
-            param_lines.push(Line::from(Span::styled("  (none)", value_style)));
-        }
-        let param_lines_len = param_lines.len();
+            let footer_lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter/Esc/Backspace to go back",
+                    label_style,
+                )),
+            ];
 
-        let footer_lines = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                "Press Enter/Esc/Backspace to go back",
-                label_style,
-            )),
-        ];
+            let header_height = header_lines.len() as u16;
+            let footer_height = footer_lines.len() as u16;
 
-        let header_height = header_lines.len() as u16;
-        let footer_height = footer_lines.len() as u16;
+            let header_area_height = header_height.min(detail_area.height);
+            let header_area = Rect {
+                height: header_area_height,
+                ..detail_area
+            };
+            if header_area.height > 0 {
+                let paragraph = Paragraph::new(header_lines);
+                frame.render_widget(paragraph, header_area);
+            }
 
-        let header_area_height = header_height.min(detail_area.height);
-        let header_area = Rect {
-            height: header_area_height,
-            ..detail_area
-        };
-        if header_area.height > 0 {
-            let paragraph = Paragraph::new(header_lines);
-            frame.render_widget(paragraph, header_area);
-        }
+            let footer_area_height =
+                footer_height.min(detail_area.height.saturating_sub(header_area_height));
+            let footer_area = Rect {
+                x: detail_area.x,
+                y: detail_area
+                    .y
+                    .saturating_add(detail_area.height.saturating_sub(footer_area_height)),
+                width: detail_area.width,
+                height: footer_area_height,
+            };
+            if footer_area.height > 0 {
+                let paragraph = Paragraph::new(footer_lines);
+                frame.render_widget(paragraph, footer_area);
+            }
 
-        let footer_area_height =
-            footer_height.min(detail_area.height.saturating_sub(header_area_height));
-        let footer_area = Rect {
-            x: detail_area.x,
-            y: detail_area
-                .y
-                .saturating_add(detail_area.height.saturating_sub(footer_area_height)),
-            width: detail_area.width,
-            height: footer_area_height,
-        };
-        if footer_area.height > 0 {
-            let paragraph = Paragraph::new(footer_lines);
-            frame.render_widget(paragraph, footer_area);
-        }
-
-        let params_area = Rect {
-            x: detail_area.x,
-            y: detail_area.y.saturating_add(header_area_height),
-            width: detail_area.width,
-            height: detail_area
-                .height
-                .saturating_sub(header_area_height + footer_area_height),
-        };
-
-        let available_params = params_area.height as usize;
-        self.detail_page_size = available_params.max(1);
-        let max_offset = param_lines_len.saturating_sub(self.detail_page_size);
-        self.detail_scroll_offset = self.detail_scroll_offset.min(max_offset);
-
-        if params_area.height > 0 {
-            let scroll_style = ScrollViewStyle {
-                border: None,
-                padding: Padding::default(),
-                bg: Some(DebugStyle::overlay_bg_dark()),
-                fg: None,
-                scrollbar: self.component_scrollbar_style(),
+            let params_area = Rect {
+                x: detail_area.x,
+                y: detail_area.y.saturating_add(header_area_height),
+                width: detail_area.width,
+                height: detail_area
+                    .height
+                    .saturating_sub(header_area_height + footer_area_height),
             };
 
-            let props = ScrollViewProps {
-                lines: &param_lines,
-                content_len: param_lines_len,
-                line_offset: 0,
-                scroll_offset: self.detail_scroll_offset,
-                is_focused: true,
-                style: scroll_style,
-                behavior: ScrollBehavior::default(),
-                on_scroll: |_| (),
-            };
-            let mut scroll_view = ScrollView::new();
-            <ScrollView as tui_dispatch_core::Component<()>>::render(
-                &mut scroll_view,
-                frame,
-                params_area,
-                props,
-            );
-        }
+            // Note: page size and scroll offset updates removed to avoid borrow issues
+            let max_offset = param_lines_len.saturating_sub(detail_page_size.max(1));
+            let current_scroll_offset = detail_scroll_offset.min(max_offset);
+
+            if params_area.height > 0 {
+                let scroll_style = ScrollViewStyle {
+                    base: BaseStyle {
+                        border: None,
+                        padding: Padding::default(),
+                        bg: Some(DebugStyle::overlay_bg_dark()),
+                        fg: None,
+                    },
+                    scrollbar: scrollbar_style.clone(),
+                };
+
+                let scroller = LinesScroller::new(&param_lines);
+                let mut scroll_view = ScrollView::new();
+                <ScrollView as tui_dispatch_core::Component<()>>::render(
+                    &mut scroll_view,
+                    frame,
+                    params_area,
+                    ScrollViewProps {
+                        content_height: param_lines_len,
+                        scroll_offset: current_scroll_offset,
+                        is_focused: true,
+                        style: scroll_style,
+                        behavior: ScrollViewBehavior::default(),
+                        on_scroll: |_| (),
+                        render_content: &mut scroller.renderer(),
+                    },
+                );
+            }
+        });
     }
 
     fn detail_params_lines(

@@ -3,12 +3,13 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
+    text::Line,
 };
 use tui_dispatch::EventKind;
 use tui_dispatch_components::{
-    InputStyle, Line, ListBehavior, ListStyle, ModalStyle, Padding, ScrollbarStyle, SelectList,
-    SelectListProps, SelectionStyle, TextInput, TextInputProps, centered_rect, highlight_substring,
-    render_modal,
+    BaseStyle, Modal, ModalBehavior, ModalProps, ModalStyle, Padding, ScrollbarStyle, SelectList,
+    SelectListBehavior, SelectListProps, SelectListStyle, SelectionStyle, TextInput,
+    TextInputProps, TextInputStyle, centered_rect, highlight_substring,
 };
 
 use super::Component;
@@ -18,6 +19,7 @@ use crate::state::Location;
 pub struct SearchOverlay {
     input: TextInput,
     list: SelectList,
+    modal: Modal,
     was_open: bool,
 }
 
@@ -39,6 +41,7 @@ impl Default for SearchOverlay {
         Self {
             input: TextInput::new(),
             list: SelectList::new(),
+            modal: Modal::new(),
             was_open: false,
         }
     }
@@ -61,16 +64,14 @@ impl SearchOverlay {
         self.list = SelectList::new();
     }
 
-    /// Build list items with query highlighting
     fn result_items(results: &[Location], query: &str) -> Vec<Line<'static>> {
         let base = Style::default().fg(Color::Reset);
         let highlight = Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD);
-
         results
             .iter()
-            .map(|location| highlight_substring(&location.name, query, base, highlight))
+            .map(|loc| highlight_substring(&loc.name, query, base, highlight))
             .collect()
     }
 }
@@ -110,16 +111,19 @@ impl Component<Action> for SearchOverlay {
                         count: items.len(),
                         selected: props.selected,
                         is_focused: true,
-                        style: ListStyle {
-                            border: None,
-                            padding: Padding::xy(1, 1),
-                            bg: None,
-                            fg: None,
+                        style: SelectListStyle {
+                            base: BaseStyle {
+                                border: None,
+                                padding: Padding::xy(1, 1),
+                                bg: None,
+                                fg: None,
+                            },
                             selection: SelectionStyle::default(),
                             scrollbar: ScrollbarStyle::default(),
                         },
-                        behavior: ListBehavior::default(),
+                        behavior: SelectListBehavior::default(),
                         on_select: props.on_select,
+                        render_item: &|item| item.clone(),
                     };
                     return self
                         .list
@@ -137,17 +141,19 @@ impl Component<Action> for SearchOverlay {
             value: props.query,
             placeholder: "Search for a city...",
             is_focused: true,
-            style: InputStyle {
-                border: None,
-                padding: Padding::new(1, 0, 1, 0),
-                bg: None,
-                fg: None,
+            style: TextInputStyle {
+                base: BaseStyle {
+                    border: None,
+                    padding: Padding::new(1, 0, 1, 0),
+                    bg: None,
+                    fg: None,
+                },
                 placeholder_style: None,
                 cursor_style: None,
             },
             on_change: props.on_query_change,
             on_submit: props.on_query_submit,
-            render_action: Some(Action::Render),
+            on_cursor_move: Some(|_| Action::Render),
         };
 
         self.input
@@ -161,60 +167,81 @@ impl Component<Action> for SearchOverlay {
             return;
         }
 
-        // Render modal with dimmed background - returns content area
+        let SearchOverlay {
+            input, list, modal, ..
+        } = self;
         let modal_area = centered_rect(60, 12, area);
-        let content_area = render_modal(
+        let mut render_content = |frame: &mut Frame, content_area: Rect| {
+            let chunks = Layout::vertical([
+                Constraint::Length(3), // Input
+                Constraint::Min(1),    // Results
+            ])
+            .split(content_area);
+
+            // Input with lighter background
+            let input_props = TextInputProps {
+                value: props.query,
+                placeholder: "Search for a city...",
+                is_focused: props.is_focused,
+                style: TextInputStyle {
+                    base: BaseStyle {
+                        border: None,
+                        padding: Padding::all(1),
+                        bg: Some(Color::Rgb(50, 50, 60)),
+                        fg: None,
+                    },
+                    placeholder_style: None,
+                    cursor_style: None,
+                },
+                on_change: props.on_query_change,
+                on_submit: props.on_query_submit,
+                on_cursor_move: Some(|_| Action::Render),
+            };
+            input.render(frame, chunks[0], input_props);
+
+            let items = Self::result_items(props.results, props.query);
+            let list_props = SelectListProps {
+                items: &items,
+                count: items.len(),
+                selected: props.selected,
+                is_focused: props.is_focused,
+                style: SelectListStyle {
+                    base: BaseStyle {
+                        border: None,
+                        padding: Padding::all(1),
+                        bg: None,
+                        fg: None,
+                    },
+                    selection: SelectionStyle::default(),
+                    scrollbar: ScrollbarStyle::default(),
+                },
+                behavior: SelectListBehavior::default(),
+                on_select: props.on_select,
+                render_item: &|item| item.clone(),
+            };
+            list.render(frame, chunks[1], list_props);
+        };
+
+        modal.render(
             frame,
-            modal_area,
-            &ModalStyle {
-                bg: Some(Color::Rgb(35, 35, 45)),
-                ..Default::default()
+            area,
+            ModalProps {
+                is_open: true,
+                is_focused: props.is_focused,
+                area: modal_area,
+                style: ModalStyle {
+                    base: BaseStyle {
+                        bg: Some(Color::Rgb(35, 35, 45)),
+                        padding: Padding::default(),
+                        border: None,
+                        fg: None,
+                    },
+                    ..Default::default()
+                },
+                behavior: ModalBehavior::default(),
+                on_close: || Action::SearchClose,
+                render_content: &mut render_content,
             },
         );
-
-        let chunks = Layout::vertical([
-            Constraint::Length(3), // Input
-            Constraint::Min(1),    // Results
-        ])
-        .split(content_area);
-
-        // Input with lighter background
-        let input_props = TextInputProps {
-            value: props.query,
-            placeholder: "Search for a city...",
-            is_focused: props.is_focused,
-            style: InputStyle {
-                border: None,
-                padding: Padding::all(1),
-                bg: Some(Color::Rgb(50, 50, 60)),
-                fg: None,
-                placeholder_style: None,
-                cursor_style: None,
-            },
-            on_change: props.on_query_change,
-            on_submit: props.on_query_submit,
-            render_action: Some(Action::Render),
-        };
-        self.input.render(frame, chunks[0], input_props);
-
-        // Build items with highlighting
-        let items = Self::result_items(props.results, props.query);
-        let list_props = SelectListProps {
-            items: &items,
-            count: items.len(),
-            selected: props.selected,
-            is_focused: props.is_focused,
-            style: ListStyle {
-                border: None,
-                padding: Padding::all(1),
-                bg: None,
-                fg: None,
-                selection: SelectionStyle::default(),
-                scrollbar: ScrollbarStyle::default(),
-            },
-            behavior: ListBehavior::default(),
-            on_select: props.on_select,
-        };
-        self.list.render(frame, chunks[1], list_props);
     }
 }

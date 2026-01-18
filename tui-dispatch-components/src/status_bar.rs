@@ -9,17 +9,13 @@ use ratatui::{
 };
 use tui_dispatch_core::Component;
 
-use crate::style::{BorderStyle, ComponentStyle, Padding};
+use crate::style::{BaseStyle, ComponentStyle, Padding};
 
 /// Unified styling for StatusBar
 #[derive(Debug, Clone)]
 pub struct StatusBarStyle {
-    /// Border configuration (None = no border)
-    pub border: Option<BorderStyle>,
-    /// Padding inside the component
-    pub padding: Padding,
-    /// Background color
-    pub bg: Option<Color>,
+    /// Shared base style
+    pub base: BaseStyle,
     /// Default text style
     pub text: Style,
     /// Style for key hints
@@ -33,9 +29,11 @@ pub struct StatusBarStyle {
 impl Default for StatusBarStyle {
     fn default() -> Self {
         Self {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
+            base: BaseStyle {
+                border: None,
+                fg: None,
+                ..Default::default()
+            },
             text: Style::default(),
             hint_key: Style::default()
                 .fg(Color::Cyan)
@@ -49,37 +47,23 @@ impl Default for StatusBarStyle {
 impl StatusBarStyle {
     /// Create a style with no border
     pub fn borderless() -> Self {
-        Self {
-            border: None,
-            ..Default::default()
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style
     }
 
     /// Create a minimal style (no border, no padding)
     pub fn minimal() -> Self {
-        Self {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
-            text: Style::default(),
-            hint_key: Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-            hint_label: Style::default(),
-            separator: Style::default().fg(Color::DarkGray),
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style.base.padding = Padding::default();
+        style
     }
 }
 
 impl ComponentStyle for StatusBarStyle {
-    fn border(&self) -> Option<&BorderStyle> {
-        self.border.as_ref()
-    }
-    fn padding(&self) -> &Padding {
-        &self.padding
-    }
-    fn bg(&self) -> Option<Color> {
-        self.bg
+    fn base(&self) -> &BaseStyle {
+        &self.base
     }
 }
 
@@ -233,7 +217,7 @@ impl<A> Component<A> for StatusBar {
         let style = &props.style;
 
         let mut background_style = Style::default();
-        if let Some(bg) = style.bg {
+        if let Some(bg) = style.base.bg {
             background_style = background_style.bg(bg);
         }
 
@@ -247,14 +231,14 @@ impl<A> Component<A> for StatusBar {
         }
 
         let content_area = Rect {
-            x: area.x + style.padding.left,
-            y: area.y + style.padding.top,
-            width: area.width.saturating_sub(style.padding.horizontal()),
-            height: area.height.saturating_sub(style.padding.vertical()),
+            x: area.x + style.base.padding.left,
+            y: area.y + style.base.padding.top,
+            width: area.width.saturating_sub(style.base.padding.horizontal()),
+            height: area.height.saturating_sub(style.base.padding.vertical()),
         };
 
         let mut inner_area = content_area;
-        if let Some(border) = &style.border {
+        if let Some(border) = &style.base.border {
             let block = Block::default()
                 .borders(border.borders)
                 .border_style(border.style_for_focus(props.is_focused));

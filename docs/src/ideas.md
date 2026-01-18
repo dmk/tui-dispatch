@@ -230,7 +230,7 @@ Also includes `DynamicFeatures` for runtime-only flags without the derive macro.
 
 ## ~~tui-dispatch-components~~ DONE (partial)
 
-> Implemented in v0.5.x: `SelectList`, `TextInput`, and modal overlay helpers (`render_modal`, `ModalStyle`, `centered_rect`)
+> Implemented in v0.5.x: `SelectList`, `TextInput`, and modal overlays (`Modal`, `ModalStyle`, `centered_rect`)
 
 A companion crate providing reusable TUI components that integrate with tui-dispatch patterns.
 

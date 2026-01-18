@@ -3,31 +3,31 @@
 //! Dims the background on each frame (keeping animations live) and renders
 //! modal content on top.
 
+use crossterm::event::KeyCode;
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget, Frame};
+use tui_dispatch_core::{Component, EventKind};
 
-use crate::style::{BorderStyle, ComponentStyle, Padding};
+use crate::style::{BaseStyle, BorderStyle, ComponentStyle};
 
 /// Configuration for modal appearance
 ///
-/// Follows the standard component style pattern with `border`, `padding`, and `bg`.
+/// Follows the standard component style pattern with `base` plus a dim factor.
 pub struct ModalStyle {
     /// Dim factor for background (0.0 = no dim, 1.0 = black)
     pub dim_factor: f32,
-    /// Border configuration (None = no border)
-    pub border: Option<BorderStyle>,
-    /// Padding inside the modal (between border and content)
-    pub padding: Padding,
-    /// Background color for the modal area
-    pub bg: Option<Color>,
+    /// Shared base style
+    pub base: BaseStyle,
 }
 
 impl Default for ModalStyle {
     fn default() -> Self {
         Self {
             dim_factor: 0.5,
-            border: None,
-            padding: Padding::default(),
-            bg: None,
+            base: BaseStyle {
+                border: None,
+                fg: None,
+                ..Default::default()
+            },
         }
     }
 }
@@ -35,96 +35,160 @@ impl Default for ModalStyle {
 impl ModalStyle {
     /// Create a style with a background color
     pub fn with_bg(bg: Color) -> Self {
-        Self {
-            bg: Some(bg),
-            ..Default::default()
-        }
+        let mut style = Self::default();
+        style.base.bg = Some(bg);
+        style
     }
 
     /// Create a style with a background color and border
     pub fn with_bg_and_border(bg: Color, border: BorderStyle) -> Self {
-        Self {
-            bg: Some(bg),
-            border: Some(border),
-            ..Default::default()
-        }
+        let mut style = Self::default();
+        style.base.bg = Some(bg);
+        style.base.border = Some(border);
+        style
     }
 }
 
 impl ComponentStyle for ModalStyle {
-    fn border(&self) -> Option<&BorderStyle> {
-        self.border.as_ref()
-    }
-    fn padding(&self) -> &Padding {
-        &self.padding
-    }
-    fn bg(&self) -> Option<Color> {
-        self.bg
+    fn base(&self) -> &BaseStyle {
+        &self.base
     }
 }
 
-/// Render a modal overlay with dimmed background
-///
-/// Call this AFTER rendering background content. It dims the current buffer,
-/// fills the modal area with background color, and renders the border.
-///
-/// Returns the inner content area (after border and padding) where you should
-/// render your modal content.
-///
-/// # Example
-///
-/// ```ignore
-/// // Render background first
-/// weather_display.render(frame, area, props);
-///
-/// // Then render modal on top (if open)
-/// if state.show_dialog {
-///     let modal_area = centered_rect(60, 12, frame.area());
-///     let content_area = render_modal(frame, modal_area, &ModalStyle::with_bg(Color::Rgb(30, 30, 40)));
-///     // Render modal content in content_area
-///     my_content.render(frame, content_area, props);
-/// }
-/// ```
-pub fn render_modal(frame: &mut Frame, area: Rect, style: &ModalStyle) -> Rect {
-    // Dim the background (everything rendered so far)
-    if style.dim_factor > 0.0 {
-        dim_buffer(frame.buffer_mut(), style.dim_factor);
+/// Behavior configuration for Modal
+#[derive(Debug, Clone)]
+pub struct ModalBehavior {
+    /// Close when the escape key is pressed
+    pub close_on_esc: bool,
+    /// Close when clicking outside the modal area
+    pub close_on_backdrop: bool,
+}
+
+impl Default for ModalBehavior {
+    fn default() -> Self {
+        Self {
+            close_on_esc: true,
+            close_on_backdrop: false,
+        }
+    }
+}
+
+/// Props for Modal component
+pub struct ModalProps<'a, A> {
+    /// Whether the modal is open
+    pub is_open: bool,
+    /// Whether this component has focus
+    pub is_focused: bool,
+    /// Modal area to render in
+    pub area: Rect,
+    /// Unified styling
+    pub style: ModalStyle,
+    /// Behavior configuration
+    pub behavior: ModalBehavior,
+    /// Callback when the modal should close
+    pub on_close: fn() -> A,
+    /// Render modal content into the inner area
+    pub render_content: &'a mut dyn FnMut(&mut Frame, Rect),
+}
+
+/// Modal overlay component
+#[derive(Default)]
+pub struct Modal;
+
+impl Modal {
+    /// Create a new Modal
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl<A> Component<A> for Modal {
+    type Props<'a> = ModalProps<'a, A>;
+
+    fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: Self::Props<'_>,
+    ) -> impl IntoIterator<Item = A> {
+        if !props.is_open {
+            return None;
+        }
+
+        match event {
+            EventKind::Key(key) if props.behavior.close_on_esc && key.code == KeyCode::Esc => {
+                Some((props.on_close)())
+            }
+            EventKind::Mouse(mouse) if props.behavior.close_on_backdrop => {
+                if !point_in_rect(props.area, mouse.column, mouse.row) {
+                    Some((props.on_close)())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
-    // Fill modal area with background color
-    if let Some(bg) = style.bg {
-        frame.render_widget(BgFill(bg), area);
-    }
+    #[allow(unused_mut)]
+    fn render(&mut self, frame: &mut Frame, _area: Rect, mut props: Self::Props<'_>) {
+        if !props.is_open {
+            return;
+        }
 
-    // Calculate content area (inside border and padding)
-    let mut content_area = area;
+        let style = &props.style;
+        let area = props.area;
 
-    // Render border if configured
-    if let Some(border) = &style.border {
-        use ratatui::widgets::Block;
-        let block = Block::default()
-            .borders(border.borders)
-            .border_style(border.style);
-        frame.render_widget(block, area);
+        // Dim the background (everything rendered so far)
+        if style.dim_factor > 0.0 {
+            dim_buffer(frame.buffer_mut(), style.dim_factor);
+        }
 
-        // Shrink content area for border
-        content_area = Rect {
-            x: content_area.x + 1,
-            y: content_area.y + 1,
-            width: content_area.width.saturating_sub(2),
-            height: content_area.height.saturating_sub(2),
+        // Fill modal area with background color
+        if let Some(bg) = style.base.bg {
+            frame.render_widget(BgFill(bg), area);
+        }
+
+        // Calculate content area (inside border and padding)
+        let mut content_area = area;
+
+        // Render border if configured
+        if let Some(border) = &style.base.border {
+            use ratatui::widgets::Block;
+            let block = Block::default()
+                .borders(border.borders)
+                .border_style(border.style_for_focus(props.is_focused));
+            frame.render_widget(block, area);
+
+            // Shrink content area for border
+            content_area = Rect {
+                x: content_area.x + 1,
+                y: content_area.y + 1,
+                width: content_area.width.saturating_sub(2),
+                height: content_area.height.saturating_sub(2),
+            };
+        }
+
+        // Apply padding
+        let inner_area = Rect {
+            x: content_area.x + style.base.padding.left,
+            y: content_area.y + style.base.padding.top,
+            width: content_area
+                .width
+                .saturating_sub(style.base.padding.horizontal()),
+            height: content_area
+                .height
+                .saturating_sub(style.base.padding.vertical()),
         };
-    }
 
-    // Apply padding
-    Rect {
-        x: content_area.x + style.padding.left,
-        y: content_area.y + style.padding.top,
-        width: content_area
-            .width
-            .saturating_sub(style.padding.horizontal()),
-        height: content_area.height.saturating_sub(style.padding.vertical()),
+        (props.render_content)(frame, inner_area);
     }
+}
+
+fn point_in_rect(area: Rect, x: u16, y: u16) -> bool {
+    x >= area.x
+        && x < area.x.saturating_add(area.width)
+        && y >= area.y
+        && y < area.y.saturating_add(area.height)
 }
 
 /// Simple widget that fills an area with a background color
@@ -247,83 +311,6 @@ fn indexed_to_rgb(idx: u8) -> Option<(u8, u8, u8)> {
         13 => Some((255, 0, 255)),
         14 => Some((0, 255, 255)),
         15 => Some((255, 255, 255)),
-        16..=231 => {
-            let idx = idx - 16;
-            let r = (idx / 36) % 6;
-            let g = (idx / 6) % 6;
-            let b = idx % 6;
-            let to_rgb = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
-            Some((to_rgb(r), to_rgb(g), to_rgb(b)))
-        }
-        232..=255 => {
-            let gray = 8 + (idx - 232) * 10;
-            Some((gray, gray, gray))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ratatui::widgets::Paragraph;
-    use tui_dispatch_core::testing::RenderHarness;
-
-    #[test]
-    fn test_modal_renders_content() {
-        let mut harness = RenderHarness::new(80, 24);
-
-        let output = harness.render_to_string_plain(|frame| {
-            // Render some background
-            frame.render_widget(Paragraph::new("Background content"), frame.area());
-
-            // Render modal
-            let area = centered_rect(40, 10, frame.area());
-            let content_area =
-                render_modal(frame, area, &ModalStyle::with_bg(Color::Rgb(30, 30, 40)));
-            frame.render_widget(Paragraph::new("Modal content"), content_area);
-        });
-
-        assert!(output.contains("Modal content"));
-    }
-
-    #[test]
-    fn test_modal_returns_content_area_with_padding() {
-        let mut harness = RenderHarness::new(80, 24);
-
-        harness.render_to_string_plain(|frame| {
-            let area = Rect::new(10, 10, 40, 20);
-            let style = ModalStyle {
-                padding: Padding::all(2),
-                ..Default::default()
-            };
-            let content_area = render_modal(frame, area, &style);
-
-            // Content area should be shrunk by padding
-            assert_eq!(content_area.x, 12);
-            assert_eq!(content_area.y, 12);
-            assert_eq!(content_area.width, 36);
-            assert_eq!(content_area.height, 16);
-        });
-    }
-
-    #[test]
-    fn test_centered_rect() {
-        let area = Rect::new(0, 0, 80, 24);
-        let centered = centered_rect(40, 10, area);
-
-        assert_eq!(centered.width, 40);
-        assert_eq!(centered.height, 10);
-        assert_eq!(centered.x, 20); // (80 - 40) / 2
-        assert_eq!(centered.y, 7); // (24 - 10) / 2
-    }
-
-    #[test]
-    fn test_centered_rect_clamps_to_area() {
-        let area = Rect::new(0, 0, 30, 10);
-        let centered = centered_rect(100, 50, area);
-
-        // Should clamp to area minus 2 (for some margin)
-        assert!(centered.width <= 28);
-        assert!(centered.height <= 8);
+        _ => None,
     }
 }

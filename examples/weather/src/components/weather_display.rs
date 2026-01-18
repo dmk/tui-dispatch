@@ -10,8 +10,11 @@ use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::prelude::{Frame, Rect};
 use tui_dispatch::EventKind;
+use tui_dispatch_components::{
+    StatusBar, StatusBarHint, StatusBarProps, StatusBarSection, StatusBarStyle,
+};
 
-use super::{Component, HelpBar, HelpBarProps, WeatherBody, WeatherBodyProps};
+use super::{Component, WeatherBody, WeatherBodyProps};
 use crate::action::Action;
 use crate::state::AppState;
 
@@ -62,8 +65,24 @@ impl Component<Action> for WeatherDisplay {
         let mut body = WeatherBody;
         body.render(frame, chunks[0], WeatherBodyProps { state: props.state });
 
-        let mut help = HelpBar;
-        help.render(frame, chunks[1], HelpBarProps);
+        let mut status_bar = StatusBar::new();
+        <StatusBar as Component<Action>>::render(
+            &mut status_bar,
+            frame,
+            chunks[1],
+            StatusBarProps {
+                left: StatusBarSection::empty(),
+                center: StatusBarSection::hints(&[
+                    StatusBarHint::new("r", "refresh"),
+                    StatusBarHint::new("/", "search"),
+                    StatusBarHint::new("u", "units"),
+                    StatusBarHint::new("q", "quit"),
+                ]),
+                right: StatusBarSection::empty(),
+                style: StatusBarStyle::default(),
+                is_focused: false,
+            },
+        );
     }
 }
 

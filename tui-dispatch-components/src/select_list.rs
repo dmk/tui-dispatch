@@ -10,82 +10,65 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind};
 
-use crate::style::{BorderStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
+use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
 
 /// Unified styling for SelectList
 #[derive(Debug, Clone)]
-pub struct ListStyle {
-    /// Border configuration (None = no border)
-    pub border: Option<BorderStyle>,
-    /// Padding inside the component
-    pub padding: Padding,
-    /// Background color
-    pub bg: Option<ratatui::style::Color>,
-    /// Foreground (text) color for non-selected items
-    pub fg: Option<ratatui::style::Color>,
+pub struct SelectListStyle {
+    /// Shared base style
+    pub base: BaseStyle,
     /// Selection indication styling
     pub selection: SelectionStyle,
     /// Scrollbar styling
     pub scrollbar: ScrollbarStyle,
 }
 
-impl Default for ListStyle {
+impl Default for SelectListStyle {
     fn default() -> Self {
         Self {
-            border: Some(BorderStyle::default()),
-            padding: Padding::default(),
-            bg: None,
-            fg: Some(ratatui::style::Color::Reset),
+            base: BaseStyle {
+                fg: Some(ratatui::style::Color::Reset),
+                ..Default::default()
+            },
             selection: SelectionStyle::default(),
             scrollbar: ScrollbarStyle::default(),
         }
     }
 }
 
-impl ListStyle {
+impl SelectListStyle {
     /// Create a style with no border
     pub fn borderless() -> Self {
-        Self {
-            border: None,
-            ..Default::default()
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style
     }
 
     /// Create a minimal style (no border, no padding)
     pub fn minimal() -> Self {
-        Self {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
-            fg: Some(ratatui::style::Color::Reset),
-            selection: SelectionStyle::default(),
-            scrollbar: ScrollbarStyle::default(),
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style.base.padding = Padding::default();
+        style
     }
 }
 
-impl ComponentStyle for ListStyle {
-    fn border(&self) -> Option<&BorderStyle> {
-        self.border.as_ref()
-    }
-    fn padding(&self) -> &Padding {
-        &self.padding
-    }
-    fn bg(&self) -> Option<ratatui::style::Color> {
-        self.bg
+impl ComponentStyle for SelectListStyle {
+    fn base(&self) -> &BaseStyle {
+        &self.base
     }
 }
 
 /// Behavior configuration for SelectList
 #[derive(Debug, Clone)]
-pub struct ListBehavior {
+pub struct SelectListBehavior {
     /// Show scrollbar when content exceeds viewport
     pub show_scrollbar: bool,
     /// Wrap navigation from last to first item (and vice versa)
     pub wrap_navigation: bool,
 }
 
-impl Default for ListBehavior {
+impl Default for SelectListBehavior {
     fn default() -> Self {
         Self {
             show_scrollbar: true,
@@ -95,9 +78,9 @@ impl Default for ListBehavior {
 }
 
 /// Props for SelectList component
-pub struct SelectListProps<'a, A> {
-    /// Items to render - user provides pre-styled Lines
-    pub items: &'a [Line<'a>],
+pub struct SelectListProps<'a, T, A> {
+    /// Items to render
+    pub items: &'a [T],
     /// Total count (may differ from items.len() for virtual lists)
     pub count: usize,
     /// Currently selected index
@@ -105,26 +88,34 @@ pub struct SelectListProps<'a, A> {
     /// Whether this component has focus
     pub is_focused: bool,
     /// Unified styling
-    pub style: ListStyle,
+    pub style: SelectListStyle,
     /// Behavior configuration
-    pub behavior: ListBehavior,
+    pub behavior: SelectListBehavior,
     /// Callback to create action when selection changes
     pub on_select: fn(usize) -> A,
+    /// Render a single item into a Line
+    pub render_item: &'a dyn Fn(&T) -> Line<'static>,
 }
 
-impl<'a, A> SelectListProps<'a, A> {
+impl<'a, T, A> SelectListProps<'a, T, A> {
     /// Create props with sensible defaults
     ///
     /// Sets `count` to `items.len()`, `is_focused` to `true`, and uses default style/behavior.
-    pub fn new(items: &'a [Line<'a>], selected: usize, on_select: fn(usize) -> A) -> Self {
+    pub fn new(
+        items: &'a [T],
+        selected: usize,
+        on_select: fn(usize) -> A,
+        render_item: &'a dyn Fn(&T) -> Line<'static>,
+    ) -> Self {
         Self {
             items,
             count: items.len(),
             selected,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select,
+            render_item,
         }
     }
 }
@@ -132,7 +123,7 @@ impl<'a, A> SelectListProps<'a, A> {
 /// A scrollable selection list with keyboard navigation
 ///
 /// Handles j/k/up/down for navigation and enter for selection.
-/// Users provide pre-styled `Line` items for full control over rendering.
+/// Generic over item type `T` - provide a `render_item` callback to convert to Lines.
 #[derive(Default)]
 pub struct SelectList {
     /// Scroll offset for viewport
@@ -160,7 +151,7 @@ impl SelectList {
 }
 
 impl<A> Component<A> for SelectList {
-    type Props<'a> = SelectListProps<'a, A>;
+    type Props<'a> = SelectListProps<'a, Line<'static>, A>;
 
     fn handle_event(
         &mut self,
@@ -230,7 +221,7 @@ impl<A> Component<A> for SelectList {
         let style = &props.style;
 
         // Fill background if specified
-        if let Some(bg) = style.bg {
+        if let Some(bg) = style.base.bg {
             for y in area.y..area.y.saturating_add(area.height) {
                 for x in area.x..area.x.saturating_add(area.width) {
                     frame.buffer_mut()[(x, y)].set_bg(bg);
@@ -241,14 +232,14 @@ impl<A> Component<A> for SelectList {
 
         // Apply padding
         let content_area = Rect {
-            x: area.x + style.padding.left,
-            y: area.y + style.padding.top,
-            width: area.width.saturating_sub(style.padding.horizontal()),
-            height: area.height.saturating_sub(style.padding.vertical()),
+            x: area.x + style.base.padding.left,
+            y: area.y + style.base.padding.top,
+            width: area.width.saturating_sub(style.base.padding.horizontal()),
+            height: area.height.saturating_sub(style.base.padding.vertical()),
         };
 
         let mut inner_area = content_area;
-        if let Some(border) = &style.border {
+        if let Some(border) = &style.base.border {
             let block = Block::default()
                 .borders(border.borders)
                 .border_style(border.style_for_focus(props.is_focused));
@@ -291,12 +282,13 @@ impl<A> Component<A> for SelectList {
             .items
             .iter()
             .enumerate()
-            .map(|(i, line)| {
+            .map(|(i, item)| {
                 let is_selected = i == render_selected;
+                let line = (props.render_item)(item);
 
                 // Apply selection styling unless disabled
                 if style.selection.disabled {
-                    ListItem::new(line.clone())
+                    ListItem::new(line)
                 } else {
                     // Build the line with optional marker
                     let display_line = if let Some(marker) = style.selection.marker {
@@ -309,7 +301,7 @@ impl<A> Component<A> for SelectList {
                         spans.extend(line.spans.iter().cloned());
                         Line::from(spans)
                     } else {
-                        line.clone()
+                        line
                     };
 
                     // Apply selection style (or base fg color for non-selected)
@@ -317,7 +309,7 @@ impl<A> Component<A> for SelectList {
                         style.selection.style.unwrap_or_default()
                     } else {
                         let mut s = Style::default();
-                        if let Some(fg) = style.fg {
+                        if let Some(fg) = style.base.fg {
                             s = s.fg(fg);
                         }
                         s
@@ -379,6 +371,10 @@ mod tests {
         ]
     }
 
+    fn render_item(item: &Line<'static>) -> Line<'static> {
+        item.clone()
+    }
+
     #[test]
     fn test_navigate_down() {
         let mut list = SelectList::new();
@@ -388,9 +384,10 @@ mod tests {
             count: items.len(),
             selected: 0,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
 
         let actions: Vec<_> = list
@@ -410,9 +407,10 @@ mod tests {
             count: items.len(),
             selected: 2,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
 
         let actions: Vec<_> = list
@@ -434,9 +432,10 @@ mod tests {
             count: items.len(),
             selected: 0,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
         let actions: Vec<_> = list
             .handle_event(&EventKind::Key(key("k")), props)
@@ -450,9 +449,10 @@ mod tests {
             count: items.len(),
             selected: 2,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
         let actions: Vec<_> = list
             .handle_event(&EventKind::Key(key("j")), props)
@@ -472,12 +472,13 @@ mod tests {
             count: items.len(),
             selected: 0,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior {
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior {
                 wrap_navigation: true,
                 ..Default::default()
             },
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
         let actions: Vec<_> = list
             .handle_event(&EventKind::Key(key("k")), props)
@@ -491,12 +492,13 @@ mod tests {
             count: items.len(),
             selected: 2,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior {
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior {
                 wrap_navigation: true,
                 ..Default::default()
             },
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
         let actions: Vec<_> = list
             .handle_event(&EventKind::Key(key("j")), props)
@@ -514,9 +516,10 @@ mod tests {
             count: items.len(),
             selected: 0,
             is_focused: false,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
 
         let actions: Vec<_> = list
@@ -536,9 +539,10 @@ mod tests {
             count: items.len(),
             selected: 1,
             is_focused: true,
-            style: ListStyle::default(),
-            behavior: ListBehavior::default(),
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
             on_select: TestAction::Select,
+            render_item: &render_item,
         };
 
         let actions: Vec<_> = list
@@ -561,9 +565,10 @@ mod tests {
                 count: items.len(),
                 selected: 1,
                 is_focused: true,
-                style: ListStyle::default(),
-                behavior: ListBehavior::default(),
+                style: SelectListStyle::default(),
+                behavior: SelectListBehavior::default(),
                 on_select: |_| (),
+                render_item: &render_item,
             };
             list.render(frame, frame.area(), props);
         });
@@ -585,12 +590,13 @@ mod tests {
                 count: items.len(),
                 selected: 1,
                 is_focused: true,
-                style: ListStyle {
+                style: SelectListStyle {
                     selection: SelectionStyle::disabled(),
                     ..Default::default()
                 },
-                behavior: ListBehavior::default(),
+                behavior: SelectListBehavior::default(),
                 on_select: |_| (),
+                render_item: &render_item,
             };
             list.render(frame, frame.area(), props);
         });

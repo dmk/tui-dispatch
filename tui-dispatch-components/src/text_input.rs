@@ -9,69 +9,52 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind};
 
-use crate::style::{BorderStyle, ComponentStyle, Padding};
+use crate::style::{BaseStyle, ComponentStyle, Padding};
 
 /// Unified styling for TextInput
 #[derive(Debug, Clone)]
-pub struct InputStyle {
-    /// Border configuration (None = no border)
-    pub border: Option<BorderStyle>,
-    /// Padding inside the component
-    pub padding: Padding,
-    /// Background color
-    pub bg: Option<Color>,
-    /// Foreground (text) color
-    pub fg: Option<Color>,
+pub struct TextInputStyle {
+    /// Shared base style
+    pub base: BaseStyle,
     /// Style for placeholder text
     pub placeholder_style: Option<Style>,
     /// Style for cursor (when focused)
     pub cursor_style: Option<Style>,
 }
 
-impl Default for InputStyle {
+impl Default for TextInputStyle {
     fn default() -> Self {
         Self {
-            border: Some(BorderStyle::default()),
-            padding: Padding::default(),
-            bg: None,
-            fg: None,
+            base: BaseStyle {
+                fg: None,
+                ..Default::default()
+            },
             placeholder_style: Some(Style::default().fg(Color::DarkGray)),
             cursor_style: None,
         }
     }
 }
 
-impl InputStyle {
+impl TextInputStyle {
     /// Create a style with no border
     pub fn borderless() -> Self {
-        Self {
-            border: None,
-            ..Default::default()
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style
     }
 
     /// Create a minimal style (no border, no padding)
     pub fn minimal() -> Self {
-        Self {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
-            fg: None,
-            placeholder_style: Some(Style::default().fg(Color::DarkGray)),
-            cursor_style: None,
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style.base.padding = Padding::default();
+        style
     }
 }
 
-impl ComponentStyle for InputStyle {
-    fn border(&self) -> Option<&BorderStyle> {
-        self.border.as_ref()
-    }
-    fn padding(&self) -> &Padding {
-        &self.padding
-    }
-    fn bg(&self) -> Option<Color> {
-        self.bg
+impl ComponentStyle for TextInputStyle {
+    fn base(&self) -> &BaseStyle {
+        &self.base
     }
 }
 
@@ -84,20 +67,20 @@ pub struct TextInputProps<'a, A> {
     /// Whether this component has focus
     pub is_focused: bool,
     /// Unified styling
-    pub style: InputStyle,
+    pub style: TextInputStyle,
     /// Callback when value changes
     pub on_change: fn(String) -> A,
     /// Callback when user submits (Enter)
     pub on_submit: fn(String) -> A,
-    /// Action to trigger a re-render for cursor movement
-    pub render_action: Option<A>,
+    /// Callback when cursor moves without content change
+    pub on_cursor_move: Option<fn(usize) -> A>,
 }
 
 /// A single-line text input with cursor
 ///
 /// Handles typing, backspace, delete, and cursor movement.
 /// Emits on_change for each keystroke, on_submit for Enter,
-/// and render_action for cursor-only movement if provided.
+/// and on_cursor_move for cursor-only movement if provided.
 #[derive(Default)]
 pub struct TextInput {
     /// Cursor position (byte index)
@@ -532,7 +515,7 @@ impl<A> Component<A> for TextInput {
                 };
 
                 if action.is_none() && did_move {
-                    props.render_action
+                    props.on_cursor_move.map(|callback| callback(self.cursor))
                 } else {
                     action
                 }
@@ -548,7 +531,7 @@ impl<A> Component<A> for TextInput {
         self.clamp_cursor(props.value);
 
         // Fill background if color provided
-        if let Some(bg) = style.bg {
+        if let Some(bg) = style.base.bg {
             for y in area.y..area.y.saturating_add(area.height) {
                 for x in area.x..area.x.saturating_add(area.width) {
                     frame.buffer_mut()[(x, y)].set_bg(bg);
@@ -559,10 +542,10 @@ impl<A> Component<A> for TextInput {
 
         // Apply padding
         let content_area = Rect {
-            x: area.x + style.padding.left,
-            y: area.y + style.padding.top,
-            width: area.width.saturating_sub(style.padding.horizontal()),
-            height: area.height.saturating_sub(style.padding.vertical()),
+            x: area.x + style.base.padding.left,
+            y: area.y + style.base.padding.top,
+            width: area.width.saturating_sub(style.base.padding.horizontal()),
+            height: area.height.saturating_sub(style.base.padding.vertical()),
         };
 
         // Determine display text
@@ -579,20 +562,20 @@ impl<A> Component<A> for TextInput {
                 .unwrap_or_else(|| Style::default().fg(Color::DarkGray))
         } else {
             let mut s = Style::default();
-            if let Some(fg) = style.fg {
+            if let Some(fg) = style.base.fg {
                 s = s.fg(fg);
             }
             s
         };
 
         // Preserve background color in text style
-        if let Some(bg) = style.bg {
+        if let Some(bg) = style.base.bg {
             text_style = text_style.bg(bg);
         }
 
         let mut paragraph = Paragraph::new(display_text).style(text_style);
 
-        if let Some(border) = &style.border {
+        if let Some(border) = &style.base.border {
             paragraph = paragraph.block(
                 Block::default()
                     .borders(border.borders)
@@ -605,12 +588,12 @@ impl<A> Component<A> for TextInput {
         // Show cursor if focused
         if props.is_focused {
             // Calculate cursor screen position (account for border and padding)
-            let border_offset = if style.border.is_some() { 1 } else { 0 };
+            let border_offset = if style.base.border.is_some() { 1 } else { 0 };
             let cursor_x = content_area.x + border_offset + self.cursor as u16;
             let cursor_y = content_area.y + border_offset;
 
             // Only show cursor if within bounds
-            let max_x = if style.border.is_some() {
+            let max_x = if style.base.border.is_some() {
                 content_area.x + content_area.width - 1
             } else {
                 content_area.x + content_area.width
@@ -643,10 +626,10 @@ mod tests {
             value: "",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -666,10 +649,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         // Space character
@@ -692,10 +675,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -715,10 +698,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -739,10 +722,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -761,10 +744,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -783,10 +766,10 @@ mod tests {
             value: "",
             placeholder: "",
             is_focused: false,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -807,10 +790,10 @@ mod tests {
                 value: "hello",
                 placeholder: "Type here...",
                 is_focused: true,
-                style: InputStyle::default(),
+                style: TextInputStyle::default(),
                 on_change: |_| (),
                 on_submit: |_| (),
-                render_action: None,
+                on_cursor_move: None,
             };
             input.render(frame, frame.area(), props);
         });
@@ -828,10 +811,10 @@ mod tests {
                 value: "",
                 placeholder: "Type here...",
                 is_focused: true,
-                style: InputStyle::default(),
+                style: TextInputStyle::default(),
                 on_change: |_| (),
                 on_submit: |_| (),
-                render_action: None,
+                on_cursor_move: None,
             };
             input.render(frame, frame.area(), props);
         });
@@ -849,17 +832,19 @@ mod tests {
                 value: "test",
                 placeholder: "",
                 is_focused: true,
-                style: InputStyle {
-                    border: None,
-                    padding: Padding::xy(1, 0),
-                    bg: Some(Color::Blue),
-                    fg: Some(Color::White),
+                style: TextInputStyle {
+                    base: BaseStyle {
+                        border: None,
+                        padding: Padding::xy(1, 0),
+                        bg: Some(Color::Blue),
+                        fg: Some(Color::White),
+                    },
                     placeholder_style: None,
                     cursor_style: None,
                 },
                 on_change: |_| (),
                 on_submit: |_| (),
-                render_action: None,
+                on_cursor_move: None,
             };
             input.render(frame, frame.area(), props);
         });
@@ -892,10 +877,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -915,10 +900,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -939,10 +924,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -963,10 +948,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -987,10 +972,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -1010,10 +995,10 @@ mod tests {
             value: "hello",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let actions: Vec<_> = input
@@ -1033,10 +1018,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         // Ctrl+B moves back
@@ -1051,10 +1036,10 @@ mod tests {
             value: "hello world",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
         let _: Vec<_> = input
             .handle_event(&EventKind::Key(ctrl_key('f')), props)
@@ -1073,10 +1058,10 @@ mod tests {
             value: "hello   world!",
             placeholder: "",
             is_focused: true,
-            style: InputStyle::default(),
+            style: TextInputStyle::default(),
             on_change: TestAction::Change,
             on_submit: TestAction::Submit,
-            render_action: None,
+            on_cursor_move: None,
         };
 
         let _: Vec<_> = input

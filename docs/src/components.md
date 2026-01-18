@@ -15,14 +15,15 @@ tui-dispatch-components = "0.4"
 - **ScrollView** - Scrollable view for pre-wrapped lines
 - **StatusBar** - Left/center/right status bar with hints
 - **TextInput** - Single-line text input with cursor
+- **TreeView** - Hierarchical tree view with selection and expand/collapse
 - **Modal** - Overlay with dimmed background
 
 ## Design Philosophy
 
 Components are designed around three principles:
 
-1. **Unified styling** - Each component style implements `ComponentStyle` trait with common fields
-2. **User-controlled rendering** - For lists, users provide pre-styled `Line` items
+1. **Unified styling** - Each component style embeds `BaseStyle` via `ComponentStyle`
+2. **Headless rendering** - Components handle layout/interaction; you render inner rows
 3. **Behavior configuration** - Runtime behavior (scrollbar, wrap-around) is configurable
 
 ### ComponentStyle Trait
@@ -31,9 +32,7 @@ All component styles implement `ComponentStyle`, ensuring consistent access to c
 
 ```rust
 pub trait ComponentStyle {
-    fn border(&self) -> Option<&BorderStyle>;
-    fn padding(&self) -> &Padding;
-    fn bg(&self) -> Option<Color>;
+    fn base(&self) -> &BaseStyle;
 }
 ```
 
@@ -46,16 +45,24 @@ A scrollable list with keyboard navigation (j/k, arrows, g/G, Enter).
 ### Basic Usage
 
 ```rust
-use tui_dispatch_components::{SelectList, SelectListProps, ListStyle, ListBehavior, Line};
+use tui_dispatch_components::{
+    Line, SelectList, SelectListBehavior, SelectListProps, SelectListStyle,
+};
 
 let items: Vec<Line> = vec![
     Line::raw("Option 1"),
     Line::raw("Option 2"),
     Line::raw("Option 3"),
 ];
+let render_item = |item: &Line| item.clone();
 
 // Using the helper constructor (sets count, is_focused, style, behavior to defaults)
-let props = SelectListProps::new(&items, state.selected, |idx| Action::Select(idx));
+let props = SelectListProps::new(
+    &items,
+    state.selected,
+    |idx| Action::Select(idx),
+    &render_item,
+);
 
 list.render(frame, area, props);
 ```
@@ -68,9 +75,10 @@ let props = SelectListProps {
     count: items.len(),
     selected: state.selected,
     is_focused: true,
-    style: ListStyle::default(),
-    behavior: ListBehavior::default(),
+    style: SelectListStyle::default(),
+    behavior: SelectListBehavior::default(),
     on_select: |idx| Action::Select(idx),
+    render_item: &render_item,
 };
 ```
 
@@ -95,13 +103,18 @@ fn render_items(items: &[MyItem], query: &str) -> Vec<Line<'static>> {
 ### Styling
 
 ```rust
-use tui_dispatch_components::{ListStyle, Padding, BorderStyle, ScrollbarStyle, SelectionStyle};
+use tui_dispatch_components::{
+    BaseStyle, BorderStyle, Padding, ScrollbarStyle, SelectionStyle, SelectListStyle,
+};
 use ratatui::style::{Color, Style};
 
-let style = ListStyle {
-    border: Some(BorderStyle::default()),
-    padding: Padding::xy(1, 0),
-    bg: Some(Color::Rgb(30, 30, 40)),
+let style = SelectListStyle {
+    base: BaseStyle {
+        border: Some(BorderStyle::default()),
+        padding: Padding::xy(1, 0),
+        bg: Some(Color::Rgb(30, 30, 40)),
+        fg: Some(Color::Reset),
+    },
     selection: SelectionStyle {
         style: Some(Style::default().fg(Color::Cyan)),
         marker: Some("> "),
@@ -116,7 +129,7 @@ let style = ListStyle {
 When you want full control over how selected items look:
 
 ```rust
-let style = ListStyle {
+let style = SelectListStyle {
     selection: SelectionStyle::disabled(),
     ..Default::default()
 };
@@ -134,7 +147,7 @@ let items: Vec<Line> = data.iter().enumerate().map(|(i, item)| {
 ### Behavior Configuration
 
 ```rust
-let behavior = ListBehavior {
+let behavior = SelectListBehavior {
     show_scrollbar: true,      // Show scrollbar when content overflows
     wrap_navigation: true,     // Wrap from last to first item
 };
@@ -160,7 +173,9 @@ A scrollable view for pre-wrapped lines with a controlled scroll offset.
 ### Basic Usage
 
 ```rust
-use tui_dispatch_components::{Line, ScrollBehavior, ScrollView, ScrollViewProps, ScrollViewStyle};
+use tui_dispatch_components::{
+    Line, ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewStyle,
+};
 
 let lines: Vec<Line> = state.lines.iter().map(|line| Line::raw(line)).collect();
 
@@ -171,7 +186,7 @@ let props = ScrollViewProps {
     scroll_offset: state.scroll_offset,
     is_focused: state.focus == Focus::Content,
     style: ScrollViewStyle::default(),
-    behavior: ScrollBehavior::default(),
+    behavior: ScrollViewBehavior::default(),
     on_scroll: Action::ScrollTo,
 };
 
@@ -220,34 +235,36 @@ A single-line text input with cursor movement and editing.
 ### Basic Usage
 
 ```rust
-use tui_dispatch_components::{TextInput, TextInputProps, InputStyle};
+use tui_dispatch_components::{TextInput, TextInputProps, TextInputStyle};
 
 let props = TextInputProps {
     value: &state.input_value,
     placeholder: "Type here...",
     is_focused: true,
-    style: InputStyle::default(),
+    style: TextInputStyle::default(),
     on_change: |s| Action::InputChange(s),
     on_submit: |s| Action::InputSubmit(s),
-    render_action: Some(Action::Render),
+    on_cursor_move: Some(|_| Action::Render),
 };
 
 input.render(frame, area, props);
 ```
 
-Use `render_action` to trigger a re-render for cursor-only movement (left/right/home/end, word movement) when the text value doesn't change.
+Use `on_cursor_move` to trigger a re-render for cursor-only movement (left/right/home/end, word movement) when the text value doesn't change.
 
 ### Styling
 
 ```rust
-use tui_dispatch_components::{InputStyle, Padding, BorderStyle};
+use tui_dispatch_components::{BaseStyle, BorderStyle, Padding, TextInputStyle};
 use ratatui::style::{Color, Style};
 
-let style = InputStyle {
-    border: Some(BorderStyle::default()),
-    padding: Padding::xy(1, 0),
-    bg: Some(Color::Rgb(50, 50, 60)),
-    fg: Some(Color::White),
+let style = TextInputStyle {
+    base: BaseStyle {
+        border: Some(BorderStyle::default()),
+        padding: Padding::xy(1, 0),
+        bg: Some(Color::Rgb(50, 50, 60)),
+        fg: Some(Color::White),
+    },
     placeholder_style: Some(Style::default().fg(Color::DarkGray)),
     cursor_style: None,
 };
@@ -284,34 +301,106 @@ Full readline/emacs-style keybindings:
 
 > **Mac Note:** Alt keybindings require terminal configuration. In iTerm2: Preferences → Profiles → Keys → "Left/Right Option key" → "Esc+". Use Ctrl+Left/Right for word movement as the portable alternative.
 
+## TreeView
+
+A hierarchical tree view with selection and expand/collapse controls. `TreeView` is generic over the node id type.
+
+### Basic Usage
+
+```rust
+use tui_dispatch_components::{
+    Line, TreeBranchMode, TreeBranchStyle, TreeNode, TreeView, TreeViewBehavior, TreeViewProps,
+    TreeViewStyle,
+};
+
+let nodes = vec![TreeNode::with_children(
+    "root".to_string(),
+    "Root".to_string(),
+    vec![TreeNode::new("child".to_string(), "Child".to_string())],
+)];
+let render_node = |ctx| Line::raw(ctx.node.value.as_str());
+
+let props = TreeViewProps {
+    nodes: &nodes,
+    selected_id: state.selected.as_ref(),
+    expanded_ids: &state.expanded,
+    is_focused: state.focused,
+    style: TreeViewStyle {
+        branches: TreeBranchStyle {
+            mode: TreeBranchMode::Branch,
+            ..Default::default()
+        },
+        ..Default::default()
+    },
+    behavior: TreeViewBehavior::default(),
+    measure_node: None,
+    column_padding: 0,
+    on_select: Action::SelectNode,
+    on_toggle: Action::ToggleNode,
+    render_node: &render_node,
+};
+
+let mut tree: TreeView<String> = TreeView::new();
+tree.render(frame, area, props);
+```
+
+`render_node` lets you customize the row content while TreeView still renders indentation and expand/collapse markers. Use `TreeNodeRender::tree_column_width`, `TreeNodeRender::row_width`, and `TreeNodeRender::leading_width` to align custom columns.
+
+### Keybindings
+
+- `j/k`, arrows: move selection
+- `Left`: collapse or select parent
+- `Right`: expand or select first child
+- `Enter`/`Space`: toggle expand/collapse
+- `g/G`, `Home/End`: jump to top/bottom
+
 ## Modal
 
 An overlay that dims the background and renders content on top.
 
 ### Basic Usage
 
-`render_modal` returns the inner content area (after applying border and padding):
+`Modal` renders the dimmed overlay and calls your content renderer:
 
 ```rust
-use tui_dispatch_components::{render_modal, centered_rect, ModalStyle, Padding};
+use tui_dispatch_components::{
+    BaseStyle, Modal, ModalBehavior, ModalProps, ModalStyle, Padding, centered_rect,
+};
 use ratatui::style::Color;
 
 // Render background content first
 main_view.render(frame, area, props);
 
-// Then render modal on top
 if state.show_modal {
     let modal_area = centered_rect(60, 12, frame.area());
-    let content_area = render_modal(frame, modal_area, &ModalStyle {
-        bg: Some(Color::Rgb(35, 35, 45)),
-        padding: Padding::all(1),
-        ..Default::default()
-    });
+    let mut render_content = |frame: &mut Frame, content_area: Rect| {
+        my_modal_content.render(frame, content_area, props);
+    };
 
-    // Render modal content in the returned content area
-    modal_content.render(frame, content_area, modal_props);
+    modal.render(
+        frame,
+        frame.area(),
+        ModalProps {
+            is_open: true,
+            is_focused: true,
+            area: modal_area,
+            style: ModalStyle {
+                base: BaseStyle {
+                    bg: Some(Color::Rgb(35, 35, 45)),
+                    padding: Padding::all(1),
+                    border: None,
+                    fg: None,
+                },
+                ..Default::default()
+            },
+            behavior: ModalBehavior::default(),
+            on_close: || Action::CloseModal,
+            render_content: &mut render_content,
+        },
+    );
 }
 ```
+
 
 ### Styling
 

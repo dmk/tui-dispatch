@@ -1,4 +1,9 @@
-//! Scrollable text view component
+//! Scrollable viewport component
+//!
+//! ScrollView is a flexible viewport container that handles scrolling behavior.
+//! The user provides a `render_content` callback to render visible content.
+//!
+//! For simple use cases with pre-rendered lines, use [`LinesScroller`].
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -10,19 +15,26 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind};
 
-use crate::style::{BorderStyle, ComponentStyle, Padding, ScrollbarStyle};
+use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle};
+
+/// Information about the visible range for content rendering
+#[derive(Debug, Clone, Copy)]
+pub struct VisibleRange {
+    /// First visible line index (0-based)
+    pub start: usize,
+    /// Last visible line index (exclusive)
+    pub end: usize,
+    /// Height of the viewport in lines
+    pub viewport_height: u16,
+    /// Available width for content (excluding scrollbar if shown)
+    pub available_width: u16,
+}
 
 /// Unified styling for ScrollView
 #[derive(Debug, Clone)]
 pub struct ScrollViewStyle {
-    /// Border configuration (None = no border)
-    pub border: Option<BorderStyle>,
-    /// Padding inside the component
-    pub padding: Padding,
-    /// Background color
-    pub bg: Option<Color>,
-    /// Foreground (text) color
-    pub fg: Option<Color>,
+    /// Shared base style
+    pub base: BaseStyle,
     /// Scrollbar styling
     pub scrollbar: ScrollbarStyle,
 }
@@ -30,10 +42,10 @@ pub struct ScrollViewStyle {
 impl Default for ScrollViewStyle {
     fn default() -> Self {
         Self {
-            border: Some(BorderStyle::default()),
-            padding: Padding::default(),
-            bg: None,
-            fg: Some(Color::Reset),
+            base: BaseStyle {
+                fg: Some(Color::Reset),
+                ..Default::default()
+            },
             scrollbar: ScrollbarStyle::default(),
         }
     }
@@ -42,39 +54,29 @@ impl Default for ScrollViewStyle {
 impl ScrollViewStyle {
     /// Create a style with no border
     pub fn borderless() -> Self {
-        Self {
-            border: None,
-            ..Default::default()
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style
     }
 
     /// Create a minimal style (no border, no padding)
     pub fn minimal() -> Self {
-        Self {
-            border: None,
-            padding: Padding::default(),
-            bg: None,
-            fg: Some(Color::Reset),
-            scrollbar: ScrollbarStyle::default(),
-        }
+        let mut style = Self::default();
+        style.base.border = None;
+        style.base.padding = Padding::default();
+        style
     }
 }
 
 impl ComponentStyle for ScrollViewStyle {
-    fn border(&self) -> Option<&BorderStyle> {
-        self.border.as_ref()
-    }
-    fn padding(&self) -> &Padding {
-        &self.padding
-    }
-    fn bg(&self) -> Option<Color> {
-        self.bg
+    fn base(&self) -> &BaseStyle {
+        &self.base
     }
 }
 
 /// Behavior configuration for ScrollView
 #[derive(Debug, Clone)]
-pub struct ScrollBehavior {
+pub struct ScrollViewBehavior {
     /// Show scrollbar when content exceeds viewport
     pub show_scrollbar: bool,
     /// Number of lines to scroll per step
@@ -83,7 +85,7 @@ pub struct ScrollBehavior {
     pub page_step: usize,
 }
 
-impl Default for ScrollBehavior {
+impl Default for ScrollViewBehavior {
     fn default() -> Self {
         Self {
             show_scrollbar: true,
@@ -95,44 +97,31 @@ impl Default for ScrollBehavior {
 
 /// Props for ScrollView component
 pub struct ScrollViewProps<'a, A> {
-    /// Lines to render (may be a slice of the full content)
-    pub lines: &'a [Line<'a>],
-    /// Total number of lines in the full content
-    pub content_len: usize,
-    /// Index of the first line in `lines` within the full content
-    pub line_offset: usize,
-    /// Current scroll offset (topmost line index)
+    /// Total height of the content in lines
+    pub content_height: usize,
+    /// Current scroll offset (topmost visible line index)
     pub scroll_offset: usize,
     /// Whether this component has focus
     pub is_focused: bool,
     /// Unified styling
     pub style: ScrollViewStyle,
     /// Behavior configuration
-    pub behavior: ScrollBehavior,
+    pub behavior: ScrollViewBehavior,
     /// Callback to create action when scroll offset changes
     pub on_scroll: fn(usize) -> A,
-}
-
-impl<'a, A> ScrollViewProps<'a, A> {
-    /// Create props with sensible defaults
+    /// Callback to render visible content
     ///
-    /// Sets `content_len` to `lines.len()`, `line_offset` to `0`, `is_focused` to `true`,
-    /// and uses default style/behavior.
-    pub fn new(lines: &'a [Line<'a>], scroll_offset: usize, on_scroll: fn(usize) -> A) -> Self {
-        Self {
-            lines,
-            content_len: lines.len(),
-            line_offset: 0,
-            scroll_offset,
-            is_focused: true,
-            style: ScrollViewStyle::default(),
-            behavior: ScrollBehavior::default(),
-            on_scroll,
-        }
-    }
+    /// Called with the content area and visible range. The callback should
+    /// render content for lines `range.start..range.end` into the given area.
+    pub render_content: &'a mut dyn FnMut(&mut Frame, Rect, VisibleRange),
 }
 
-/// A scrollable view for pre-wrapped lines
+/// A scrollable viewport container
+///
+/// Handles scroll behavior (keyboard, mouse wheel) and renders scrollbar.
+/// Content rendering is delegated to the `render_content` callback.
+///
+/// For simple cases with pre-rendered lines, use [`LinesScroller`].
 #[derive(Default)]
 pub struct ScrollView {
     viewport_height: usize,
@@ -148,17 +137,17 @@ impl ScrollView {
         self.viewport_height.max(1)
     }
 
-    fn max_offset(&self, content_len: usize) -> usize {
-        content_len.saturating_sub(self.viewport_height_value())
+    fn max_offset(&self, content_height: usize) -> usize {
+        content_height.saturating_sub(self.viewport_height_value())
     }
 
-    fn scrollbar_content_length(&self, content_len: usize) -> usize {
-        content_len
+    fn scrollbar_content_length(&self, content_height: usize) -> usize {
+        content_height
             .saturating_sub(self.viewport_height_value())
             .saturating_add(1)
     }
 
-    fn page_size(&self, behavior: &ScrollBehavior) -> usize {
+    fn page_size(&self, behavior: &ScrollViewBehavior) -> usize {
         if behavior.page_step > 0 {
             behavior.page_step
         } else {
@@ -183,11 +172,11 @@ impl<A> Component<A> for ScrollView {
         event: &EventKind,
         props: Self::Props<'_>,
     ) -> impl IntoIterator<Item = A> {
-        if !props.is_focused || props.content_len == 0 {
+        if !props.is_focused || props.content_height == 0 {
             return None;
         }
 
-        let max_offset = self.max_offset(props.content_len);
+        let max_offset = self.max_offset(props.content_height);
         let scroll_step = props.behavior.scroll_step.max(1) as isize;
         let page_size = self.page_size(&props.behavior) as isize;
 
@@ -229,7 +218,8 @@ impl<A> Component<A> for ScrollView {
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
         let style = &props.style;
 
-        if let Some(bg) = style.bg {
+        // Fill background
+        if let Some(bg) = style.base.bg {
             for y in area.y..area.y.saturating_add(area.height) {
                 for x in area.x..area.x.saturating_add(area.width) {
                     frame.buffer_mut()[(x, y)].set_bg(bg);
@@ -238,15 +228,17 @@ impl<A> Component<A> for ScrollView {
             }
         }
 
+        // Apply padding
         let content_area = Rect {
-            x: area.x + style.padding.left,
-            y: area.y + style.padding.top,
-            width: area.width.saturating_sub(style.padding.horizontal()),
-            height: area.height.saturating_sub(style.padding.vertical()),
+            x: area.x + style.base.padding.left,
+            y: area.y + style.base.padding.top,
+            width: area.width.saturating_sub(style.base.padding.horizontal()),
+            height: area.height.saturating_sub(style.base.padding.vertical()),
         };
 
+        // Apply border
         let mut inner_area = content_area;
-        if let Some(border) = &style.border {
+        if let Some(border) = &style.base.border {
             let block = Block::default()
                 .borders(border.borders)
                 .border_style(border.style_for_focus(props.is_focused));
@@ -254,65 +246,122 @@ impl<A> Component<A> for ScrollView {
             frame.render_widget(block, content_area);
         }
 
-        let mut text_area = inner_area;
-        let viewport_height = text_area.height as usize;
+        let viewport_height = inner_area.height as usize;
         self.viewport_height = viewport_height;
 
-        if text_area.width == 0 || text_area.height == 0 {
+        if inner_area.width == 0 || inner_area.height == 0 {
             return;
         }
 
+        // Determine scrollbar visibility and adjust content area
         let show_scrollbar = props.behavior.show_scrollbar
             && viewport_height > 0
-            && props.content_len > viewport_height
-            && text_area.width > 1;
-        let scrollbar_area = if show_scrollbar {
+            && props.content_height > viewport_height
+            && inner_area.width > 1;
+
+        let (content_area, scrollbar_area) = if show_scrollbar {
             let scrollbar_area = Rect {
-                x: text_area.x + text_area.width.saturating_sub(1),
+                x: inner_area.x + inner_area.width.saturating_sub(1),
                 width: 1,
-                ..text_area
+                ..inner_area
             };
-            text_area.width = text_area.width.saturating_sub(1);
-            Some(scrollbar_area)
+            let content_area = Rect {
+                width: inner_area.width.saturating_sub(1),
+                ..inner_area
+            };
+            (content_area, Some(scrollbar_area))
         } else {
-            None
+            (inner_area, None)
         };
 
-        let max_offset = self.max_offset(props.content_len);
-        let render_offset = props.scroll_offset.min(max_offset);
-        let line_offset = props.line_offset.min(props.content_len);
-        let line_end = line_offset
-            .saturating_add(props.lines.len())
-            .min(props.content_len);
-        let visible_end = (render_offset + viewport_height).min(props.content_len);
+        // Calculate visible range
+        let max_offset = self.max_offset(props.content_height);
+        let scroll_offset = props.scroll_offset.min(max_offset);
+        let visible_end = (scroll_offset + viewport_height).min(props.content_height);
 
-        let mut lines = Vec::new();
-        for idx in render_offset..visible_end {
-            if idx >= line_offset && idx < line_end {
-                lines.push(props.lines[idx - line_offset].clone());
-            } else {
-                lines.push(Line::raw(""));
-            }
-        }
+        let visible_range = VisibleRange {
+            start: scroll_offset,
+            end: visible_end,
+            viewport_height: viewport_height as u16,
+            available_width: content_area.width,
+        };
 
-        let mut text_style = Style::default();
-        if let Some(fg) = style.fg {
-            text_style = text_style.fg(fg);
-        }
-        if let Some(bg) = style.bg {
-            text_style = text_style.bg(bg);
-        }
+        // Call user's render callback
+        (props.render_content)(frame, content_area, visible_range);
 
-        let paragraph = Paragraph::new(lines).style(text_style);
-        frame.render_widget(paragraph, text_area);
-
+        // Render scrollbar
         if let Some(scrollbar_area) = scrollbar_area {
             let scrollbar = style.scrollbar.build(ScrollbarOrientation::VerticalRight);
-            let scrollbar_len = self.scrollbar_content_length(props.content_len);
+            let scrollbar_len = self.scrollbar_content_length(props.content_height);
             let mut scrollbar_state = ScrollbarState::new(scrollbar_len)
-                .position(render_offset)
+                .position(scroll_offset)
                 .viewport_content_length(self.viewport_height_value());
             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+        }
+    }
+}
+
+// ============================================================================
+// Helper: LinesScroller
+// ============================================================================
+
+/// Simple wrapper for rendering pre-rendered lines in a ScrollView
+///
+/// # Example
+///
+/// ```ignore
+/// let lines: Vec<Line> = content.iter().map(|s| Line::raw(s)).collect();
+/// let scroller = LinesScroller::new(&lines);
+///
+/// let mut scroll_view = ScrollView::new();
+/// scroll_view.render(frame, area, ScrollViewProps {
+///     content_height: scroller.content_height(),
+///     scroll_offset,
+///     is_focused: true,
+///     style: ScrollViewStyle::default(),
+///     behavior: ScrollViewBehavior::default(),
+///     on_scroll: Action::Scroll,
+///     render_content: &mut scroller.renderer(),
+/// });
+/// ```
+pub struct LinesScroller<'a> {
+    lines: &'a [Line<'a>],
+    style: Style,
+}
+
+impl<'a> LinesScroller<'a> {
+    /// Create a new LinesScroller with the given lines
+    pub fn new(lines: &'a [Line<'a>]) -> Self {
+        Self {
+            lines,
+            style: Style::default(),
+        }
+    }
+
+    /// Set the base text style
+    pub fn with_style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
+    }
+
+    /// Get the total content height
+    pub fn content_height(&self) -> usize {
+        self.lines.len()
+    }
+
+    /// Get a render callback for use with ScrollView
+    pub fn renderer(&self) -> impl FnMut(&mut Frame, Rect, VisibleRange) + use<'_, 'a> {
+        move |frame: &mut Frame, area: Rect, range: VisibleRange| {
+            let visible_lines: Vec<Line<'a>> = self
+                .lines
+                .iter()
+                .skip(range.start)
+                .take(range.end.saturating_sub(range.start))
+                .cloned()
+                .collect();
+
+            let paragraph = Paragraph::new(visible_lines).style(self.style);
+            frame.render_widget(paragraph, area);
         }
     }
 }
@@ -334,31 +383,44 @@ mod tests {
             .collect()
     }
 
-    fn props<'a>(lines: &'a [Line<'a>], scroll_offset: usize) -> ScrollViewProps<'a, TestAction> {
-        ScrollViewProps {
-            lines,
-            content_len: lines.len(),
-            line_offset: 0,
-            scroll_offset,
-            is_focused: true,
-            style: ScrollViewStyle::borderless(),
-            behavior: ScrollBehavior::default(),
-            on_scroll: TestAction::ScrollTo,
-        }
-    }
-
     #[test]
     fn test_scroll_down_action() {
         let mut view = ScrollView::new();
         let lines = make_lines(5);
+        let scroller = LinesScroller::new(&lines);
         let mut harness = RenderHarness::new(20, 3);
 
+        // Render once to set viewport height
         harness.render_to_string_plain(|frame| {
-            view.render(frame, frame.area(), props(&lines, 0));
+            view.render(
+                frame,
+                frame.area(),
+                ScrollViewProps {
+                    content_height: scroller.content_height(),
+                    scroll_offset: 0,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut scroller.renderer(),
+                },
+            );
         });
 
+        let mut noop_render = |_: &mut Frame, _: Rect, _: VisibleRange| {};
         let actions: Vec<_> = view
-            .handle_event(&EventKind::Key(key("j")), props(&lines, 0))
+            .handle_event(
+                &EventKind::Key(key("j")),
+                ScrollViewProps {
+                    content_height: lines.len(),
+                    scroll_offset: 0,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut noop_render,
+                },
+            )
             .into_iter()
             .collect();
 
@@ -369,15 +431,40 @@ mod tests {
     fn test_page_down_action() {
         let mut view = ScrollView::new();
         let lines = make_lines(10);
+        let scroller = LinesScroller::new(&lines);
         let mut harness = RenderHarness::new(20, 4);
 
         harness.render_to_string_plain(|frame| {
-            view.render(frame, frame.area(), props(&lines, 0));
+            view.render(
+                frame,
+                frame.area(),
+                ScrollViewProps {
+                    content_height: scroller.content_height(),
+                    scroll_offset: 0,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut scroller.renderer(),
+                },
+            );
         });
 
+        let mut noop_render = |_: &mut Frame, _: Rect, _: VisibleRange| {};
         let page_down = KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE);
         let actions: Vec<_> = view
-            .handle_event(&EventKind::Key(page_down), props(&lines, 0))
+            .handle_event(
+                &EventKind::Key(page_down),
+                ScrollViewProps {
+                    content_height: lines.len(),
+                    scroll_offset: 0,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut noop_render,
+                },
+            )
             .into_iter()
             .collect();
 
@@ -388,12 +475,26 @@ mod tests {
     fn test_scroll_wheel_action() {
         let mut view = ScrollView::new();
         let lines = make_lines(5);
+        let scroller = LinesScroller::new(&lines);
         let mut harness = RenderHarness::new(20, 3);
 
         harness.render_to_string_plain(|frame| {
-            view.render(frame, frame.area(), props(&lines, 1));
+            view.render(
+                frame,
+                frame.area(),
+                ScrollViewProps {
+                    content_height: scroller.content_height(),
+                    scroll_offset: 1,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut scroller.renderer(),
+                },
+            );
         });
 
+        let mut noop_render = |_: &mut Frame, _: Rect, _: VisibleRange| {};
         let actions: Vec<_> = view
             .handle_event(
                 &EventKind::Scroll {
@@ -401,7 +502,15 @@ mod tests {
                     row: 0,
                     delta: -1,
                 },
-                props(&lines, 1),
+                ScrollViewProps {
+                    content_height: lines.len(),
+                    scroll_offset: 1,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut noop_render,
+                },
             )
             .into_iter()
             .collect();
@@ -413,13 +522,33 @@ mod tests {
     fn test_render_respects_offset() {
         let mut view = ScrollView::new();
         let lines = make_lines(6);
+        let scroller = LinesScroller::new(&lines);
         let mut harness = RenderHarness::new(20, 3);
 
         let output = harness.render_to_string_plain(|frame| {
-            view.render(frame, frame.area(), props(&lines, 2));
+            view.render(
+                frame,
+                frame.area(),
+                ScrollViewProps {
+                    content_height: scroller.content_height(),
+                    scroll_offset: 2,
+                    is_focused: true,
+                    style: ScrollViewStyle::borderless(),
+                    behavior: ScrollViewBehavior::default(),
+                    on_scroll: TestAction::ScrollTo,
+                    render_content: &mut scroller.renderer(),
+                },
+            );
         });
 
         assert!(output.contains("Line 2"));
         assert!(!output.contains("Line 0"));
+    }
+
+    #[test]
+    fn test_lines_scroller_content_height() {
+        let lines = make_lines(10);
+        let scroller = LinesScroller::new(&lines);
+        assert_eq!(scroller.content_height(), 10);
     }
 }

@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 tui-dispatch = { path = "../../tui-dispatch" }
+tui-dispatch-components = { path = "../../tui-dispatch-components" }
 tui-dispatch-debug = { path = "../../tui-dispatch-debug" }
 ratatui = "0.29"
 crossterm = "0.28"

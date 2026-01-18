@@ -12,17 +12,53 @@ pub use ratatui::widgets::Borders;
 
 use ratatui::widgets::{Scrollbar, ScrollbarOrientation};
 
-/// Trait for component styles that follow the standard pattern.
+/// Shared base styling configuration for all components.
+#[derive(Debug, Clone)]
+pub struct BaseStyle {
+    /// Border configuration (None = no border)
+    pub border: Option<BorderStyle>,
+    /// Padding inside the component
+    pub padding: Padding,
+    /// Background color
+    pub bg: Option<Color>,
+    /// Foreground (text) color
+    pub fg: Option<Color>,
+}
+
+impl Default for BaseStyle {
+    fn default() -> Self {
+        Self {
+            border: Some(BorderStyle::default()),
+            padding: Padding::default(),
+            bg: None,
+            fg: Some(Color::Reset),
+        }
+    }
+}
+
+/// Trait for component styles that embed a shared `BaseStyle`.
 ///
 /// All component styles in this crate implement this trait, ensuring
 /// consistent access to common styling fields.
 pub trait ComponentStyle {
+    /// Get the shared base style
+    fn base(&self) -> &BaseStyle;
     /// Get border configuration
-    fn border(&self) -> Option<&BorderStyle>;
+    fn border(&self) -> Option<&BorderStyle> {
+        self.base().border.as_ref()
+    }
     /// Get padding
-    fn padding(&self) -> &Padding;
+    fn padding(&self) -> &Padding {
+        &self.base().padding
+    }
     /// Get background color
-    fn bg(&self) -> Option<Color>;
+    fn bg(&self) -> Option<Color> {
+        self.base().bg
+    }
+    /// Get foreground color
+    fn fg(&self) -> Option<Color> {
+        self.base().fg
+    }
 }
 
 /// Padding configuration for components

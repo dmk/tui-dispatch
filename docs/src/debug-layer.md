@@ -68,7 +68,7 @@ if let Some(effect) = debug.set_enabled(true) {
 
 ## State Inspection
 
-Implement `DebugState` to show state in the debug overlay:
+Implement `DebugState` to show state in the debug overlay. The state overlay is rendered as a tree view, so sections can be expanded/collapsed with `Left/Right` or `Enter`/`Space`.
 
 ### Manual Implementation
 

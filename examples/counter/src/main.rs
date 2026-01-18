@@ -23,7 +23,10 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
-use tui_dispatch::{Action, DispatchRuntime, EventKind, RenderContext};
+use tui_dispatch::{Action, Component, DispatchRuntime, EventKind, RenderContext};
+use tui_dispatch_components::{
+    StatusBar, StatusBarHint, StatusBarProps, StatusBarSection, StatusBarStyle,
+};
 use tui_dispatch_debug::debug::DebugLayer;
 
 // ============================================================================
@@ -98,12 +101,27 @@ fn render_app(frame: &mut Frame, area: Rect, state: &AppState, _ctx: RenderConte
 
     frame.render_widget(paragraph, center);
 
-    // Help text at bottom
+    // Help bar at bottom using StatusBar component
     let [_, help_area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
-    let help = Paragraph::new("k/Up: +1  j/Down: -1  q: quit  F12: debug")
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(help, help_area);
+    let hints = [
+        StatusBarHint::new("k/↑", "+1"),
+        StatusBarHint::new("j/↓", "-1"),
+        StatusBarHint::new("q", "quit"),
+        StatusBarHint::new("F12", "debug"),
+    ];
+    let mut status_bar = StatusBar::new();
+    <StatusBar as Component<AppAction>>::render(
+        &mut status_bar,
+        frame,
+        help_area,
+        StatusBarProps {
+            left: StatusBarSection::empty(),
+            center: StatusBarSection::hints(&hints),
+            right: StatusBarSection::empty(),
+            style: StatusBarStyle::minimal(),
+            is_focused: false,
+        },
+    );
 }
 
 // ============================================================================
