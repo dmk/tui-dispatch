@@ -18,7 +18,7 @@ const ACCENT_MINT: Color = Color::Rgb(0x36, 0xE3, 0x95);
 const BG_DEEP: Color = Color::Rgb(12, 14, 22);
 const BG_PANEL: Color = Color::Rgb(18, 21, 32);
 const BG_SURFACE: Color = Color::Rgb(26, 30, 44);
-const BG_HIGHLIGHT: Color = Color::Rgb(45, 50, 70);
+const BG_HIGHLIGHT: Color = Color::Rgb(25, 30, 40);
 
 const OVERLAY_BG: Color = Color::Rgb(46, 46, 58);
 const OVERLAY_BG_ALT: Color = Color::Rgb(36, 36, 48);
