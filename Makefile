@@ -43,9 +43,9 @@ verify: fmt-check check clippy test doc
 doc:
 	cargo doc --no-deps -p tui-dispatch -p tui-dispatch-core -p tui-dispatch-macros
 
-# Serve mdBook documentation locally
+# Serve Astro/Starlight documentation locally
 docs-serve:
-	mdbook serve docs
+	npm --prefix docs run dev
 
 # Create and push a release tag (runs full verification first)
 tag:
@@ -94,7 +94,7 @@ help:
 	@echo "  make lint        - Run fmt-check, check, and clippy"
 	@echo "  make verify      - Run all checks (CI)"
 	@echo "  make doc         - Build docs (library crates only)"
-	@echo "  make docs-serve  - Serve mdBook docs locally"
+	@echo "  make docs-serve  - Serve Astro docs locally"
 	@echo "  make tag         - Create release tag (runs verify first)"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make help        - Show this help"

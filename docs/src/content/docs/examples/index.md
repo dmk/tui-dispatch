@@ -1,6 +1,9 @@
-# Examples
+---
+title: Examples Overview
+description: Example applications demonstrating tui-dispatch patterns
+---
 
-tui-dispatch includes three example applications, from simple to complex.
+tui-dispatch includes four example applications, from simple to complex.
 
 ## Counter
 
@@ -11,7 +14,19 @@ The simplest possible tui-dispatch app - increment/decrement a counter. Start he
 - State, Actions, Reducer, Store
 - Event loop and conditional render
 
-[Read more →](./counter.md)
+[Read more →](/tui-dispatch/examples/counter/)
+
+## GitHub Lookup
+
+A GitHub user lookup TUI. Good next step after Counter.
+
+**Demonstrates:**
+- Async API calls with `Did*` action pattern
+- TaskManager for HTTP cancellation
+- Loading states and error handling
+- Text input handling
+
+[Read more →](/tui-dispatch/examples/github-lookup/)
 
 ## Weather
 
@@ -23,7 +38,7 @@ A weather TUI that fetches data from the Open-Meteo API.
 - Action logging middleware
 - Debug mode (`--debug` flag)
 
-[Read more →](./weather.md)
+[Read more →](/tui-dispatch/examples/weather/)
 
 ## Markdown Preview
 
@@ -35,7 +50,7 @@ A markdown file viewer with debug overlay and feature flags.
 - Feature flags (line numbers, wrap, stats)
 - Search with navigation
 
-[Read more →](./markdown-preview.md)
+[Read more →](/tui-dispatch/examples/markdown-preview/)
 
 ## Running Examples
 
@@ -44,6 +59,9 @@ From the repository root:
 ```bash
 # Counter - the minimal example
 cargo run -p counter
+
+# GitHub Lookup
+cargo run -p github-lookup-example
 
 # Weather (default city: Kyiv)
 cargo run -p weather-example

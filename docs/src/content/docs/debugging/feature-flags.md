@@ -1,6 +1,11 @@
-# Feature Flags
+---
+title: Feature Flags
+description: Runtime feature flags for toggling app functionality
+---
 
-Runtime feature flags for toggling functionality at runtime, useful for:
+Runtime feature flags for toggling app functionality at runtime. (For Cargo compile-time features like `tasks` and `subscriptions`, see [Cargo Features](/tui-dispatch/patterns/async/#cargo-features).)
+
+Useful for:
 - Gradual feature rollouts
 - A/B testing
 - Debug-only features

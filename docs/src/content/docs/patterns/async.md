@@ -1,4 +1,7 @@
-# Async Patterns
+---
+title: Async & Effects
+description: Handling async operations with effects, TaskManager, and subscriptions
+---
 
 tui-dispatch provides three complementary tools for async operations:
 
@@ -8,10 +11,29 @@ tui-dispatch provides three complementary tools for async operations:
 | **TaskManager** | One-shot async tasks with cancellation | `tasks` |
 | **Subscriptions** | Continuous action sources (timers, streams) | `subscriptions` |
 
+## Cargo Features
+
+Enable features in your `Cargo.toml`:
+
+```toml
+[dependencies]
+tui-dispatch = { version = "0.5.3", features = ["tasks", "subscriptions"] }
+```
+
+| Feature | What it enables | When to use |
+|---------|-----------------|-------------|
+| `tasks` | `TaskManager` | API calls, file I/O, one-shot async operations |
+| `subscriptions` | `Subscriptions` | Timers, WebSocket streams, periodic polling |
+| `testing-time` | Time mocking in tests | Testing time-dependent code |
+
+> **Note:** For runtime feature toggles (A/B testing, user preferences), see [Runtime Feature Flags](/tui-dispatch/debugging/feature-flags/).
+
 ## Effects
 
 Effects let reducers declare side effects without executing them directly.
 This keeps reducers pure and testable while making async intentions explicit.
+
+This pattern comes from [The Elm Architecture](https://guide.elm-lang.org/effects/), where "commands" describe what to do without doing it. Unlike [Redux Thunk](https://redux.js.org/usage/writing-logic-thunks) where async logic lives in action creators, tui-dispatch keeps reducers pure and handles effects separately.
 
 ```rust
 use tui_dispatch::prelude::*;

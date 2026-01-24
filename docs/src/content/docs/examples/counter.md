@@ -1,4 +1,7 @@
-# Counter Example
+---
+title: Counter Example
+description: The simplest possible tui-dispatch app
+---
 
 The simplest possible tui-dispatch app - a counter that you can increment and decrement.
 
@@ -108,5 +111,5 @@ runtime
 
 ## Next steps
 
-- [Weather example](./weather.md) - adds async API calls and middleware
-- [Markdown Preview](./markdown-preview.md) - adds debug overlay and feature flags
+- [Weather example](/tui-dispatch/examples/weather/) - adds async API calls and middleware
+- [Markdown Preview](/tui-dispatch/examples/markdown-preview/) - adds debug overlay and feature flags

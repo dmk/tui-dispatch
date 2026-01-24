@@ -1,160 +1,142 @@
 # tui-dispatch
 
-Centralized state management for Rust TUI apps. Like Redux/Elm, but for terminals.
+Centralized state management for Rust TUI apps (ratatui + crossterm). Think Redux/Elm: terminal events become actions, reducers mutate state, and the UI renders from state.
 
-## The Pitch
+- Predictable updates: all state mutations live in your reducer.
+- Testable by construction: reducers and emitted effects are plain data.
+- Ergonomic runtime: `DispatchRuntime` / `EffectRuntime` run the event loop.
+- Debuggable: built-in debug overlay (F12) for state + action inspection.
 
-Components are pure: state → UI, events → actions. State mutations happen in reducers, making apps predictable and testable.
+## Quick Start
+
+Add dependencies:
+
+```toml
+[dependencies]
+tui-dispatch = "0.5.3"
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+```
+
+Minimal counter app (copy-paste-run):
 
 ```rust
+use std::io;
+
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, widgets::Paragraph, Terminal};
 use tui_dispatch::prelude::*;
 
-#[derive(Action, Clone, Debug)]
-#[action(infer_categories)]
-enum Action {
-    NextItem,
-    PrevItem,
-    DidLoadData(Vec<String>),  // async result
+#[derive(Default)]
+struct State {
+    count: i32,
 }
 
-fn reducer(state: &mut AppState, action: &Action) -> bool {
+#[derive(Action, Clone, Debug)]
+enum Action {
+    Inc,
+    Dec,
+    Quit,
+}
+
+fn reducer(state: &mut State, action: Action) -> bool {
     match action {
-        Action::NextItem => { state.selected += 1; true }
-        Action::PrevItem => { state.selected -= 1; true }
-        Action::DidLoadData(items) => { state.items = items.clone(); true }
+        Action::Inc => {
+            state.count += 1;
+            true
+        }
+        Action::Dec => {
+            state.count -= 1;
+            true
+        }
+        Action::Quit => false, // quit is handled by the runtime predicate
     }
 }
-```
 
-## Derive Macros
-
-### Action
-
-```rust
-#[derive(Action, Clone, Debug)]
-#[action(infer_categories)]
-enum Action {
-    SearchStart,           // category: "search"
-    SearchClear,
-    DidConnect(String),    // category: "async_result"
-    Quit,                  // uncategorized
+fn render(frame: &mut Frame, area: Rect, state: &State, _ctx: RenderContext) {
+    frame.render_widget(
+        Paragraph::new(format!("count = {}  (j/k, q)", state.count)),
+        area,
+    );
 }
 
-action.name()           // "SearchStart"
-action.category()       // Some("search")
-action.is_search()      // true
-```
-
-### DebugState
-
-```rust
-#[derive(DebugState)]
-struct AppState {
-    #[debug(section = "Connection")]
-    host: String,
-    port: u16,
-
-    #[debug(section = "Data")]
-    items: Vec<String>,
-
-    #[debug(skip)]
-    internal_cache: HashMap<String, Value>,
-}
-```
-
-### FeatureFlags
-
-```rust
-#[derive(FeatureFlags, Default)]
-struct Features {
-    #[flag(default = true)]
-    line_numbers: bool,
-    wrap_lines: bool,
+fn map_event(event: &EventKind, _state: &State) -> Option<Action> {
+    if let EventKind::Key(key) = event {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Char('k') | KeyCode::Up => Some(Action::Inc),
+            KeyCode::Char('j') | KeyCode::Down => Some(Action::Dec),
+            KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
 
-features.is_enabled("line_numbers")  // true
-features.toggle("wrap_lines");
-```
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-### ComponentId & BindingContext
+    let mut runtime = DispatchRuntime::new(State::default(), reducer);
+    let result = runtime
+        .run(&mut terminal, render, map_event, |a| matches!(a, Action::Quit))
+        .await;
 
-```rust
-#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash)]
-enum ComponentId { KeyList, ValueViewer, Modal }
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
 
-#[derive(BindingContext, Clone, Copy, PartialEq, Eq, Hash)]
-enum Context { Default, Search, Modal }
-```
-
-## Debug Layer
-
-F12 to freeze UI and inspect state. One-line setup:
-
-```rust
-let mut debug = DebugLayer::<Action>::new(KeyCode::F(12));
-
-// In event loop - handles F12 toggle, overlays, etc.
-if debug.intercepts(&event) {
-    continue;
-}
-
-// In render loop
-debug.render(frame, |f, area| render_app(f, area, &state));
-```
-
-Debug mode keys: `S` state overlay, `A` action log, `Y` copy frame, `I` cell inspect.
-
-### Action Logging
-
-```rust
-let middleware = ActionLoggerMiddleware::with_default_log();
-let mut store = StoreWithMiddleware::new(state, reducer, middleware);
-
-// In debug mode, show action history
-if let Some(log) = store.middleware().log() {
-    debug.show_action_log(log);
+    result
 }
 ```
 
-## Testing
+> **Note:** The runtime helpers (`DispatchRuntime`, `EffectRuntime`) require a Tokio runtime. If you need a different async runtime, use the lower-level `Store`/`EffectStore` directly.
 
-```rust
-#[test]
-fn test_navigation() {
-    let mut harness = TestHarness::new(AppState::default(), reducer);
+## Async And Side Effects
 
-    harness.send_keys("jjk");  // down, down, up
-    harness.complete_actions();
+When you need async work (HTTP, file IO, timers), switch to the effect pattern:
 
-    assert_eq!(harness.state().selected, 1);
-    assert_emitted!(harness, Action::NextItem);
-}
+- Reducer returns `DispatchResult<Effect>` instead of `bool`
+- Reducer emits `Effect` values (data), and an effect handler executes them
+- Async completion sends a normal action back into the runtime (often named `Did*`)
+
+Enable helpers:
+
+- `features = ["tasks"]` for cancellation + debouncing via `TaskManager`
+- `features = ["subscriptions"]` for continuous sources (interval ticks, streams)
+
+See `docs/src/async.md` and the `weather-example` / `github-lookup-example` apps.
+
+## Examples (In This Repo)
+
+```bash
+cargo run -p counter
+cargo run -p github-lookup-example
+cargo run -p weather-example -- --city London --debug
+cargo run -p markdown-preview -- README.md --debug
 ```
 
-## Architecture
+## Documentation
 
-```
-Terminal → EventBus → Component::handle_event() → Vec<Action>
-                                                      │
-              ┌───────────────────────────────────────┤
-              ▼                                       ▼
-        Sync Handler                           Async Handler
-        (reducer)                              (spawn task)
-              │                                       │
-              ▼                                       │ Did* action
-           State ◀────────────────────────────────────┘
-              │
-              ▼
-        Component::render()
-```
+- Book (mdBook): `docs/` (run `make docs-serve`)
+- API docs: https://docs.rs/tui-dispatch
 
-## Crate Structure
+## Crates
 
-```
-tui-dispatch/           # Re-exports + prelude
-tui-dispatch-core/      # Store, EventBus, Component, Debug, Testing
-tui-dispatch-macros/    # #[derive(Action, DebugState, FeatureFlags, ...)]
-```
+- `tui-dispatch`: re-exports + prelude
+- `tui-dispatch-core`: store/runtime/tasks/subscriptions/testing primitives
+- `tui-dispatch-macros`: derives (`Action`, `DebugState`, `FeatureFlags`, ...)
+- `tui-dispatch-components`: reusable components (SelectList, TextInput, TreeView, ...)
+- `tui-dispatch-debug`: debug overlay + headless debug sessions
 
 ## Real-World Usage
 

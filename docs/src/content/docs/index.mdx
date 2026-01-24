@@ -1,6 +1,20 @@
-# Introduction
+---
+title: tui-dispatch
+description: Centralized state management for Rust TUI apps
+template: splash
+hero:
+  tagline: A centralized state management framework for Rust TUI applications, inspired by Redux and The Elm Architecture.
+  actions:
+    - text: Get Started
+      link: /tui-dispatch/getting-started/quick-start/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/dmk/tui-dispatch
+      icon: external
+---
 
-**tui-dispatch** is a centralized state management framework for Rust TUI applications, inspired by Redux and Elm.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## The Core Idea
 
@@ -14,6 +28,29 @@ Event → Action → Reducer → State Change → Render
 2. Actions are dispatched to the **store**
 3. The **reducer** updates state based on the action
 4. The UI re-renders with the new state
+
+<CardGrid>
+  <Card title="Quick Start" icon="rocket">
+    Get a running app in minutes with runtime helpers and sensible defaults.
+
+    [Start building →](/tui-dispatch/getting-started/quick-start/)
+  </Card>
+  <Card title="Core Concepts" icon="open-book">
+    Learn the terminology: Actions, State, Reducers, Effects, and more.
+
+    [Read the glossary →](/tui-dispatch/getting-started/core-concepts/)
+  </Card>
+  <Card title="Async Patterns" icon="puzzle">
+    Handle API calls, file I/O, and timers with effects and TaskManager.
+
+    [Learn async →](/tui-dispatch/patterns/async/)
+  </Card>
+  <Card title="Examples" icon="document">
+    From a simple counter to full apps with debug overlays and feature flags.
+
+    [Browse examples →](/tui-dispatch/examples/)
+  </Card>
+</CardGrid>
 
 ## When to Use tui-dispatch
 
@@ -42,7 +79,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> bool {
 }
 ```
 
-Use `DispatchRuntime` or `Store` directly. See the [Counter example](./examples/counter.md).
+Use `DispatchRuntime` or `Store` directly. See the [Counter example](/tui-dispatch/examples/counter/).
 
 ### Effect Mode (DispatchResult reducer)
 
@@ -64,7 +101,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
 }
 ```
 
-Use `EffectRuntime` or `EffectStore`. See the [Weather example](./examples/weather.md).
+Use `EffectRuntime` or `EffectStore`. See the [Weather example](/tui-dispatch/examples/weather/).
 
 ## Data Flow
 
@@ -103,8 +140,9 @@ map_event(event) ──► Action
 ```
 tui-dispatch/
 ├── tui-dispatch/        # Re-exports + prelude
-├── tui-dispatch-core/   # Core: Store, EffectStore, Runtime, Component
-└── tui-dispatch-macros/ # #[derive(Action)], #[derive(DebugState)]
+├── tui-dispatch-core/   # Store, EffectStore, Runtime, Component, Keybindings, Middleware
+├── tui-dispatch-macros/ # #[derive(Action)], #[derive(DebugState)], #[derive(BindingContext)]
+└── tui-dispatch-debug/  # Debug overlay, action recording, replay, schema generation
 ```
 
 Optional companion crate:
@@ -112,11 +150,7 @@ Optional companion crate:
 tui-dispatch-components/ # Reusable UI components: SelectList, TextInput, etc.
 ```
 
-## Next Steps
-
-- **New to tui-dispatch?** Start with [Getting Started](./getting-started.md)
-- **Need terminology?** Check the [Glossary](./glossary.md)
-- **Want to see code?** Browse the [Examples](./examples/README.md)
+The core crate also includes [Keybindings](/tui-dispatch/patterns/keybindings/) for context-aware key mapping, [Middleware](/tui-dispatch/patterns/middleware/) for action interception, and [reducer_compose!](/tui-dispatch/patterns/reducer-composition/) for splitting large reducers.
 
 ## Real-World Usage
 

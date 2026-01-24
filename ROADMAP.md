@@ -46,15 +46,23 @@ Not trying to be everything - just making the core patterns ergonomic.
 
 ### Documentation (High Priority)
 
-- [ ] Document Component trait pattern (focus via props)
-- [ ] Architecture overview in lib.rs (the "why" and data flow)
-- [ ] Make doc examples compile (remove `ignore` where possible)
-- [ ] Document `#[action(category = "foo")]` in derive macro docs
+- [x] Document Component trait pattern (focus via props) - `docs/src/custom-components.md`
+- [x] Architecture overview in lib.rs (the "why" and data flow)
+- [x] Make doc examples compile (remove `ignore` where possible)
+- [x] Document `#[action(category = "foo")]` in derive macro docs - `docs/src/glossary.md`
 
 ### Code Quality (Medium Priority)
 
 - [ ] Split testing module (~1400 lines → assertions, harness, render, keys, time)
 - [ ] Unify examples to use consistent runtime patterns
+
+---
+
+## What 1.0 Means
+
+- API stability: no breaking changes without major version bump
+- MSRV policy: documented minimum supported Rust version
+- All core features documented and tested
 
 ---
 

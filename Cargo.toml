@@ -9,6 +9,7 @@ members = [
     "examples/counter",
     "examples/weather",
     "examples/markdown-preview",
+    "examples/github-lookup",
 ]
 
 [workspace.package]

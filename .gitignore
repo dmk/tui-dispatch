@@ -32,5 +32,8 @@ coverage/
 .venv/
 __pycache__/
 
-# mdBook build output
+# Docs build output
+# - mdBook: docs/book/
+# - Astro: docs/dist/
 docs/book/
+docs/dist/

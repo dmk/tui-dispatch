@@ -1,31 +1,48 @@
-# Debug Layer
+---
+title: Debug Layer
+description: Powerful debugging tools for TUI applications
+---
 
 The debug layer provides powerful debugging tools for TUI applications: frame freeze, state inspection, cell inspection, and clipboard export.
 
 ## Quick Start
 
-Simple setup with a toggle key:
+The easiest way to add debugging is with `DispatchRuntime`:
+
+```rust
+use tui_dispatch::prelude::*;
+use tui_dispatch::debug::DebugLayer;
+
+DispatchRuntime::new(AppState::default(), reducer)
+    .with_debug(DebugLayer::simple())  // F12 to toggle
+    .run(terminal, render, map_event, is_quit)
+    .await?;
+```
+
+For manual event loop integration:
 
 ```rust
 use tui_dispatch::debug::DebugLayer;
 
-// Create debug layer with sensible defaults (F12 toggle key)
+let mut store = Store::new(AppState::default(), reducer);
 let mut debug = DebugLayer::<Action>::simple();
 
 // In event loop - handles toggle key, overlays, etc.
 if let Some(needs_render) = debug
     .handle_event(&event.kind)
-    .dispatch_queued(|action| dispatch(action))
+    .dispatch_queued(|action| store.dispatch(action))
 {
     should_render = needs_render;
     continue;
 }
 
 // In render loop:
-debug.render_state(frame, &state, |f, area| {
-    render_your_app(f, area, state);
+debug.render_state(frame, store.state(), |f, area| {
+    render_your_app(f, area, store.state());
 });
 ```
+
+Similar to [Redux DevTools](https://redux.js.org/tutorials/fundamentals/part-4-store#redux-devtools), the debug layer lets you inspect state and action history at runtime.
 
 Default keybindings (when debug mode is active):
 - Toggle key (e.g., `F12`) - Toggle debug mode
@@ -206,3 +223,8 @@ if let Some(effect) = debug.handle_action(DebugAction::CopyFrame) {
     }
 }
 ```
+
+## See Also
+
+- [Debug Sessions & Replay](/tui-dispatch/debugging/debug-sessions/) - Action recording, replay with async coordination, JSON schema generation
+- [Middleware](/tui-dispatch/patterns/middleware/) - ActionLoggerMiddleware for action filtering and logging

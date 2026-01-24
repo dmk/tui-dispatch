@@ -1,12 +1,17 @@
-# Pre-built Components
+---
+title: Pre-built Components
+description: Reusable UI components that integrate with tui-dispatch patterns
+---
 
-The `tui-dispatch-components` crate provides reusable UI components that integrate with tui-dispatch patterns. All components implement the `Component<A>` trait.
+The `tui-dispatch-components` crate provides reusable UI components that integrate with tui-dispatch patterns. All components implement the `Component<A>` trait and build on [ratatui](https://ratatui.rs) primitives.
+
+For the underlying widget system, see [ratatui widgets documentation](https://docs.rs/ratatui/latest/ratatui/widgets/).
 
 ## Installation
 
 ```toml
 [dependencies]
-tui-dispatch-components = "0.4"
+tui-dispatch-components = "0.5.3"
 ```
 
 ## Available Components

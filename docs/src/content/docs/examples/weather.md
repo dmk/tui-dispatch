@@ -1,4 +1,7 @@
-# Weather Example
+---
+title: Weather Example
+description: A weather TUI demonstrating core tui-dispatch patterns with async API calls
+---
 
 A weather TUI that demonstrates the core tui-dispatch patterns with async API calls.
 

@@ -1,11 +1,14 @@
-# Glossary
+---
+title: Core Concepts
+description: Key terminology and concepts in tui-dispatch
+---
 
-Core terms used throughout tui-dispatch.
+Core terms used throughout tui-dispatch. If you're familiar with [Redux](https://redux.js.org/introduction/core-concepts) or [The Elm Architecture](https://guide.elm-lang.org/architecture/), many concepts will feel familiar.
 
 ## Core Concepts
 
 ### Action
-A description of something that happened or should happen. Actions are immutable, cloneable values sent to the store for processing.
+A description of something that happened or should happen. Actions are immutable, cloneable values sent to the store for processing. (See also: [Redux Actions](https://redux.js.org/tutorials/fundamentals/part-2-concepts-data-flow#actions))
 
 ```rust
 #[derive(Clone, Debug, Action)]
@@ -34,7 +37,7 @@ struct AppState {
 ```
 
 ### Reducer
-A pure function that takes current state and an action, mutates the state, and returns whether the state changed.
+A pure function that takes current state and an action, mutates the state, and returns whether the state changed. (See also: [Redux Reducers](https://redux.js.org/tutorials/fundamentals/part-3-state-actions-reducers))
 
 **Simple reducer** (returns `bool`):
 ```rust
@@ -64,7 +67,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
 ```
 
 ### Store
-Container that holds state and applies the reducer when actions are dispatched.
+Container that holds state and applies the reducer when actions are dispatched. (See also: [Redux Store](https://redux.js.org/tutorials/fundamentals/part-4-store))
 
 ```rust
 let mut store = Store::new(AppState::default(), reducer);
@@ -80,7 +83,7 @@ let result = store.dispatch(action);
 ```
 
 ### Dispatch
-The act of sending an action to the store for processing.
+The act of sending an action to the store for processing. (See also: [Redux Data Flow](https://redux.js.org/tutorials/fundamentals/part-2-concepts-data-flow))
 
 ```rust
 store.dispatch(action);        // Sync dispatch
@@ -88,7 +91,7 @@ action_tx.send(action);        // Async dispatch via channel
 ```
 
 ### Effect
-A declarative description of a side effect, returned from an effect reducer. Effects are **not** executed by the reducer - they're returned as data for the main loop to execute.
+A declarative description of a side effect, returned from an effect reducer. Effects are **not** executed by the reducer - they're returned as data for the main loop to execute. This pattern comes from [The Elm Architecture](https://guide.elm-lang.org/effects/) where commands describe what to do without doing it.
 
 ```rust
 enum Effect {
@@ -132,10 +135,10 @@ EffectRuntime::new(state, reducer)
 The result of mapping a terminal event to an action. Tells the runtime whether to render.
 
 ```rust
-EventOutcome::Action(action)        // Dispatch this action
-EventOutcome::ActionNoRender(action) // Dispatch but skip render
-EventOutcome::Ignore                // No action, no render
-EventOutcome::Render                // No action, but render
+EventOutcome::action(action)        // enqueue one action
+EventOutcome::ignored()             // no action, no render
+EventOutcome::needs_render()        // force a render (no action)
+EventOutcome::action(action).with_render() // enqueue action + force render
 ```
 
 ### Action Channel (tx/rx)
@@ -203,7 +206,7 @@ Context passed to render functions, providing access to debug state.
 
 ```rust
 fn render_app(frame: &mut Frame, area: Rect, state: &AppState, ctx: RenderContext) {
-    if ctx.debug_active { /* show debug info */ }
+    if ctx.debug_enabled { /* show debug info */ }
 }
 ```
 
@@ -254,6 +257,8 @@ Benefits:
 - User config overrides apply everywhere
 - Widgets stay decoupled from key definitions
 
+For a complete guide including config file loading and key format details, see [Keybindings](/tui-dispatch/patterns/keybindings/).
+
 ## Derive Macros
 
 ### `#[derive(Action)]`
@@ -280,6 +285,40 @@ enum Action {
 
 Categories enable `reducer_compose!` for routing actions by category.
 
+### `#[action(category = "...")]` (variant attribute)
+Explicitly set the category for a specific variant, overriding inference:
+
+```rust
+#[derive(Action)]
+#[action(infer_categories)]
+enum Action {
+    // Inferred: "search"
+    SearchStart,
+
+    // Override: "network" instead of inferred "api"
+    #[action(category = "network")]
+    ApiFetch,
+
+    // Override: "network" (no prefix to infer from)
+    #[action(category = "network")]
+    Reconnect,
+}
+```
+
+### `#[action(skip_category)]` (variant attribute)
+Exclude a variant from category inference entirely:
+
+```rust
+#[derive(Action)]
+#[action(infer_categories)]
+enum Action {
+    SearchStart,       // category: "search"
+
+    #[action(skip_category)]
+    InternalTick,      // category: None (not categorized)
+}
+```
+
 ### `#[derive(DebugState)]`
 Auto-generates debug overlay sections for state inspection.
 
@@ -300,7 +339,7 @@ struct AppState {
 Terminal Input
       |
       v
-map_event(event) --> EventOutcome::Action(action)
+map_event(event) --> EventOutcome::action(action)
                            |
                            v
                     store.dispatch(action)

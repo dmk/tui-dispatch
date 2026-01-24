@@ -1,4 +1,7 @@
-# Markdown Preview Example
+---
+title: Markdown Preview Example
+description: A markdown file viewer showcasing the debug layer and advanced features
+---
 
 A markdown file viewer showcasing the debug layer and advanced tui-dispatch features.
 

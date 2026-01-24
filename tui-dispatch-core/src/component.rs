@@ -22,27 +22,31 @@ use crate::event::EventKind;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use tui_dispatch::{Component, EventKind, Frame, Rect};
+/// ```
+/// use tui_dispatch_core::{Component, EventKind};
+/// use ratatui::{Frame, layout::Rect, widgets::Paragraph};
+/// use crossterm::event::KeyCode;
+///
+/// #[derive(Clone)]
+/// enum Action { Increment, Decrement }
 ///
 /// struct Counter;
 ///
-/// struct CounterProps {
-///     count: i32,
-///     is_focused: bool,
-/// }
+/// struct CounterProps { count: i32, is_focused: bool }
 ///
-/// impl Component<AppAction> for Counter {
+/// impl Component<Action> for Counter {
 ///     type Props<'a> = CounterProps;
 ///
-///     fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> impl IntoIterator<Item = AppAction> {
-///         if !props.is_focused {
-///             return None;
-///         }
+///     fn handle_event(
+///         &mut self,
+///         event: &EventKind,
+///         props: Self::Props<'_>,
+///     ) -> impl IntoIterator<Item = Action> {
+///         if !props.is_focused { return None; }
 ///         if let EventKind::Key(key) = event {
 ///             match key.code {
-///                 KeyCode::Up => return Some(AppAction::Increment),
-///                 KeyCode::Down => return Some(AppAction::Decrement),
+///                 KeyCode::Up => return Some(Action::Increment),
+///                 KeyCode::Down => return Some(Action::Decrement),
 ///                 _ => {}
 ///             }
 ///         }

@@ -3,22 +3,84 @@
 //! Like Redux/Elm, but for terminals. Components are pure functions of state,
 //! and all state mutations happen through dispatched actions.
 //!
-//! # Example
-//! ```ignore
+//! # Quick Start
+//!
+//! ```
+//! use tui_dispatch::prelude::*;
+//!
+//! // Define your actions
+//! #[derive(Action, Clone, Debug)]
+//! enum MyAction {
+//!     Increment,
+//!     Decrement,
+//!     Quit,
+//! }
+//!
+//! // Define your state
+//! #[derive(Default)]
+//! struct MyState {
+//!     count: i32,
+//! }
+//!
+//! // Write a reducer
+//! fn reducer(state: &mut MyState, action: MyAction) -> bool {
+//!     match action {
+//!         MyAction::Increment => { state.count += 1; true }
+//!         MyAction::Decrement => { state.count -= 1; true }
+//!         MyAction::Quit => false,
+//!     }
+//! }
+//!
+//! // Create a store
+//! let mut store = Store::new(MyState::default(), reducer);
+//! store.dispatch(MyAction::Increment);
+//! assert_eq!(store.state().count, 1);
+//! ```
+//!
+//! # With Effects
+//!
+//! For async operations, use `EffectStore` with `DispatchResult`:
+//!
+//! ```
 //! use tui_dispatch::prelude::*;
 //!
 //! #[derive(Action, Clone, Debug)]
-//! enum MyAction {
-//!     NextItem,
-//!     PrevItem,
+//! enum Action {
+//!     Fetch,
+//!     DidLoad(String),
 //! }
 //!
-//! #[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
-//! enum MyComponentId {
-//!     List,
-//!     Detail,
+//! enum Effect {
+//!     FetchData,
 //! }
+//!
+//! #[derive(Default)]
+//! struct State {
+//!     data: Option<String>,
+//!     loading: bool,
+//! }
+//!
+//! fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
+//!     match action {
+//!         Action::Fetch => {
+//!             state.loading = true;
+//!             DispatchResult::changed_with(Effect::FetchData)
+//!         }
+//!         Action::DidLoad(data) => {
+//!             state.data = Some(data);
+//!             state.loading = false;
+//!             DispatchResult::changed()
+//!         }
+//!     }
+//! }
+//!
+//! let mut store = EffectStore::new(State::default(), reducer);
+//! let result = store.dispatch(Action::Fetch);
+//! assert!(result.changed);
+//! assert_eq!(result.effects.len(), 1);
 //! ```
+//!
+//! See the [mdBook documentation](https://docs.rs/tui-dispatch) for full guides.
 
 // Re-export everything from core
 pub use tui_dispatch_core::reducer_compose;
