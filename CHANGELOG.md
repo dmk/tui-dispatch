@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.4] - 2026-01-25
+
+### Added
+
+- `DataResource<T>` - typed async data lifecycle (Empty/Loading/Loaded/Failed)
+
+### Changed
+
+- Documentation rewrite: clearer separation of core vs extensions
+  - Quick start now shows minimal Store-only example (no EventBus boilerplate)
+  - Core concepts page restructured into Core and Extensions sections
+  - EventBus, TaskManager, Subscriptions framed as optional add-ons
+- README updated with minimal example
+
 ## [0.5.3] - 2026-01-18
 
 Yeah it's me again. Messed up the publish CI. See [0.5.2](#052---2026-01-18)
