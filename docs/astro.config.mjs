@@ -18,6 +18,7 @@ export default defineConfig({
         {
           label: 'Getting Started',
           items: [
+            { label: 'Philosophy', slug: 'getting-started/philosophy' },
             { label: 'Quick Start', slug: 'getting-started/quick-start' },
             { label: 'Core Concepts', slug: 'getting-started/core-concepts' },
           ],

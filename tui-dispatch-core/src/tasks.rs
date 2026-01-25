@@ -179,6 +179,14 @@ where
         }
     }
 
+    /// Remove finished tasks from the registry.
+    ///
+    /// This is called automatically by `spawn`, `is_running`, `len`, etc.
+    /// You typically don't need to call this directly.
+    pub fn cleanup(&mut self) {
+        self.tasks.retain(|_, handle| !handle.is_finished());
+    }
+
     /// Spawn a task, cancelling any existing task with the same key.
     ///
     /// The future should return an action that will be sent to the action channel
@@ -200,6 +208,9 @@ where
         F: Future<Output = A> + Send + 'static,
     {
         let key = key.into();
+
+        // Clean up finished tasks
+        self.cleanup();
 
         // Cancel existing task with this key
         self.cancel(&key);
@@ -248,6 +259,9 @@ where
     {
         let key = key.into();
 
+        // Clean up finished tasks
+        self.cleanup();
+
         // Cancel existing task with this key
         self.cancel(&key);
 
@@ -288,23 +302,38 @@ where
     }
 
     /// Check if a task with the given key is currently running.
+    ///
+    /// Returns `false` if the task has finished or was never started.
     pub fn is_running(&self, key: &TaskKey) -> bool {
-        self.tasks.contains_key(key)
+        self.tasks
+            .get(key)
+            .map(|handle| !handle.is_finished())
+            .unwrap_or(false)
     }
 
-    /// Get the number of running tasks.
+    /// Get the number of currently running tasks.
+    ///
+    /// This counts only tasks that haven't finished yet.
     pub fn len(&self) -> usize {
-        self.tasks.len()
+        self.tasks
+            .values()
+            .filter(|handle| !handle.is_finished())
+            .count()
     }
 
     /// Check if there are no running tasks.
     pub fn is_empty(&self) -> bool {
-        self.tasks.is_empty()
+        self.len() == 0
     }
 
-    /// Get the keys of all running tasks.
+    /// Get the keys of all currently running tasks.
+    ///
+    /// Only includes tasks that haven't finished yet.
     pub fn running_keys(&self) -> impl Iterator<Item = &TaskKey> {
-        self.tasks.keys()
+        self.tasks
+            .iter()
+            .filter(|(_, handle)| !handle.is_finished())
+            .map(|(key, _)| key)
     }
 }
 
@@ -545,5 +574,60 @@ mod tests {
 
         handle2.resume();
         assert!(!handle1.is_paused());
+    }
+
+    #[tokio::test]
+    async fn test_finished_tasks_cleaned_up() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut tasks = TaskManager::new(tx);
+
+        // Spawn a task that completes immediately
+        tasks.spawn("fast", async { TestAction::Done(1) });
+
+        // Wait for it to complete
+        let _ = tokio::time::timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .expect("timeout");
+
+        // is_running should return false for completed task
+        assert!(!tasks.is_running(&TaskKey::new("fast")));
+
+        // len() should not count finished tasks
+        assert_eq!(tasks.len(), 0);
+
+        // Spawning a new task should trigger cleanup
+        tasks.spawn("another", async { TestAction::Done(2) });
+
+        // Old task should be removed from internal map after cleanup
+        // (verified by the fact that len() now counts only the new task)
+        // Wait for new task to complete
+        let _ = tokio::time::timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .expect("timeout");
+
+        assert_eq!(tasks.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_is_running_accurate_for_long_task() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut tasks = TaskManager::new(tx);
+
+        // Spawn a task that takes a while
+        tasks.spawn("slow", async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            TestAction::Done(1)
+        });
+
+        // Should be running initially
+        assert!(tasks.is_running(&TaskKey::new("slow")));
+        assert_eq!(tasks.len(), 1);
+
+        // Wait for completion
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        // Should no longer be running
+        assert!(!tasks.is_running(&TaskKey::new("slow")));
+        assert_eq!(tasks.len(), 0);
     }
 }

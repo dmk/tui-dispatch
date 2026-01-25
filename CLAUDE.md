@@ -2,6 +2,8 @@
 
 tui-dispatch is a centralized state management framework for Rust TUI apps, inspired by Redux/Elm.
 
+**Read the [Philosophy doc](docs/src/content/docs/getting-started/philosophy.md) first** - it explains why tui-dispatch exists and the principles behind architectural decisions.
+
 ## Workspace Structure
 
 - `tui-dispatch`: Re-export crate with prelude
