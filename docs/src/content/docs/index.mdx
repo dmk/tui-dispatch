@@ -16,19 +16,6 @@ hero:
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## The Core Idea
-
-State mutations happen in one place (reducers), making apps predictable and testable:
-
-```
-Event → Action → Reducer → State Change → Render
-```
-
-1. Terminal events (keypresses, mouse clicks) are routed through **EventBus** into actions
-2. Actions are dispatched to the **store**
-3. The **reducer** updates state based on the action
-4. The UI re-renders with the new state
-
 <CardGrid>
   <Card title="Quick Start" icon="rocket">
     Get a running app in minutes with runtime helpers and sensible defaults.
@@ -64,11 +51,9 @@ Event → Action → Reducer → State Change → Render
 - Simple single-screen apps with minimal state
 - Apps where state is naturally local to each widget
 
-## Two Modes of Operation
+## How It Works
 
-### Simple Mode (bool reducer)
-
-For apps without async side effects. The reducer returns `true` if state changed:
+A reducer takes state and an action, returns whether state changed:
 
 ```rust
 fn reducer(state: &mut AppState, action: AppAction) -> bool {
@@ -81,9 +66,9 @@ fn reducer(state: &mut AppState, action: AppAction) -> bool {
 
 Use `DispatchRuntime` or `Store` directly. See the [Counter example](/tui-dispatch/examples/counter/).
 
-### Effect Mode (DispatchResult reducer)
+## Adding Effects
 
-For apps with async operations. The reducer returns state change status AND effects to execute:
+When you need async operations, layer effects on top. The reducer returns `DispatchResult` instead of `bool`:
 
 ```rust
 fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
@@ -101,7 +86,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
 }
 ```
 
-Use `EffectRuntime` or `EffectStore`. See the [Weather example](/tui-dispatch/examples/weather/).
+Effects are data describing side effects. The main loop executes them outside the reducer. Use `EffectRuntime` or `EffectStore`. See the [Weather example](/tui-dispatch/examples/weather/).
 
 ## Data Flow
 

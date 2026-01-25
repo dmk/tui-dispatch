@@ -3,9 +3,11 @@ title: Core Concepts
 description: Key terminology and concepts in tui-dispatch
 ---
 
-Core terms used throughout tui-dispatch. If you're familiar with [Redux](https://redux.js.org/introduction/core-concepts) or [The Elm Architecture](https://guide.elm-lang.org/architecture/), many concepts will feel familiar.
+If you're familiar with [Redux](https://redux.js.org/introduction/core-concepts) or [The Elm Architecture](https://guide.elm-lang.org/architecture/), many concepts will feel familiar.
 
-## Core Concepts
+## Core
+
+The bare minimum to build an app:
 
 ### Action
 A description of something that happened or should happen. Actions are immutable, cloneable values sent to the store for processing. (See also: [Redux Actions](https://redux.js.org/tutorials/fundamentals/part-2-concepts-data-flow#actions))
@@ -74,14 +76,6 @@ let mut store = Store::new(AppState::default(), reducer);
 let changed = store.dispatch(AppAction::CountIncrement);
 ```
 
-For effect-based apps, use `EffectStore`:
-```rust
-let mut store = EffectStore::new(AppState::default(), reducer);
-let result = store.dispatch(action);
-// result.changed: bool
-// result.effects: Vec<Effect>
-```
-
 ### Dispatch
 The act of sending an action to the store for processing. (See also: [Redux Data Flow](https://redux.js.org/tutorials/fundamentals/part-2-concepts-data-flow))
 
@@ -90,8 +84,12 @@ store.dispatch(action);        // Sync dispatch
 action_tx.send(action);        // Async dispatch via channel
 ```
 
+## Extensions
+
+Add these when your app needs them. None are required.
+
 ### Effect
-A declarative description of a side effect, returned from an effect reducer. Effects are **not** executed by the reducer - they're returned as data for the main loop to execute. This pattern comes from [The Elm Architecture](https://guide.elm-lang.org/effects/) where commands describe what to do without doing it.
+For apps with async operations. A declarative description of a side effect, returned from the reducer as data. The main loop executes effects outside the reducer. This pattern comes from [The Elm Architecture](https://guide.elm-lang.org/effects/) where commands describe what to do without doing it.
 
 ```rust
 enum Effect {
@@ -112,42 +110,18 @@ DispatchResult::changed_with(e)        // State changed, one effect
 DispatchResult::changed_with_many(v)   // State changed, multiple effects
 ```
 
-## Runtime Concepts
-
-### Runtime
-The main event loop that ties everything together: polling events, dispatching actions, executing effects, and rendering.
-
+Use `EffectStore` instead of `Store` when your reducer returns `DispatchResult`:
 ```rust
-let mut bus = EventBus::new();
-let keybindings = Keybindings::new();
-
-DispatchRuntime::new(state, reducer)
-    .with_debug(DebugLayer::simple())
-    .run_with_bus(terminal, &mut bus, &keybindings, render_app, is_quit)
-    .await?;
+let mut store = EffectStore::new(AppState::default(), reducer);
+let result = store.dispatch(action);
+// result.changed: bool
+// result.effects: Vec<Effect>
 ```
-
-For effect-based apps:
-```rust
-let mut bus = EventBus::new();
-let keybindings = Keybindings::new();
-
-EffectRuntime::new(state, reducer)
-    .run_with_bus(terminal, &mut bus, &keybindings, render_app, is_quit, handle_effect)
-    .await?;
-```
-
-Most apps route input through `EventBus` and use `run_with_bus`. The lower-level `run` + manual event mapping are still available when you want custom routing.
 
 ### EventBus
-EventBus is the canonical input router. It chooses routing order (modal, hovered, focused, subscribers, global), resolves keybindings, and returns a `HandlerResponse` for each handler.
+For apps with multiple focusable components. Routes input based on focus state (modal → focused → global) and resolves keybindings.
 
-It relies on two app-level types:
-
-- `ComponentId` to represent focusable targets
-- `EventRoutingState` to read focused/modal state from your app state
-
-**Simple apps** can use `SimpleEventBus` with `DefaultBindingContext`:
+Requires two app-level types: `ComponentId` to represent focusable targets, and `EventRoutingState` to read focus from your state.
 
 ```rust
 #[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -171,52 +145,10 @@ bus.register(AppComponentId::Main, |event, state| {
 });
 ```
 
-**Apps with multiple modes** (search, modal dialogs) can define custom `BindingContext` enums for context-specific keybindings. See [Event Bus](/tui-dispatch/patterns/event-bus/) for details.
-
-### HandlerResponse
-The result returned by EventBus handlers. It carries actions, propagation, and render intent.
-
-```rust
-HandlerResponse::ignored()              // no action, event continues routing
-HandlerResponse::action(action)         // one action, event consumed
-HandlerResponse::actions(vec)           // multiple actions, event consumed
-HandlerResponse::actions_passthrough(v) // multiple actions, event continues routing
-    .with_render()                      // force render even if state unchanged
-    .with_consumed(true)                // explicitly set consumed flag
-```
-
-### EventOutcome (manual routing)
-If you use `DispatchRuntime::run` or `EffectRuntime::run` without the bus, map events manually and return `EventOutcome`.
-
-```rust
-EventOutcome::action(action)        // enqueue one action
-EventOutcome::ignored()             // no action, no render
-EventOutcome::needs_render()        // force a render (no action)
-EventOutcome::action(action).with_render() // enqueue action + force render
-```
-
-### Action Channel (tx/rx)
-A tokio mpsc channel for sending actions from async tasks back to the main loop.
-
-```rust
-let (action_tx, mut action_rx) = tokio::sync::mpsc::unbounded_channel();
-
-// In async handler
-tokio::spawn(async move {
-    let data = api::fetch().await;
-    action_tx.send(Action::DidLoad(data)).ok();
-});
-
-// In main loop
-while let Some(action) = action_rx.recv().await {
-    store.dispatch(action);
-}
-```
-
-## Async Concepts
+See [Event Bus](/tui-dispatch/patterns/event-bus/) for the full guide.
 
 ### TaskManager
-Manages one-shot async tasks with automatic cancellation. Requires `features = ["tasks"]`.
+For async operations. Manages one-shot tasks with automatic cancellation. Requires `features = ["tasks"]`.
 
 ```rust
 let mut tasks = TaskManager::new(action_tx);
@@ -225,7 +157,7 @@ tasks.debounce("search", Duration::from_millis(200), async move { ... });
 ```
 
 ### Subscriptions
-Manages continuous action sources like timers and streams. Requires `features = ["subscriptions"]`.
+For continuous action sources like timers and streams. Requires `features = ["subscriptions"]`.
 
 ```rust
 let mut subs = Subscriptions::new(action_tx);
@@ -233,10 +165,8 @@ subs.interval("tick", Duration::from_millis(100), || Action::Tick);
 subs.stream("events", event_stream.map(Action::Event));
 ```
 
-## UI Concepts
-
 ### Component
-A struct that handles events and renders UI. Implements the `Component<A>` trait.
+For reusable UI widgets. A struct that handles events and renders UI via the `Component<A>` trait.
 
 ```rust
 impl Component<AppAction> for Counter {
@@ -264,54 +194,16 @@ fn render_app(frame: &mut Frame, area: Rect, state: &AppState, ctx: RenderContex
 }
 ```
 
-## Keybindings
-
-### BindingContext
-A trait that allows multiple widgets to share the same keybinding configuration. Each widget queries the shared `Keybindings<C>` with its own context.
-
-```rust
-#[derive(BindingContext, Clone, Copy, PartialEq, Eq, Hash)]
-enum Context {
-    KeyList,      // Widget: key browser
-    ValueEditor,  // Widget: value editor
-    Search,       // Widget: search box
-}
-```
-
 ### Keybindings
-A shared configuration that maps keys to command names, scoped by context:
+For user-configurable key mappings. A shared configuration that maps keys to command names, scoped by context.
 
 ```rust
-// Single keybinding config shared across all widgets
 let mut bindings = Keybindings::new();
-
-// Global: same key works in all widgets
 bindings.add_global("quit", vec!["q".to_string()]);
-
-// Context-specific: different behavior per widget
-bindings.add(Context::KeyList, "select", vec!["enter".to_string()]);
-bindings.add(Context::ValueEditor, "save", vec!["enter".to_string()]);
 bindings.add(Context::Search, "submit", vec!["enter".to_string()]);
 ```
 
-Each widget queries with its context:
-```rust
-// In KeyList widget
-if let Some(cmd) = bindings.get_command(key_event, Context::KeyList) {
-    match cmd.as_str() {
-        "quit" => return,    // from global
-        "select" => { ... }  // context-specific
-        _ => {}
-    }
-}
-```
-
-Benefits:
-- Single source of truth for all keybindings
-- User config overrides apply everywhere
-- Widgets stay decoupled from key definitions
-
-For a complete guide including config file loading and key format details, see [Keybindings](/tui-dispatch/patterns/keybindings/).
+See [Keybindings](/tui-dispatch/patterns/keybindings/) for the full guide.
 
 ## Derive Macros
 
@@ -389,32 +281,19 @@ struct AppState {
 
 ## Data Flow
 
+Core flow (no extensions):
 ```
-Terminal Input
-      |
-      v
-EventBus.handle_event(event) --> HandlerResponse { actions, needs_render }
-                           |
-                           v
-                    store.dispatch(action)
-                           |
-                           v
-                    reducer(state, action)
-                           |
-                           v
-                    DispatchResult { changed, effects }
-                           |
-          +----------------+----------------+
-          |                                 |
-          v                                 v
-    if changed:                    for effect in effects:
-      render()                       handle_effect(effect)
-                                           |
-                                           v
-                                    spawn async task
-                                           |
-                                           v
-                                    action_tx.send(DidAction)
-                                           |
-                                           +---> back to dispatch
+Terminal Input → map to Action → store.dispatch(action) → reducer → render if changed
+```
+
+With effects:
+```
+reducer returns DispatchResult { changed, effects }
+  → render if changed
+  → for each effect: spawn async task → send result action back to dispatch
+```
+
+With EventBus:
+```
+Terminal Input → EventBus routes to focused handler → handler returns actions → dispatch
 ```

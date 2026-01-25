@@ -18,15 +18,16 @@ export default defineConfig({
         {
           label: 'Getting Started',
           items: [
-            { label: 'Philosophy', slug: 'getting-started/philosophy' },
             { label: 'Quick Start', slug: 'getting-started/quick-start' },
             { label: 'Core Concepts', slug: 'getting-started/core-concepts' },
+            { label: 'Philosophy', slug: 'getting-started/philosophy' },
           ],
         },
         {
           label: 'Patterns',
           items: [
             { label: 'Async & Effects', slug: 'patterns/async' },
+            { label: 'Event Bus', slug: 'patterns/event-bus' },
             { label: 'Keybindings', slug: 'patterns/keybindings' },
             { label: 'Middleware', slug: 'patterns/middleware' },
             { label: 'Reducer Composition', slug: 'patterns/reducer-composition' },

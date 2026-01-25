@@ -3,13 +3,86 @@ title: Async & Effects
 description: Handling async operations with effects, TaskManager, and subscriptions
 ---
 
-tui-dispatch provides three complementary tools for async operations:
+tui-dispatch provides complementary tools for async operations:
 
 | Tool | Purpose | Feature Flag |
 |------|---------|--------------|
-| **Effects** | Declarative side effects from reducers | Always available |
+| **DataResource** | State type for async data lifecycle | — |
+| **Effects** | Declarative side effects from reducers | — |
 | **TaskManager** | One-shot async tasks with cancellation | `tasks` |
 | **Subscriptions** | Continuous action sources (timers, streams) | `subscriptions` |
+
+## DataResource
+
+`DataResource<T>` captures the full lifecycle of async data in a single type:
+
+```rust
+use tui_dispatch::prelude::*;
+
+// Instead of scattered fields:
+//   weather: Option<Weather>,
+//   is_loading: bool,
+//   error: Option<String>,
+
+// Use one type:
+struct AppState {
+    weather: DataResource<Weather>,
+}
+```
+
+The variants:
+
+```rust
+pub enum DataResource<T> {
+    Empty,           // Initial state, no data requested
+    Loading,         // Request in flight
+    Loaded(T),       // Success
+    Failed(String),  // Error message
+}
+```
+
+Usage in reducers:
+
+```rust
+fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+    match action {
+        Action::WeatherFetch => {
+            state.weather = DataResource::Loading;
+            DispatchResult::changed_with(Effect::FetchWeather)
+        }
+        Action::WeatherDidLoad(data) => {
+            state.weather = DataResource::Loaded(data);
+            DispatchResult::changed()
+        }
+        Action::WeatherDidError(msg) => {
+            state.weather = DataResource::Failed(msg);
+            DispatchResult::changed()
+        }
+        _ => DispatchResult::unchanged(),
+    }
+}
+```
+
+Usage in rendering:
+
+```rust
+match &state.weather {
+    DataResource::Empty => render_placeholder(),
+    DataResource::Loading => render_spinner(),
+    DataResource::Loaded(weather) => render_weather(weather),
+    DataResource::Failed(err) => render_error(err),
+}
+```
+
+Helper methods:
+
+```rust
+state.weather.is_loading()    // true if Loading
+state.weather.is_loaded()     // true if Loaded
+state.weather.data()          // Option<&T>
+state.weather.error()         // Option<&str>
+state.weather.map(|w| w.temp) // Transform inner value
+```
 
 ## Cargo Features
 
@@ -47,7 +120,7 @@ enum Effect {
 fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
     match action {
         Action::WeatherFetch => {
-            state.is_loading = true;
+            state.weather = DataResource::Loading;
             let loc = &state.location;
             DispatchResult::changed_with(Effect::FetchWeather {
                 lat: loc.lat,
@@ -55,8 +128,11 @@ fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             })
         }
         Action::WeatherDidLoad(data) => {
-            state.weather = Some(data);
-            state.is_loading = false;
+            state.weather = DataResource::Loaded(data);
+            DispatchResult::changed()
+        }
+        Action::WeatherDidError(msg) => {
+            state.weather = DataResource::Failed(msg);
             DispatchResult::changed()
         }
         Action::Copy(text) => {
@@ -86,15 +162,7 @@ for effect in result.effects {
 }
 ```
 
-### DispatchResult builders
-
-```rust
-DispatchResult::unchanged()              // No state change, no effects
-DispatchResult::changed()                // State changed, no effects
-DispatchResult::effect(e)                // No state change, one effect
-DispatchResult::changed_with(e)          // State changed, one effect
-DispatchResult::changed_with_many(vec)   // State changed, multiple effects
-```
+See [DispatchResult](/tui-dispatch/getting-started/core-concepts/#dispatchresult) for all builder methods.
 
 ### Testing effects
 
@@ -107,7 +175,7 @@ fn test_weather_fetch_emits_effect() {
     let result = reducer(&mut state, Action::WeatherFetch);
 
     assert!(result.changed);
-    assert!(state.is_loading);
+    assert!(state.weather.is_loading());
     assert_eq!(result.effects.len(), 1);
     assert!(matches!(result.effects[0], Effect::FetchWeather { .. }));
 }
@@ -234,11 +302,20 @@ enum Action {
     SearchDidComplete(Vec<Item>),
     Refresh,
     DataDidLoad(Data),
+    DataDidError(String),
 }
 
 enum Effect {
     Search { query: String },
     FetchData,
+}
+
+#[derive(Default)]
+struct State {
+    animation_frame: usize,
+    search_query: String,
+    search_results: Vec<Item>,
+    data: DataResource<Data>,
 }
 
 fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
@@ -256,12 +333,15 @@ fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
             DispatchResult::changed()
         }
         Action::Refresh => {
-            state.is_loading = true;
+            state.data = DataResource::Loading;
             DispatchResult::changed_with(Effect::FetchData)
         }
         Action::DataDidLoad(data) => {
-            state.data = data;
-            state.is_loading = false;
+            state.data = DataResource::Loaded(data);
+            DispatchResult::changed()
+        }
+        Action::DataDidError(msg) => {
+            state.data = DataResource::Failed(msg);
             DispatchResult::changed()
         }
     }
@@ -291,7 +371,10 @@ async fn run() {
                 }
                 Effect::FetchData => {
                     tasks.spawn("fetch", async {
-                        Action::DataDidLoad(api::fetch().await)
+                        match api::fetch().await {
+                            Ok(data) => Action::DataDidLoad(data),
+                            Err(e) => Action::DataDidError(e.to_string()),
+                        }
                     });
                 }
             }

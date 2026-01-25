@@ -3,7 +3,9 @@ title: Event Bus
 description: Route input through EventBus with state-driven focus
 ---
 
-EventBus is the canonical input router. Instead of writing `map_event`, you register handlers for components and let the bus decide routing order (modal, hovered, focused, subscribers, global).
+For apps with multiple focusable components, EventBus routes input based on focus state. You register handlers for components and the bus decides routing order (modal → hovered → focused → global).
+
+For simple single-component apps, you can handle events directly in your main loop without EventBus—see the [minimal example](/tui-dispatch/getting-started/quick-start/#minimal-example-counter).
 
 ## Quick Start: SimpleEventBus
 
