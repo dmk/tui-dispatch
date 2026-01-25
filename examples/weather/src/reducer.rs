@@ -6,7 +6,7 @@
 //! - All state mutations happen here
 //! - Effects are declarative - executed by main loop
 
-use tui_dispatch::DispatchResult;
+use tui_dispatch::{DataResource, DispatchResult};
 
 use crate::action::Action;
 use crate::effect::Effect;
@@ -20,9 +20,8 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
     match action {
         // ===== Weather actions =====
         Action::WeatherFetch => {
-            // Clear previous error, set loading, emit fetch effect
-            state.is_loading = true;
-            state.error = None;
+            // Set loading state, emit fetch effect
+            state.weather = DataResource::Loading;
             state.tick_count = 0;
             state.loading_anim_ticks_remaining = 0;
             let loc = state.current_location();
@@ -33,16 +32,13 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
         }
 
         Action::WeatherDidLoad(data) => {
-            state.weather = Some(data);
-            state.is_loading = false;
-            state.error = None;
+            state.weather = DataResource::Loaded(data);
             state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
             DispatchResult::changed()
         }
 
         Action::WeatherDidError(msg) => {
-            state.is_loading = false;
-            state.error = Some(msg);
+            state.weather = DataResource::Failed(msg);
             state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
             DispatchResult::changed()
         }
@@ -117,14 +113,12 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
 
             let (lat, lon) = (location.lat, location.lon);
             state.location = location;
-            state.weather = None;
+            state.weather = DataResource::Loading;
             state.search_mode = false;
             state.search_query.clear();
             state.search_results.clear();
             state.search_error = None;
             state.search_selected = 0;
-            state.is_loading = true;
-            state.error = None;
             state.tick_count = 0;
             state.loading_anim_ticks_remaining = 0;
             DispatchResult::changed_with(Effect::FetchWeather { lat, lon })
@@ -185,14 +179,14 @@ mod tests {
     #[test]
     fn test_weather_fetch_sets_loading() {
         let mut state = AppState::default();
-        assert!(!state.is_loading);
+        assert!(state.weather.is_empty());
         state.tick_count = 5;
         state.loading_anim_ticks_remaining = 7;
 
         let result = reducer(&mut state, Action::WeatherFetch);
 
         assert!(result.changed);
-        assert!(state.is_loading);
+        assert!(state.weather.is_loading());
         assert_eq!(state.tick_count, 0);
         assert_eq!(state.loading_anim_ticks_remaining, 0);
         assert_eq!(result.effects.len(), 1);
@@ -202,7 +196,7 @@ mod tests {
     #[test]
     fn test_weather_did_load_clears_loading() {
         let mut state = AppState {
-            is_loading: true,
+            weather: DataResource::Loading,
             tick_count: 1,
             ..Default::default()
         };
@@ -216,8 +210,8 @@ mod tests {
         let result = reducer(&mut state, Action::WeatherDidLoad(weather.clone()));
 
         assert!(result.changed);
-        assert!(!state.is_loading);
-        assert_eq!(state.weather, Some(weather));
+        assert!(state.weather.is_loaded());
+        assert_eq!(state.weather.data(), Some(&weather));
         assert_eq!(
             state.loading_anim_ticks_remaining,
             LOADING_ANIM_CYCLE_TICKS - 1
@@ -266,7 +260,7 @@ mod tests {
         assert_eq!(state.loading_anim_ticks_remaining, 0);
 
         // Loading - should re-render even without remaining ticks
-        state.is_loading = true;
+        state.weather = DataResource::Loading;
         state.loading_anim_ticks_remaining = 0;
         let result = reducer(&mut state, Action::Tick);
         assert!(result.changed);

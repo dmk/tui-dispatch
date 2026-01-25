@@ -22,13 +22,12 @@ fn test_reducer_weather_fetch() {
     let mut store = EffectStore::new(AppState::default(), reducer);
 
     // Initial state
-    assert!(!store.state().is_loading);
-    assert!(store.state().weather.is_none());
+    assert!(store.state().weather.is_empty());
 
     // Dispatch fetch - should set loading and return FetchWeather effect
     let result = store.dispatch(Action::WeatherFetch);
     assert!(result.changed, "State should change");
-    assert!(store.state().is_loading);
+    assert!(store.state().weather.is_loading());
     assert_eq!(result.effects.len(), 1);
     assert!(matches!(result.effects[0], Effect::FetchWeather { .. }));
 }
@@ -47,9 +46,8 @@ fn test_reducer_weather_load() {
     store.dispatch(Action::WeatherFetch); // Set loading
     store.dispatch(Action::WeatherDidLoad(weather.clone()));
 
-    assert!(!store.state().is_loading);
-    assert_eq!(store.state().weather, Some(weather));
-    assert!(store.state().error.is_none());
+    assert!(store.state().weather.is_loaded());
+    assert_eq!(store.state().weather.data(), Some(&weather));
 }
 
 #[test]

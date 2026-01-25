@@ -143,11 +143,13 @@ mod tests {
 
     #[test]
     fn test_render_loading() {
+        use tui_dispatch::DataResource;
+
         let mut render = RenderHarness::new(60, 24);
         let mut component = WeatherDisplay;
 
         let state = AppState {
-            is_loading: true,
+            weather: DataResource::Loading,
             ..Default::default()
         };
 
@@ -166,11 +168,13 @@ mod tests {
 
     #[test]
     fn test_render_weather() {
+        use tui_dispatch::DataResource;
+
         let mut render = RenderHarness::new(60, 24);
         let mut component = WeatherDisplay;
 
         let state = AppState {
-            weather: Some(WeatherData {
+            weather: DataResource::Loaded(WeatherData {
                 temperature: 22.5,
                 weather_code: 0,
                 description: "Clear sky".into(),

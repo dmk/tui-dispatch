@@ -14,7 +14,7 @@ name = "weather"
 path = "src/main.rs"
 
 [dependencies]
-tui-dispatch = { workspace = true, features = ["tasks", "subscriptions"] }
+tui-dispatch = { workspace = true, features = ["tasks", "subscriptions", "json-schema"] }
 tui-dispatch-components.workspace = true
 tui-dispatch-debug = { workspace = true, features = ["json-schema"] }
 schemars = "0.8"

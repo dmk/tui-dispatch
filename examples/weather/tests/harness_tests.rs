@@ -3,8 +3,8 @@
 //! These tests demonstrate the integrated testing pattern where
 //! store, component, and render testing are combined.
 
-use tui_dispatch::NumericComponentId;
 use tui_dispatch::testing::*;
+use tui_dispatch::{DataResource, NumericComponentId};
 use weather_example::{
     action::Action,
     components::{Component, WeatherDisplay, WeatherDisplayProps},
@@ -25,7 +25,7 @@ fn mock_weather() -> WeatherData {
 /// Helper to create state with weather loaded
 fn state_with_weather() -> AppState {
     AppState {
-        weather: Some(mock_weather()),
+        weather: DataResource::Loaded(mock_weather()),
         ..Default::default()
     }
 }
@@ -40,7 +40,7 @@ fn test_weather_fetch_flow_with_harness() {
 
     // Trigger fetch - should set loading and emit effect
     harness.dispatch_collect(Action::WeatherFetch);
-    harness.assert_state(|s| s.is_loading);
+    harness.assert_state(|s| s.weather.is_loading());
 
     // Verify effect was emitted
     let effects = harness.drain_effects();
@@ -54,9 +54,8 @@ fn test_weather_fetch_flow_with_harness() {
     assert_eq!(total, 1, "Should have processed 1 action");
     assert_eq!(changed, 1, "Action should have changed state");
 
-    harness.assert_state(|s| !s.is_loading);
-    harness.assert_state(|s| s.weather.is_some());
-    harness.assert_state(|s| s.weather.as_ref().unwrap().description == "Clear sky");
+    harness.assert_state(|s| s.weather.is_loaded());
+    harness.assert_state(|s| s.weather.data().unwrap().description == "Clear sky");
 }
 
 #[test]
@@ -65,15 +64,14 @@ fn test_weather_error_flow() {
 
     // Trigger fetch
     harness.dispatch_collect(Action::WeatherFetch);
-    harness.assert_state(|s| s.is_loading);
+    harness.assert_state(|s| s.weather.is_loading());
 
     // Simulate error
     harness.complete_action(Action::WeatherDidError("Network error".into()));
     harness.process_emitted();
 
-    harness.assert_state(|s| !s.is_loading);
-    harness.assert_state(|s| s.error.is_some());
-    harness.assert_state(|s| s.error.as_ref().unwrap() == "Network error");
+    harness.assert_state(|s| s.weather.is_failed());
+    harness.assert_state(|s| s.weather.error() == Some("Network error"));
 }
 
 #[test]
@@ -134,7 +132,7 @@ fn test_keyboard_triggers_fetch() {
 
     // Now dispatch the action manually and verify state + effects
     harness.dispatch_collect(Action::WeatherFetch);
-    harness.assert_state(|s| s.is_loading);
+    harness.assert_state(|s| s.weather.is_loading());
 
     let effects = harness.drain_effects();
     effects.effects_first_matches(|e| matches!(e, Effect::FetchWeather { .. }));
@@ -304,6 +302,6 @@ fn test_multiple_async_completions() {
     assert_eq!(changed, 2);
 
     // State should reflect both actions
-    harness.assert_state(|s| s.weather.is_some());
+    harness.assert_state(|s| s.weather.is_loaded());
     harness.assert_state(|s| s.unit == TempUnit::Fahrenheit);
 }

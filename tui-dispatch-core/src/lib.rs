@@ -98,6 +98,7 @@ pub mod effect;
 pub mod event;
 pub mod features;
 pub mod keybindings;
+pub mod resource;
 pub mod runtime;
 pub mod store;
 #[cfg(feature = "subscriptions")]
@@ -136,6 +137,9 @@ pub use runtime::{
 
 // Effect exports
 pub use effect::{DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware};
+
+// Resource exports
+pub use resource::DataResource;
 
 // Task exports (requires "tasks" feature)
 #[cfg(feature = "tasks")]
@@ -183,6 +187,7 @@ pub mod prelude {
         format_key_for_display, parse_key_string, BindingContext, Keybindings,
     };
     pub use crate::reducer_compose;
+    pub use crate::resource::DataResource;
     pub use crate::store::{
         ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
         StoreWithMiddleware,

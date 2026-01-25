@@ -116,9 +116,9 @@ pub mod prelude {
         StoreWithMiddleware,
     };
 
-    // Effects
+    // Effects and state types
     pub use tui_dispatch_core::{
-        DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
+        DataResource, DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
     };
 
     // Runtime helpers

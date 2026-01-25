@@ -10,6 +10,8 @@ use ratatui::{
     widgets::Paragraph,
 };
 
+use tui_dispatch::DataResource;
+
 use super::{Component, ERROR_ICON, LocationHeader, LocationHeaderProps};
 use crate::action::Action;
 use crate::sprites;
@@ -47,7 +49,7 @@ impl Component<Action> for WeatherBody {
             *header_area,
             LocationHeaderProps {
                 location: props.state.current_location(),
-                temperature: props.state.weather.as_ref().map(|w| w.temperature),
+                temperature: props.state.weather.data().map(|w| w.temperature),
                 is_animating: props.state.loading_anim_active(),
                 tick_count: props.state.tick_count,
             },
@@ -68,14 +70,11 @@ enum WeatherView<'a> {
 
 impl<'a> WeatherView<'a> {
     fn from_state(state: &'a AppState) -> Self {
-        if let Some(error) = state.error.as_deref() {
-            WeatherView::Error(error)
-        } else if let Some(weather) = state.weather.as_ref() {
-            WeatherView::Ready(weather)
-        } else if state.is_loading {
-            WeatherView::Loading
-        } else {
-            WeatherView::Empty
+        match &state.weather {
+            DataResource::Failed(error) => WeatherView::Error(error),
+            DataResource::Loaded(weather) => WeatherView::Ready(weather),
+            DataResource::Loading => WeatherView::Loading,
+            DataResource::Empty => WeatherView::Empty,
         }
     }
 }

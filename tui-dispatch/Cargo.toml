@@ -12,6 +12,7 @@ default = []
 tasks = ["tui-dispatch-core/tasks", "tui-dispatch-debug/tasks"]
 subscriptions = ["tui-dispatch-core/subscriptions", "tui-dispatch-debug/subscriptions"]
 testing-time = ["tui-dispatch-core/testing-time"]
+json-schema = ["tui-dispatch-core/json-schema"]
 
 [dependencies]
 tui-dispatch-core.workspace = true

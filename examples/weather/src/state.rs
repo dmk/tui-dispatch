@@ -7,6 +7,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tui_dispatch::DataResource;
 
 /// Weather data from Open-Meteo API
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -61,21 +62,13 @@ pub struct AppState {
     #[debug(section = "Location", label = "City", debug_fmt)]
     pub location: Location,
 
-    /// Current weather data (None = not yet fetched)
+    /// Weather data lifecycle: Empty → Loading → Loaded/Failed
     #[debug(section = "Weather", label = "Data", debug_fmt)]
-    pub weather: Option<WeatherData>,
+    pub weather: DataResource<WeatherData>,
 
     /// Temperature unit preference
     #[debug(section = "Weather", label = "Unit", debug_fmt)]
     pub unit: TempUnit,
-
-    /// Loading state for async operations
-    #[debug(section = "Status")]
-    pub is_loading: bool,
-
-    /// Error message (if last fetch failed)
-    #[debug(section = "Status", debug_fmt)]
-    pub error: Option<String>,
 
     // --- Animation internals (skipped) ---
     /// Animation frame counter (for gradient seam)
@@ -117,10 +110,8 @@ impl AppState {
     pub fn new(location: Location) -> Self {
         Self {
             location,
-            weather: None,
+            weather: DataResource::Empty,
             unit: TempUnit::default(),
-            is_loading: false,
-            error: None,
             tick_count: 0,
             loading_anim_ticks_remaining: 0,
             terminal_size: (80, 24), // Default, updated on resize
@@ -138,7 +129,7 @@ impl AppState {
     }
 
     pub fn loading_anim_active(&self) -> bool {
-        self.is_loading || self.loading_anim_ticks_remaining > 0
+        self.weather.is_loading() || self.loading_anim_ticks_remaining > 0
     }
 }
 

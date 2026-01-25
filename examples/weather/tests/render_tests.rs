@@ -5,7 +5,7 @@
 //! - Render component to test buffer
 //! - Convert to string for snapshot testing
 
-use tui_dispatch::testing::*;
+use tui_dispatch::{DataResource, testing::*};
 use weather_example::{
     components::{Component, WeatherDisplay, WeatherDisplayProps},
     state::{AppState, Location, TempUnit, WeatherData},
@@ -18,7 +18,7 @@ fn test_render_loading_state() {
     let mut component = WeatherDisplay;
 
     let state = AppState {
-        is_loading: true,
+        weather: DataResource::Loading,
         tick_count: 0,
         ..Default::default()
     };
@@ -42,7 +42,7 @@ fn test_render_clear_weather() {
     let mut component = WeatherDisplay;
 
     let state = AppState {
-        weather: Some(WeatherData {
+        weather: DataResource::Loaded(WeatherData {
             temperature: 22.5,
             weather_code: 0, // Clear sky
             description: "Clear sky".into(),
@@ -68,7 +68,7 @@ fn test_render_error_state() {
     let mut component = WeatherDisplay;
 
     let state = AppState {
-        error: Some("Network error".into()),
+        weather: DataResource::Failed("Network error".into()),
         ..Default::default()
     };
 
@@ -94,7 +94,7 @@ fn test_render_fahrenheit() {
     let mut component = WeatherDisplay;
 
     let state = AppState {
-        weather: Some(WeatherData {
+        weather: DataResource::Loaded(WeatherData {
             temperature: 0.0, // 0°C = 32°F
             weather_code: 0,
             description: "Clear".into(),
@@ -190,7 +190,7 @@ fn test_render_rain_weather() {
     let mut component = WeatherDisplay;
 
     let state = AppState {
-        weather: Some(WeatherData {
+        weather: DataResource::Loaded(WeatherData {
             temperature: 15.0,
             weather_code: 61, // Rain
             description: "Rain".into(),
