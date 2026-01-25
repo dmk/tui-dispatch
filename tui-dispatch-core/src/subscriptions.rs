@@ -157,6 +157,14 @@ where
         }
     }
 
+    /// Remove finished subscriptions from the registry.
+    ///
+    /// This is called automatically when adding new subscriptions.
+    /// You typically don't need to call this directly.
+    pub fn cleanup(&mut self) {
+        self.handles.retain(|_, handle| !handle.is_finished());
+    }
+
     /// Add an interval subscription that emits an action at fixed intervals.
     ///
     /// The action factory is called each interval to produce the action.
@@ -181,6 +189,9 @@ where
         F: Fn() -> A + Send + 'static,
     {
         let key = key.into();
+
+        // Clean up finished subscriptions
+        self.cleanup();
 
         // Cancel existing subscription with this key
         self.cancel(&key);
@@ -232,6 +243,9 @@ where
     {
         let key = key.into();
 
+        // Clean up finished subscriptions
+        self.cleanup();
+
         // Cancel existing subscription with this key
         self.cancel(&key);
 
@@ -278,6 +292,9 @@ where
     {
         let key = key.into();
 
+        // Clean up finished subscriptions
+        self.cleanup();
+
         // Cancel existing subscription with this key
         self.cancel(&key);
 
@@ -319,6 +336,9 @@ where
         S: Stream<Item = A> + Send + 'static,
     {
         let key = key.into();
+
+        // Clean up finished subscriptions
+        self.cleanup();
 
         // Cancel existing subscription with this key
         self.cancel(&key);
@@ -362,23 +382,38 @@ where
     }
 
     /// Check if a subscription with the given key is active.
+    ///
+    /// Returns `false` if the subscription has finished (e.g., stream ended) or was never started.
     pub fn is_active(&self, key: &SubKey) -> bool {
-        self.handles.contains_key(key)
+        self.handles
+            .get(key)
+            .map(|handle| !handle.is_finished())
+            .unwrap_or(false)
     }
 
-    /// Get the number of active subscriptions.
+    /// Get the number of currently active subscriptions.
+    ///
+    /// This counts only subscriptions that haven't finished yet.
     pub fn len(&self) -> usize {
-        self.handles.len()
+        self.handles
+            .values()
+            .filter(|handle| !handle.is_finished())
+            .count()
     }
 
     /// Check if there are no active subscriptions.
     pub fn is_empty(&self) -> bool {
-        self.handles.is_empty()
+        self.len() == 0
     }
 
-    /// Get the keys of all active subscriptions.
+    /// Get the keys of all currently active subscriptions.
+    ///
+    /// Only includes subscriptions that haven't finished yet.
     pub fn active_keys(&self) -> impl Iterator<Item = &SubKey> {
-        self.handles.keys()
+        self.handles
+            .iter()
+            .filter(|(_, handle)| !handle.is_finished())
+            .map(|(key, _)| key)
     }
 }
 
@@ -640,5 +675,64 @@ mod tests {
 
         handle2.resume();
         assert!(!handle1.is_paused());
+    }
+
+    #[tokio::test]
+    async fn test_finished_stream_cleaned_up() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut subs = Subscriptions::new(tx);
+
+        // Create a stream that ends after 3 items
+        let stream = tokio_stream::iter(vec![
+            TestAction::Value(1),
+            TestAction::Value(2),
+            TestAction::Value(3),
+        ]);
+
+        subs.stream("finite", stream);
+
+        // Wait for all items and stream to complete
+        for _ in 0..3 {
+            let _ = tokio::time::timeout(Duration::from_millis(100), rx.recv())
+                .await
+                .expect("timeout");
+        }
+
+        // Give the task time to finish
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // is_active should return false for finished stream
+        assert!(!subs.is_active(&SubKey::new("finite")));
+
+        // len() should not count finished streams
+        assert_eq!(subs.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_is_active_accurate_for_running_interval() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut subs = Subscriptions::new(tx);
+
+        subs.interval("tick", Duration::from_millis(20), || TestAction::Tick);
+
+        // Should be active
+        assert!(subs.is_active(&SubKey::new("tick")));
+        assert_eq!(subs.len(), 1);
+
+        // Wait for a tick to confirm it's running
+        let _ = tokio::time::timeout(Duration::from_millis(100), rx.recv())
+            .await
+            .expect("timeout");
+
+        // Still active (intervals run forever)
+        assert!(subs.is_active(&SubKey::new("tick")));
+        assert_eq!(subs.len(), 1);
+
+        // Cancel it
+        subs.cancel(&SubKey::new("tick"));
+
+        // No longer active
+        assert!(!subs.is_active(&SubKey::new("tick")));
+        assert_eq!(subs.len(), 0);
     }
 }
