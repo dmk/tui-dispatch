@@ -40,6 +40,7 @@ mod state;
 
 use std::cell::RefCell;
 use std::io;
+use std::rc::Rc;
 use std::time::Duration;
 
 use clap::Parser;
@@ -50,9 +51,10 @@ use crossterm::{
 };
 use ratatui::{Frame, Terminal, backend::CrosstermBackend, layout::Rect};
 use tui_dispatch::{
-    EffectContext, EffectStoreLike, EffectStoreWithMiddleware, EventKind, EventOutcome,
-    RenderContext, TaskKey,
+    EffectContext, EffectStoreLike, EffectStoreWithMiddleware, EventBus, EventContext, EventKind,
+    EventRoutingState, HandlerResponse, Keybindings, RenderContext, TaskKey,
 };
+use tui_dispatch_components::centered_rect;
 use tui_dispatch_debug::debug::DebugLayer;
 use tui_dispatch_debug::{
     DebugCliArgs, DebugRunOutput, DebugSession, DebugSessionError, ReplayItem,
@@ -82,6 +84,47 @@ struct Args {
 
     #[command(flatten)]
     debug: DebugCliArgs,
+}
+
+#[derive(tui_dispatch::ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum WeatherComponentId {
+    Display,
+    Search,
+}
+
+#[derive(tui_dispatch::BindingContext, Clone, Copy, PartialEq, Eq, Hash)]
+enum WeatherContext {
+    Main,
+    Search,
+}
+
+impl EventRoutingState<WeatherComponentId, WeatherContext> for AppState {
+    fn focused(&self) -> Option<WeatherComponentId> {
+        if self.search_mode {
+            Some(WeatherComponentId::Search)
+        } else {
+            Some(WeatherComponentId::Display)
+        }
+    }
+
+    fn modal(&self) -> Option<WeatherComponentId> {
+        if self.search_mode {
+            Some(WeatherComponentId::Search)
+        } else {
+            None
+        }
+    }
+
+    fn binding_context(&self, id: WeatherComponentId) -> WeatherContext {
+        match id {
+            WeatherComponentId::Display => WeatherContext::Main,
+            WeatherComponentId::Search => WeatherContext::Search,
+        }
+    }
+
+    fn default_context(&self) -> WeatherContext {
+        WeatherContext::Main
+    }
 }
 
 #[tokio::main]
@@ -192,7 +235,10 @@ impl WeatherUi {
         area: Rect,
         state: &AppState,
         render_ctx: RenderContext,
+        event_ctx: &mut EventContext<WeatherComponentId>,
     ) {
+        event_ctx.set_component_area(WeatherComponentId::Display, area);
+
         let props = WeatherDisplayProps {
             state,
             is_focused: render_ctx.is_focused() && !state.search_mode,
@@ -201,6 +247,8 @@ impl WeatherUi {
 
         self.search.set_open(state.search_mode);
         if state.search_mode {
+            let modal_area = centered_rect(60, 12, area);
+            event_ctx.set_component_area(WeatherComponentId::Search, modal_area);
             let props = SearchOverlayProps {
                 query: &state.search_query,
                 results: &state.search_results,
@@ -212,33 +260,60 @@ impl WeatherUi {
                 on_select: Action::SearchSelect,
             };
             self.search.render(frame, area, props);
+        } else {
+            event_ctx
+                .component_areas
+                .remove(&WeatherComponentId::Search);
         }
     }
 
-    fn map_event(&mut self, event: &EventKind, state: &AppState) -> EventOutcome<Action> {
-        if let EventKind::Resize(width, height) = event {
-            return EventOutcome::action(Action::UiTerminalResize(*width, *height)).with_render();
-        }
-
-        if state.search_mode {
-            let props = SearchOverlayProps {
-                query: &state.search_query,
-                results: &state.search_results,
-                selected: state.search_selected,
-                is_focused: true,
-                error: state.search_error.as_deref(),
-                on_query_change: Action::SearchQueryChange,
-                on_query_submit: Action::SearchQuerySubmit,
-                on_select: Action::SearchSelect,
-            };
-            return EventOutcome::from_actions(self.search.handle_event(event, props));
-        }
-
+    fn handle_display_event(
+        &mut self,
+        event: &EventKind,
+        state: &AppState,
+    ) -> HandlerResponse<Action> {
         let props = WeatherDisplayProps {
             state,
             is_focused: true,
         };
-        EventOutcome::from_actions(self.display.handle_event(event, props))
+        let actions: Vec<_> = self
+            .display
+            .handle_event(event, props)
+            .into_iter()
+            .collect();
+        if actions.is_empty() {
+            HandlerResponse::ignored()
+        } else {
+            HandlerResponse {
+                actions,
+                consumed: true,
+                needs_render: false,
+            }
+        }
+    }
+
+    fn handle_search_event(
+        &mut self,
+        event: &EventKind,
+        state: &AppState,
+    ) -> HandlerResponse<Action> {
+        self.search.set_open(state.search_mode);
+        let props = SearchOverlayProps {
+            query: &state.search_query,
+            results: &state.search_results,
+            selected: state.search_selected,
+            is_focused: true,
+            error: state.search_error.as_deref(),
+            on_query_change: Action::SearchQueryChange,
+            on_query_submit: Action::SearchQuerySubmit,
+            on_select: Action::SearchSelect,
+        };
+        let actions: Vec<_> = self.search.handle_event(event, props).into_iter().collect();
+        HandlerResponse {
+            actions,
+            consumed: true,
+            needs_render: false,
+        }
     }
 }
 
@@ -253,10 +328,33 @@ async fn run_app<B: ratatui::backend::Backend>(
     refresh_interval: u64,
     replay_actions: Vec<ReplayItem<Action>>,
 ) -> io::Result<DebugRunOutput<AppState>> {
-    let ui = RefCell::new(WeatherUi::new());
+    let ui = Rc::new(RefCell::new(WeatherUi::new()));
+    let mut bus: EventBus<AppState, Action, WeatherComponentId, WeatherContext> = EventBus::new();
+    let keybindings: Keybindings<WeatherContext> = Keybindings::new();
+
+    let ui_display = Rc::clone(&ui);
+    bus.register(WeatherComponentId::Display, move |event, state| {
+        ui_display
+            .borrow_mut()
+            .handle_display_event(&event.kind, state)
+    });
+
+    let ui_search = Rc::clone(&ui);
+    bus.register(WeatherComponentId::Search, move |event, state| {
+        ui_search
+            .borrow_mut()
+            .handle_search_event(&event.kind, state)
+    });
+
+    bus.register_global(|event, _state| match event.kind {
+        EventKind::Resize(width, height) => {
+            HandlerResponse::action(Action::UiTerminalResize(width, height)).with_render()
+        }
+        _ => HandlerResponse::ignored(),
+    });
 
     debug
-        .run_effect_app(
+        .run_effect_app_with_bus(
             terminal,
             store,
             DebugLayer::simple(),
@@ -282,10 +380,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                     || Action::WeatherFetch,
                 );
             },
-            |frame, area, state, render_ctx| {
-                ui.borrow_mut().render(frame, area, state, render_ctx);
+            &mut bus,
+            &keybindings,
+            |frame, area, state, render_ctx, event_ctx| {
+                ui.borrow_mut()
+                    .render(frame, area, state, render_ctx, event_ctx);
             },
-            |event, state| ui.borrow_mut().map_event(event, state),
             |action| matches!(action, Action::Quit),
             handle_effect,
         )

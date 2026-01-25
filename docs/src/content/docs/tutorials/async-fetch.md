@@ -56,6 +56,8 @@ serde_json = "1"
 ```
 key press
   ↓
+EventBus routes event
+  ↓
 Action (intent)
   ↓
 reducer updates state + returns Effect
@@ -392,7 +394,7 @@ pub fn handle_key(key: KeyEvent, state: &AppState) -> Vec<Action> {
 }
 ```
 
-## Part 7: Wire It Up With EffectRuntime
+## Part 7: Wire It Up With EffectRuntime + EventBus
 
 Create `src/main.rs`:
 
@@ -412,12 +414,27 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use tui_dispatch::{EffectContext, EffectRuntime, EventKind, EventOutcome, RenderContext};
+use tui_dispatch::{
+    BindingContext, ComponentId, EffectContext, EffectRuntime, EventBus, EventContext, EventKind,
+    EventRoutingState, HandlerResponse, Keybindings, RenderContext,
+};
 
 use crate::action::Action;
 use crate::effect::Effect;
 use crate::reducer::reducer;
 use crate::state::AppState;
+
+#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum AppComponentId {
+    Main,
+}
+
+impl EventRoutingState<AppComponentId, DefaultBindingContext> for AppState {
+    fn focused(&self) -> Option<AppComponentId> { Some(AppComponentId::Main) }
+    fn modal(&self) -> Option<AppComponentId> { None }
+    fn binding_context(&self, _id: AppComponentId) -> DefaultBindingContext { DefaultBindingContext }
+    fn default_context(&self) -> DefaultBindingContext { DefaultBindingContext }
+}
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -437,20 +454,31 @@ async fn main() -> io::Result<()> {
 }
 
 async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
-    let mut runtime: EffectRuntime<AppState, Action, Effect> = EffectRuntime::new(AppState::new(), reducer);
+    let mut runtime: EffectRuntime<AppState, Action, Effect> =
+        EffectRuntime::new(AppState::new(), reducer);
+    let mut bus: SimpleEventBus<AppState, Action, AppComponentId> = SimpleEventBus::new();
+    let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
+
+    bus.register(AppComponentId::Main, |event, state| {
+        let actions = match event.kind {
+            EventKind::Key(key) => ui::handle_key(key, state),
+            _ => Vec::new(),
+        };
+        if actions.is_empty() {
+            HandlerResponse::ignored()
+        } else {
+            HandlerResponse::actions(actions)
+        }
+    });
 
     runtime
-        .run(
+        .run_with_bus(
             terminal,
-            |frame, area, state, _ctx: RenderContext| {
+            &mut bus,
+            &keybindings,
+            |frame, area, state, _ctx: RenderContext, event_ctx| {
+                event_ctx.set_component_area(AppComponentId::Main, area);
                 ui::render_area(frame, area, state);
-            },
-            |event, state| -> EventOutcome<Action> {
-                if let EventKind::Key(key) = event {
-                    EventOutcome::from_actions(ui::handle_key(*key, state))
-                } else {
-                    EventOutcome::ignored()
-                }
             },
             |action| matches!(action, Action::Quit),
             handle_effect,

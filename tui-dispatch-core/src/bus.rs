@@ -1,9 +1,12 @@
-//! Event bus for dispatching events to subscribed components
+//! Event bus for dispatching events to registered handlers
 
-use crate::event::{ComponentId, Event, EventContext, EventKind, EventType};
-use crate::Action;
-use crossterm::event::{self, KeyModifiers, MouseEventKind};
+use crate::event::{ComponentId, EventContext, EventKind, EventType};
+use crate::keybindings::Keybindings;
+use crate::runtime::EventOutcome;
+use crate::{Action, BindingContext};
+use crossterm::event::{self, KeyEventKind, MouseEventKind};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -17,123 +20,548 @@ pub enum RawEvent {
     Resize(u16, u16),
 }
 
-/// Event bus that manages subscriptions and dispatches events
-///
-/// Generic over:
-/// - `A`: The action type (must implement `Action`)
-/// - `C`: The component ID type (must implement `ComponentId`)
-pub struct EventBus<A: Action, C: ComponentId> {
-    /// Subscriptions: event type -> set of component IDs
-    subscriptions: HashMap<EventType, HashSet<C>>,
-    /// Current event context (focus, areas, etc.)
-    context: EventContext<C>,
-    /// Channel for sending actions
-    action_tx: mpsc::UnboundedSender<A>,
+/// State accessors used by the event bus for routing decisions.
+pub trait EventRoutingState<Id: ComponentId, Ctx: BindingContext> {
+    fn focused(&self) -> Option<Id>;
+    fn modal(&self) -> Option<Id>;
+    fn binding_context(&self, id: Id) -> Ctx;
+    fn default_context(&self) -> Ctx;
 }
 
-impl<A: Action, C: ComponentId> EventBus<A, C> {
-    /// Create a new event bus
-    pub fn new(action_tx: mpsc::UnboundedSender<A>) -> Self {
+/// Where a handler is being routed in the current event flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteTarget<Id: ComponentId> {
+    Modal(Id),
+    Focused(Id),
+    Hovered(Id),
+    Subscriber(Id),
+    Global,
+}
+
+/// Routing plan that determines the order components receive events.
+///
+/// Priority: Modal → Hovered → Focused → Subscribers → Global subscribers
+struct RoutingPlan<Id: ComponentId> {
+    targets: Vec<(RouteTarget<Id>, Id)>,
+    modal_blocks: bool,
+}
+
+impl<Id: ComponentId> RoutingPlan<Id> {
+    /// Build a routing plan for an event.
+    fn build<S, Ctx>(
+        event: &EventKind,
+        state: &S,
+        subscribers: &[Id],
+        global_subscribers: &[Id],
+        hovered: Option<Id>,
+    ) -> Self
+    where
+        S: EventRoutingState<Id, Ctx>,
+        Ctx: BindingContext,
+    {
+        let is_broadcast = event.is_broadcast();
+        let modal = state.modal();
+        let focused = state.focused();
+
+        let mut targets = Vec::with_capacity(8);
+
+        // Modal gets first priority
+        if let Some(id) = modal {
+            targets.push((RouteTarget::Modal(id), id));
+        }
+
+        // Modal blocks non-broadcast events from reaching other components
+        let modal_blocks = modal.is_some() && !is_broadcast;
+
+        if !modal_blocks {
+            // Hovered component (mouse events only)
+            if let Some(id) = hovered {
+                targets.push((RouteTarget::Hovered(id), id));
+            }
+
+            // Focused component
+            if let Some(id) = focused {
+                targets.push((RouteTarget::Focused(id), id));
+            }
+
+            // Type-specific subscribers
+            for &id in subscribers {
+                targets.push((RouteTarget::Subscriber(id), id));
+            }
+        }
+
+        // Global subscribers (for global events, even when modal is active)
+        if event.is_global() {
+            for &id in global_subscribers {
+                targets.push((RouteTarget::Subscriber(id), id));
+            }
+        }
+
         Self {
-            subscriptions: HashMap::new(),
-            context: EventContext::default(),
-            action_tx,
+            targets,
+            modal_blocks,
         }
     }
 
-    /// Subscribe a component to an event type
-    pub fn subscribe(&mut self, component: C, event_type: EventType) {
-        self.subscriptions
-            .entry(event_type)
-            .or_default()
-            .insert(component);
+    fn iter(&self) -> impl Iterator<Item = (RouteTarget<Id>, Id)> + '_ {
+        self.targets.iter().copied()
+    }
+}
+
+/// Routed event passed to handlers.
+#[derive(Debug, Clone)]
+pub struct RoutedEvent<'a, Id: ComponentId, Ctx: BindingContext> {
+    pub kind: EventKind,
+    pub command: Option<&'a str>,
+    pub binding_ctx: Ctx,
+    pub target: RouteTarget<Id>,
+    pub context: &'a EventContext<Id>,
+}
+
+/// Response returned by an event handler.
+#[derive(Debug, Clone)]
+pub struct HandlerResponse<A> {
+    pub actions: Vec<A>,
+    pub consumed: bool,
+    pub needs_render: bool,
+}
+
+impl<A> HandlerResponse<A> {
+    pub fn ignored() -> Self {
+        Self {
+            actions: Vec::new(),
+            consumed: false,
+            needs_render: false,
+        }
     }
 
-    /// Subscribe a component to multiple event types
-    pub fn subscribe_many(&mut self, component: C, event_types: &[EventType]) {
+    pub fn action(action: A) -> Self {
+        Self {
+            actions: vec![action],
+            consumed: true,
+            needs_render: false,
+        }
+    }
+
+    /// Multiple actions, event consumed.
+    pub fn actions<I>(actions: I) -> Self
+    where
+        I: IntoIterator<Item = A>,
+    {
+        Self {
+            actions: actions.into_iter().collect(),
+            consumed: true,
+            needs_render: false,
+        }
+    }
+
+    /// Multiple actions, event NOT consumed (passthrough to other handlers).
+    pub fn actions_passthrough<I>(actions: I) -> Self
+    where
+        I: IntoIterator<Item = A>,
+    {
+        Self {
+            actions: actions.into_iter().collect(),
+            consumed: false,
+            needs_render: false,
+        }
+    }
+
+    pub fn with_render(mut self) -> Self {
+        self.needs_render = true;
+        self
+    }
+
+    pub fn with_consumed(mut self, consumed: bool) -> Self {
+        self.consumed = consumed;
+        self
+    }
+}
+
+/// Trait for event handlers registered with the bus.
+pub trait EventHandler<S, A, Id: ComponentId, Ctx: BindingContext>: 'static {
+    fn handle(&mut self, event: RoutedEvent<'_, Id, Ctx>, state: &S) -> HandlerResponse<A>;
+}
+
+impl<S, A, Id, Ctx, F> EventHandler<S, A, Id, Ctx> for F
+where
+    Id: ComponentId,
+    Ctx: BindingContext,
+    F: for<'a> FnMut(RoutedEvent<'a, Id, Ctx>, &S) -> HandlerResponse<A> + 'static,
+{
+    fn handle(&mut self, event: RoutedEvent<'_, Id, Ctx>, state: &S) -> HandlerResponse<A> {
+        (self)(event, state)
+    }
+}
+
+type HandlerFn<S, A, Id, Ctx> =
+    dyn for<'a, 'ctx> FnMut(RoutedEvent<'ctx, Id, Ctx>, &'a S) -> HandlerResponse<A>;
+
+/// Event bus that manages subscriptions and dispatches events.
+pub struct EventBus<S, A: Action, Id: ComponentId, Ctx: BindingContext> {
+    handlers: HashMap<Id, Box<HandlerFn<S, A, Id, Ctx>>>,
+    global_handlers: Vec<Box<HandlerFn<S, A, Id, Ctx>>>,
+    subscriptions: HashMap<EventType, Vec<Id>>,
+    global_subscribers: Vec<Id>,
+    registration_order: Vec<Id>,
+    context: EventContext<Id>,
+}
+
+/// Default binding context for apps that don't need custom contexts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct DefaultBindingContext;
+
+impl BindingContext for DefaultBindingContext {
+    fn name(&self) -> &'static str {
+        "default"
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        (name == "default").then_some(Self)
+    }
+
+    fn all() -> &'static [Self] {
+        &[Self]
+    }
+}
+
+/// Simplified EventBus for apps that don't need custom binding contexts.
+///
+/// Use this when you don't need context-specific keybindings:
+/// ```ignore
+/// let bus: SimpleEventBus<AppState, AppAction, ComponentId> = SimpleEventBus::new();
+/// ```
+pub type SimpleEventBus<S, A, Id> = EventBus<S, A, Id, DefaultBindingContext>;
+
+impl<S: 'static, A, Id, Ctx> Default for EventBus<S, A, Id, Ctx>
+where
+    A: Action,
+    Id: ComponentId + 'static,
+    Ctx: BindingContext + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<S: 'static, A, Id, Ctx> EventBus<S, A, Id, Ctx>
+where
+    A: Action,
+    Id: ComponentId + 'static,
+    Ctx: BindingContext + 'static,
+{
+    /// Create a new event bus.
+    pub fn new() -> Self {
+        Self {
+            handlers: HashMap::new(),
+            global_handlers: Vec::new(),
+            subscriptions: HashMap::new(),
+            global_subscribers: Vec::new(),
+            registration_order: Vec::new(),
+            context: EventContext::default(),
+        }
+    }
+
+    /// Register a handler for a component ID.
+    pub fn register<F>(&mut self, component: Id, handler: F)
+    where
+        F: for<'a, 'ctx> FnMut(RoutedEvent<'ctx, Id, Ctx>, &'a S) -> HandlerResponse<A> + 'static,
+    {
+        if !self.handlers.contains_key(&component) {
+            self.registration_order.push(component);
+        }
+        self.handlers.insert(component, Box::new(handler));
+    }
+
+    /// Register a component handler that implements [`EventHandler`].
+    pub fn register_handler<H>(&mut self, component: Id, mut handler: H)
+    where
+        H: EventHandler<S, A, Id, Ctx> + 'static,
+    {
+        self.register(component, move |event, state| handler.handle(event, state));
+    }
+
+    /// Register a global handler (not tied to a component).
+    pub fn register_global<F>(&mut self, handler: F)
+    where
+        F: for<'a, 'ctx> FnMut(RoutedEvent<'ctx, Id, Ctx>, &'a S) -> HandlerResponse<A> + 'static,
+    {
+        self.global_handlers.push(Box::new(handler));
+    }
+
+    /// Register a global handler that implements [`EventHandler`].
+    pub fn register_global_handler<H>(&mut self, mut handler: H)
+    where
+        H: EventHandler<S, A, Id, Ctx> + 'static,
+    {
+        self.register_global(move |event, state| handler.handle(event, state));
+    }
+
+    /// Unregister a component handler.
+    pub fn unregister(&mut self, component: Id) -> Option<Box<HandlerFn<S, A, Id, Ctx>>> {
+        self.registration_order.retain(|id| *id != component);
+        self.unsubscribe_all(component);
+        self.handlers.remove(&component)
+    }
+
+    /// Subscribe a component to an event type.
+    pub fn subscribe(&mut self, component: Id, event_type: EventType) {
+        if event_type == EventType::Global {
+            if !self.global_subscribers.contains(&component) {
+                self.global_subscribers.push(component);
+            }
+            return;
+        }
+
+        let entry = self.subscriptions.entry(event_type).or_default();
+        if !entry.contains(&component) {
+            entry.push(component);
+        }
+    }
+
+    /// Subscribe a component to multiple event types.
+    pub fn subscribe_many(&mut self, component: Id, event_types: &[EventType]) {
         for &event_type in event_types {
             self.subscribe(component, event_type);
         }
     }
 
-    /// Unsubscribe a component from an event type
-    pub fn unsubscribe(&mut self, component: C, event_type: EventType) {
+    /// Unsubscribe a component from an event type.
+    pub fn unsubscribe(&mut self, component: Id, event_type: EventType) {
+        if event_type == EventType::Global {
+            self.global_subscribers.retain(|id| *id != component);
+            return;
+        }
+
         if let Some(subscribers) = self.subscriptions.get_mut(&event_type) {
-            subscribers.remove(&component);
+            subscribers.retain(|id| *id != component);
         }
     }
 
-    /// Unsubscribe a component from all event types
-    pub fn unsubscribe_all(&mut self, component: C) {
+    /// Unsubscribe a component from all event types.
+    pub fn unsubscribe_all(&mut self, component: Id) {
+        self.global_subscribers.retain(|id| *id != component);
         for subscribers in self.subscriptions.values_mut() {
-            subscribers.remove(&component);
+            subscribers.retain(|id| *id != component);
         }
     }
 
-    /// Get subscribers for an event type
-    pub fn get_subscribers(&self, event_type: EventType) -> Vec<C> {
+    /// Get subscribers for an event type.
+    pub fn get_subscribers(&self, event_type: EventType) -> Vec<Id> {
+        if event_type == EventType::Global {
+            return self.global_subscribers.clone();
+        }
+
         self.subscriptions
             .get(&event_type)
-            .map(|s| s.iter().copied().collect())
+            .cloned()
             .unwrap_or_default()
     }
 
-    /// Get all subscribers that should receive an event
-    pub fn get_event_subscribers(&self, event: &Event<C>) -> Vec<C> {
-        let mut subscribers = HashSet::new();
-
-        // If it's a global event, include Global subscribers
-        if event.is_global() {
-            if let Some(global_subs) = self.subscriptions.get(&EventType::Global) {
-                subscribers.extend(global_subs.iter().copied());
-            }
-        }
-
-        // Add type-specific subscribers
-        if let Some(type_subs) = self.subscriptions.get(&event.event_type()) {
-            subscribers.extend(type_subs.iter().copied());
-        }
-
-        subscribers.into_iter().collect()
-    }
-
-    /// Get mutable reference to context
-    pub fn context_mut(&mut self) -> &mut EventContext<C> {
+    /// Get mutable reference to context.
+    pub fn context_mut(&mut self) -> &mut EventContext<Id> {
         &mut self.context
     }
 
-    /// Get reference to context
-    pub fn context(&self) -> &EventContext<C> {
+    /// Get reference to context.
+    pub fn context(&self) -> &EventContext<Id> {
         &self.context
     }
 
-    /// Create an event with current context
-    pub fn create_event(&self, kind: EventKind) -> Event<C> {
-        Event::new(kind, self.context.clone())
+    /// Route an event through the bus and collect actions.
+    ///
+    /// Routing priority: Modal → Hovered → Focused → Subscribers → Global handlers.
+    /// Modal blocks non-broadcast events from reaching other components.
+    pub fn handle_event(
+        &mut self,
+        event: &EventKind,
+        state: &S,
+        keybindings: &Keybindings<Ctx>,
+    ) -> EventOutcome<A>
+    where
+        S: EventRoutingState<Id, Ctx>,
+    {
+        self.update_context(event);
+
+        let is_broadcast = event.is_broadcast();
+        let is_mouse_event = matches!(event, EventKind::Mouse(_) | EventKind::Scroll { .. });
+
+        // Gather routing inputs
+        let subscribers = self
+            .subscriptions
+            .get(&event.event_type())
+            .cloned()
+            .unwrap_or_default();
+        let global_subscribers = &self.global_subscribers;
+        let hovered = if is_mouse_event {
+            self.mouse_position_from_event(event)
+                .and_then(|(col, row)| self.hit_test(col, row))
+        } else {
+            None
+        };
+
+        // Build routing plan
+        let plan = RoutingPlan::build(event, state, &subscribers, global_subscribers, hovered);
+
+        // Prepare binding context for global handlers
+        let default_binding_ctx = state.default_context();
+        let global_binding_ctx = state
+            .modal()
+            .or_else(|| state.focused())
+            .map(|id| state.binding_context(id))
+            .unwrap_or(default_binding_ctx);
+        let global_command = Self::command_for_context(event, keybindings, global_binding_ctx);
+
+        // Dispatch state
+        let mut actions = Vec::new();
+        let mut needs_render = false;
+        let mut consumed = false;
+        let mut called = HashSet::new();
+
+        // Route to components
+        for (target, id) in plan.iter() {
+            if !called.insert(id) {
+                continue;
+            }
+
+            if let Some(handler) = self.handlers.get_mut(&id) {
+                let binding_ctx = state.binding_context(id);
+                let command = Self::command_for_context(event, keybindings, binding_ctx);
+                let response = Self::call_handler(
+                    handler.as_mut(),
+                    target,
+                    event,
+                    command.as_deref(),
+                    binding_ctx,
+                    &self.context,
+                    state,
+                );
+
+                actions.extend(response.actions);
+                needs_render |= response.needs_render;
+                consumed |= response.consumed;
+
+                if consumed && !is_broadcast {
+                    return EventOutcome {
+                        actions,
+                        needs_render,
+                    };
+                }
+            }
+        }
+
+        // Global handlers (always run last, skip if modal blocks and not global event)
+        let should_run_global = !plan.modal_blocks || event.is_global();
+        if should_run_global {
+            for handler in self.global_handlers.iter_mut() {
+                let response = Self::call_handler(
+                    handler.as_mut(),
+                    RouteTarget::Global,
+                    event,
+                    global_command.as_deref(),
+                    global_binding_ctx,
+                    &self.context,
+                    state,
+                );
+
+                actions.extend(response.actions);
+                needs_render |= response.needs_render;
+                consumed |= response.consumed;
+
+                if consumed && !is_broadcast {
+                    break;
+                }
+            }
+        }
+
+        EventOutcome {
+            actions,
+            needs_render,
+        }
     }
 
-    /// Get the action sender
-    pub fn action_tx(&self) -> &mpsc::UnboundedSender<A> {
-        &self.action_tx
+    fn command_for_context(
+        event: &EventKind,
+        keybindings: &Keybindings<Ctx>,
+        binding_ctx: Ctx,
+    ) -> Option<Arc<str>> {
+        match event {
+            EventKind::Key(key)
+                if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
+            {
+                keybindings.get_command(*key, binding_ctx).map(Arc::from)
+            }
+            _ => None,
+        }
     }
 
-    /// Send an action through the bus
-    pub fn send(&self, action: A) -> Result<(), mpsc::error::SendError<A>> {
-        self.action_tx.send(action)
+    #[allow(clippy::too_many_arguments)]
+    fn call_handler(
+        handler: &mut HandlerFn<S, A, Id, Ctx>,
+        target: RouteTarget<Id>,
+        event: &EventKind,
+        command: Option<&str>,
+        binding_ctx: Ctx,
+        context: &EventContext<Id>,
+        state: &S,
+    ) -> HandlerResponse<A> {
+        let routed = RoutedEvent {
+            kind: event.clone(),
+            command,
+            binding_ctx,
+            target,
+            context,
+        };
+        handler(routed, state)
     }
 
-    /// Update context from mouse position
-    pub fn update_mouse_position(&mut self, x: u16, y: u16) {
-        self.context.mouse_position = Some((x, y));
+    fn update_context(&mut self, event: &EventKind) {
+        match event {
+            EventKind::Key(key) => {
+                self.context.modifiers = key.modifiers;
+            }
+            EventKind::Mouse(mouse) => {
+                self.context.mouse_position = Some((mouse.column, mouse.row));
+                self.context.modifiers = mouse.modifiers;
+            }
+            EventKind::Scroll {
+                column,
+                row,
+                modifiers,
+                ..
+            } => {
+                self.context.mouse_position = Some((*column, *row));
+                self.context.modifiers = *modifiers;
+            }
+            EventKind::Resize(width, height) => {
+                if let Some((column, row)) = self.context.mouse_position {
+                    if column >= *width || row >= *height {
+                        self.context.mouse_position = None;
+                    }
+                }
+            }
+            EventKind::Tick => {}
+        }
     }
 
-    /// Update modifiers from key event
-    pub fn update_modifiers(&mut self, modifiers: KeyModifiers) {
-        self.context.modifiers = modifiers;
+    fn mouse_position_from_event(&self, event: &EventKind) -> Option<(u16, u16)> {
+        match event {
+            EventKind::Mouse(mouse) => Some((mouse.column, mouse.row)),
+            EventKind::Scroll { column, row, .. } => Some((*column, *row)),
+            _ => None,
+        }
+    }
+
+    fn hit_test(&self, column: u16, row: u16) -> Option<Id> {
+        self.registration_order
+            .iter()
+            .rev()
+            .copied()
+            .find(|&id| self.context.point_in_component(id, column, row))
     }
 }
 
-/// Spawn the event polling task with cancellation support
+/// Spawn the event polling task with cancellation support.
 ///
 /// This spawns an async task that polls for crossterm events and sends them
 /// through the provided channel. The task can be cancelled using the token.
@@ -190,7 +618,7 @@ pub fn spawn_event_poller(
     })
 }
 
-/// Process a raw event into an EventKind
+/// Process a raw event into an EventKind.
 pub fn process_raw_event(raw: RawEvent) -> EventKind {
     match raw {
         RawEvent::Key(key) => EventKind::Key(key),
@@ -199,11 +627,13 @@ pub fn process_raw_event(raw: RawEvent) -> EventKind {
                 column: mouse.column,
                 row: mouse.row,
                 delta: 1,
+                modifiers: mouse.modifiers,
             },
             MouseEventKind::ScrollUp => EventKind::Scroll {
                 column: mouse.column,
                 row: mouse.row,
                 delta: -1,
+                modifiers: mouse.modifiers,
             },
             _ => EventKind::Mouse(mouse),
         },
@@ -215,23 +645,69 @@ pub fn process_raw_event(raw: RawEvent) -> EventKind {
 mod tests {
     use super::*;
     use crate::event::NumericComponentId;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
-    #[derive(Clone, Debug)]
-    #[allow(dead_code)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     enum TestAction {
-        Test,
+        Log(&'static str),
     }
 
     impl Action for TestAction {
         fn name(&self) -> &'static str {
-            "Test"
+            "Log"
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    enum TestContext {
+        Default,
+    }
+
+    impl BindingContext for TestContext {
+        fn name(&self) -> &'static str {
+            "default"
+        }
+
+        fn from_name(name: &str) -> Option<Self> {
+            match name {
+                "default" => Some(Self::Default),
+                _ => None,
+            }
+        }
+
+        fn all() -> &'static [Self] {
+            &[Self::Default]
+        }
+    }
+
+    #[derive(Default)]
+    struct TestState {
+        focused: Option<NumericComponentId>,
+        modal: Option<NumericComponentId>,
+    }
+
+    impl EventRoutingState<NumericComponentId, TestContext> for TestState {
+        fn focused(&self) -> Option<NumericComponentId> {
+            self.focused
+        }
+
+        fn modal(&self) -> Option<NumericComponentId> {
+            self.modal
+        }
+
+        fn binding_context(&self, _id: NumericComponentId) -> TestContext {
+            TestContext::Default
+        }
+
+        fn default_context(&self) -> TestContext {
+            TestContext::Default
         }
     }
 
     #[test]
     fn test_subscribe_unsubscribe() {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let mut bus: EventBus<TestAction, NumericComponentId> = EventBus::new(tx);
+        let mut bus: EventBus<TestState, TestAction, NumericComponentId, TestContext> =
+            EventBus::new();
 
         let component = NumericComponentId(1);
         bus.subscribe(component, EventType::Key);
@@ -244,8 +720,8 @@ mod tests {
 
     #[test]
     fn test_subscribe_many() {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let mut bus: EventBus<TestAction, NumericComponentId> = EventBus::new(tx);
+        let mut bus: EventBus<TestState, TestAction, NumericComponentId, TestContext> =
+            EventBus::new();
 
         let component = NumericComponentId(1);
         bus.subscribe_many(component, &[EventType::Key, EventType::Mouse]);
@@ -256,8 +732,8 @@ mod tests {
 
     #[test]
     fn test_unsubscribe_all() {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let mut bus: EventBus<TestAction, NumericComponentId> = EventBus::new(tx);
+        let mut bus: EventBus<TestState, TestAction, NumericComponentId, TestContext> =
+            EventBus::new();
 
         let component = NumericComponentId(1);
         bus.subscribe_many(
@@ -270,6 +746,134 @@ mod tests {
         assert!(bus.get_subscribers(EventType::Key).is_empty());
         assert!(bus.get_subscribers(EventType::Mouse).is_empty());
         assert!(bus.get_subscribers(EventType::Scroll).is_empty());
+    }
+
+    #[test]
+    fn test_handle_event_routes_modal_only() {
+        let mut bus: EventBus<TestState, TestAction, NumericComponentId, TestContext> =
+            EventBus::new();
+
+        let focused = NumericComponentId(1);
+        let modal = NumericComponentId(2);
+        let subscriber = NumericComponentId(3);
+
+        bus.register(focused, |_, _| HandlerResponse {
+            actions: vec![TestAction::Log("focused")],
+            consumed: false,
+            needs_render: false,
+        });
+        bus.register(modal, |_, _| HandlerResponse {
+            actions: vec![TestAction::Log("modal")],
+            consumed: false,
+            needs_render: false,
+        });
+        bus.register(subscriber, |_, _| HandlerResponse {
+            actions: vec![TestAction::Log("subscriber")],
+            consumed: false,
+            needs_render: false,
+        });
+        bus.register_global(|_, _| HandlerResponse {
+            actions: vec![TestAction::Log("global")],
+            consumed: false,
+            needs_render: false,
+        });
+        bus.subscribe(subscriber, EventType::Key);
+
+        let state = TestState {
+            focused: Some(focused),
+            modal: Some(modal),
+        };
+        let keybindings = Keybindings::new();
+
+        let key_event = KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+
+        let outcome = bus.handle_event(&EventKind::Key(key_event), &state, &keybindings);
+        assert_eq!(outcome.actions, vec![TestAction::Log("modal")]);
+    }
+
+    #[test]
+    fn test_global_subscribers_only_for_global_events() {
+        let mut bus: EventBus<TestState, TestAction, NumericComponentId, TestContext> =
+            EventBus::new();
+
+        let global_subscriber = NumericComponentId(1);
+        let key_subscriber = NumericComponentId(2);
+
+        bus.register(global_subscriber, |_, _| HandlerResponse {
+            actions: vec![TestAction::Log("global")],
+            consumed: false,
+            needs_render: false,
+        });
+        bus.register(key_subscriber, |_, _| HandlerResponse {
+            actions: vec![TestAction::Log("key")],
+            consumed: false,
+            needs_render: false,
+        });
+        bus.subscribe(global_subscriber, EventType::Global);
+        bus.subscribe(key_subscriber, EventType::Key);
+
+        let state = TestState::default();
+        let keybindings = Keybindings::new();
+
+        let key_event = KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+
+        let outcome = bus.handle_event(&EventKind::Key(key_event), &state, &keybindings);
+        assert_eq!(outcome.actions, vec![TestAction::Log("key")]);
+
+        let esc_event = KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+
+        let outcome = bus.handle_event(&EventKind::Key(esc_event), &state, &keybindings);
+        assert_eq!(
+            outcome.actions,
+            vec![TestAction::Log("key"), TestAction::Log("global")]
+        );
+    }
+
+    #[test]
+    fn test_handle_event_consumes() {
+        let mut bus: EventBus<TestState, TestAction, NumericComponentId, TestContext> =
+            EventBus::new();
+
+        let focused = NumericComponentId(1);
+        let modal = NumericComponentId(2);
+
+        bus.register(focused, |_, _| {
+            HandlerResponse::action(TestAction::Log("focused"))
+        });
+        bus.register(modal, |_, _| {
+            HandlerResponse::action(TestAction::Log("modal"))
+        });
+
+        let state = TestState {
+            focused: Some(focused),
+            modal: Some(modal),
+        };
+        let keybindings = Keybindings::new();
+
+        let key_event = KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::empty(),
+        };
+
+        let outcome = bus.handle_event(&EventKind::Key(key_event), &state, &keybindings);
+        assert_eq!(outcome.actions, vec![TestAction::Log("modal")]);
     }
 
     #[test]
@@ -300,10 +904,16 @@ mod tests {
 
         let kind = process_raw_event(RawEvent::Mouse(scroll_down));
         match kind {
-            EventKind::Scroll { column, row, delta } => {
+            EventKind::Scroll {
+                column,
+                row,
+                delta,
+                modifiers,
+            } => {
                 assert_eq!(column, 10);
                 assert_eq!(row, 20);
                 assert_eq!(delta, 1);
+                assert_eq!(modifiers, KeyModifiers::NONE);
             }
             _ => panic!("Expected Scroll event"),
         }

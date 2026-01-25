@@ -118,21 +118,75 @@ DispatchResult::changed_with_many(v)   // State changed, multiple effects
 The main event loop that ties everything together: polling events, dispatching actions, executing effects, and rendering.
 
 ```rust
+let mut bus = EventBus::new();
+let keybindings = Keybindings::new();
+
 DispatchRuntime::new(state, reducer)
     .with_debug(DebugLayer::simple())
-    .run(terminal, render_app, map_event, is_quit)
+    .run_with_bus(terminal, &mut bus, &keybindings, render_app, is_quit)
     .await?;
 ```
 
 For effect-based apps:
 ```rust
+let mut bus = EventBus::new();
+let keybindings = Keybindings::new();
+
 EffectRuntime::new(state, reducer)
-    .run(terminal, render_app, map_event, is_quit, handle_effect)
+    .run_with_bus(terminal, &mut bus, &keybindings, render_app, is_quit, handle_effect)
     .await?;
 ```
 
-### EventOutcome
-The result of mapping a terminal event to an action. Tells the runtime whether to render.
+Most apps route input through `EventBus` and use `run_with_bus`. The lower-level `run` + manual event mapping are still available when you want custom routing.
+
+### EventBus
+EventBus is the canonical input router. It chooses routing order (modal, hovered, focused, subscribers, global), resolves keybindings, and returns a `HandlerResponse` for each handler.
+
+It relies on two app-level types:
+
+- `ComponentId` to represent focusable targets
+- `EventRoutingState` to read focused/modal state from your app state
+
+**Simple apps** can use `SimpleEventBus` with `DefaultBindingContext`:
+
+```rust
+#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum AppComponentId { Main }
+
+impl EventRoutingState<AppComponentId, DefaultBindingContext> for AppState {
+    fn focused(&self) -> Option<AppComponentId> { Some(AppComponentId::Main) }
+    fn modal(&self) -> Option<AppComponentId> { None }
+    fn binding_context(&self, _id: AppComponentId) -> DefaultBindingContext { DefaultBindingContext }
+    fn default_context(&self) -> DefaultBindingContext { DefaultBindingContext }
+}
+
+let mut bus: SimpleEventBus<AppState, Action, AppComponentId> = SimpleEventBus::new();
+bus.register(AppComponentId::Main, |event, state| {
+    let actions = handle_event(&event.kind, state);
+    if actions.is_empty() {
+        HandlerResponse::ignored()
+    } else {
+        HandlerResponse::actions(actions)
+    }
+});
+```
+
+**Apps with multiple modes** (search, modal dialogs) can define custom `BindingContext` enums for context-specific keybindings. See [Event Bus](/tui-dispatch/patterns/event-bus/) for details.
+
+### HandlerResponse
+The result returned by EventBus handlers. It carries actions, propagation, and render intent.
+
+```rust
+HandlerResponse::ignored()              // no action, event continues routing
+HandlerResponse::action(action)         // one action, event consumed
+HandlerResponse::actions(vec)           // multiple actions, event consumed
+HandlerResponse::actions_passthrough(v) // multiple actions, event continues routing
+    .with_render()                      // force render even if state unchanged
+    .with_consumed(true)                // explicitly set consumed flag
+```
+
+### EventOutcome (manual routing)
+If you use `DispatchRuntime::run` or `EffectRuntime::run` without the bus, map events manually and return `EventOutcome`.
 
 ```rust
 EventOutcome::action(action)        // enqueue one action
@@ -339,7 +393,7 @@ struct AppState {
 Terminal Input
       |
       v
-map_event(event) --> EventOutcome::action(action)
+EventBus.handle_event(event) --> HandlerResponse { actions, needs_render }
                            |
                            v
                     store.dispatch(action)

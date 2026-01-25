@@ -82,32 +82,29 @@ let mut store = Store::new(AppState::default(), reducer);
 let state_changed = store.dispatch(action);
 ```
 
-### Event loop
+### Event routing with SimpleEventBus
 
 ```rust
 let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
     .with_debug(DebugLayer::simple());
+let mut bus: SimpleEventBus<AppState, AppAction, CounterComponentId> = SimpleEventBus::new();
+let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
+
+bus.register(CounterComponentId::Counter, |event, _state| {
+    match handle_event(&event.kind) {
+        Some(action) => HandlerResponse::action(action),
+        None => HandlerResponse::ignored(),
+    }
+});
 
 runtime
-    .run(
-        terminal,
-        |frame, area, state, _ctx| render(frame, area, state),
-        |event, _state| {
-            if let EventKind::Key(key) = event {
-                match key.code {
-                    KeyCode::Char('k') | KeyCode::Up => Some(AppAction::CountIncrement),
-                    KeyCode::Char('j') | KeyCode::Down => Some(AppAction::CountDecrement),
-                    KeyCode::Char('q') | KeyCode::Esc => Some(AppAction::Quit),
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        },
-        |action| matches!(action, AppAction::Quit),
-    )
+    .run_with_bus(terminal, &mut bus, &keybindings, render, |action| {
+        matches!(action, AppAction::Quit)
+    })
     .await?;
 ```
+
+The `SimpleEventBus` uses `DefaultBindingContext`, which avoids the need to define a custom context enum for simple apps.
 
 ## Next steps
 

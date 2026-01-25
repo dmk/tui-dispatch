@@ -501,6 +501,7 @@ mod tests {
                     column: 0,
                     row: 0,
                     delta: -1,
+                    modifiers: KeyModifiers::NONE,
                 },
                 ScrollViewProps {
                     content_height: lines.len(),

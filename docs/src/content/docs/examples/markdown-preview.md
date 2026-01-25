@@ -27,7 +27,21 @@ let debug = DebugLayer::<Action>::simple().active(args.debug);
 let mut runtime = DispatchRuntime::new(AppState::new(file_path, features), reducer)
     .with_debug(debug);
 
-runtime.run(terminal, render_app, map_event, |action| matches!(action, Action::Quit)).await?;
+let mut bus = EventBus::new();
+let keybindings = Keybindings::new();
+
+runtime
+    .run_with_bus(
+        terminal,
+        &mut bus,
+        &keybindings,
+        |frame, area, state, ctx, event_ctx| {
+            event_ctx.set_component_area(MarkdownComponentId::Viewer, area);
+            render_app(frame, area, state, ctx);
+        },
+        |action| matches!(action, Action::Quit),
+    )
+    .await?;
 ```
 
 Press **F12** to enter debug mode. The debug layer freezes the frame and provides inspection tools:

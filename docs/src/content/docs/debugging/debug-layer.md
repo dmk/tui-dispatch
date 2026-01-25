@@ -13,9 +13,12 @@ The easiest way to add debugging is with `DispatchRuntime`:
 use tui_dispatch::prelude::*;
 use tui_dispatch::debug::DebugLayer;
 
+let mut bus = EventBus::new();
+let keybindings = Keybindings::new();
+
 DispatchRuntime::new(AppState::default(), reducer)
     .with_debug(DebugLayer::simple())  // F12 to toggle
-    .run(terminal, render, map_event, is_quit)
+    .run_with_bus(terminal, &mut bus, &keybindings, render, is_quit)
     .await?;
 ```
 

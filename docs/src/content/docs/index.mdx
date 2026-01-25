@@ -24,7 +24,7 @@ State mutations happen in one place (reducers), making apps predictable and test
 Event → Action → Reducer → State Change → Render
 ```
 
-1. Terminal events (keypresses, mouse clicks) are converted to **actions**
+1. Terminal events (keypresses, mouse clicks) are routed through **EventBus** into actions
 2. Actions are dispatched to the **store**
 3. The **reducer** updates state based on the action
 4. The UI re-renders with the new state
@@ -109,7 +109,7 @@ Use `EffectRuntime` or `EffectStore`. See the [Weather example](/tui-dispatch/ex
 Terminal Input
       │
       ▼
-map_event(event) ──► Action
+ EventBus.handle_event(event) ──► Actions
                         │
                         ▼
                  store.dispatch(action)

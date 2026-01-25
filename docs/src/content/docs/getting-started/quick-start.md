@@ -53,6 +53,18 @@ enum Action {
     Quit,
 }
 
+#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum AppComponentId {
+    Counter,
+}
+
+impl EventRoutingState<AppComponentId, DefaultBindingContext> for AppState {
+    fn focused(&self) -> Option<AppComponentId> { Some(AppComponentId::Counter) }
+    fn modal(&self) -> Option<AppComponentId> { None }
+    fn binding_context(&self, _id: AppComponentId) -> DefaultBindingContext { DefaultBindingContext }
+    fn default_context(&self) -> DefaultBindingContext { DefaultBindingContext }
+}
+
 fn reducer(state: &mut AppState, action: Action) -> bool {
     match action {
         Action::Inc => {
@@ -67,14 +79,21 @@ fn reducer(state: &mut AppState, action: Action) -> bool {
     }
 }
 
-fn render(frame: &mut Frame, area: Rect, state: &AppState, _ctx: RenderContext) {
+fn render(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    _ctx: RenderContext,
+    event_ctx: &mut EventContext<AppComponentId>,
+) {
+    event_ctx.set_component_area(AppComponentId::Counter, area);
     frame.render_widget(
         Paragraph::new(format!("count = {}  (k/j, q)", state.count)),
         area,
     );
 }
 
-fn map_event(event: &EventKind, _state: &AppState) -> Option<Action> {
+fn handle_event(event: &EventKind) -> Option<Action> {
     if let EventKind::Key(key) = event {
         use crossterm::event::KeyCode;
         match key.code {
@@ -107,8 +126,20 @@ async fn main() -> io::Result<()> {
 
 async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
     let mut runtime = DispatchRuntime::new(AppState::default(), reducer);
+    let mut bus: SimpleEventBus<AppState, Action, AppComponentId> = SimpleEventBus::new();
+    let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
+
+    bus.register(AppComponentId::Counter, |event, _state| {
+        match handle_event(&event.kind) {
+            Some(action) => HandlerResponse::action(action),
+            None => HandlerResponse::ignored(),
+        }
+    });
+
     runtime
-        .run(terminal, render, map_event, |a| matches!(a, Action::Quit))
+        .run_with_bus(terminal, &mut bus, &keybindings, render, |a| {
+            matches!(a, Action::Quit)
+        })
         .await
 }
 ```
@@ -127,8 +158,8 @@ Keys: `k`/`Up` increments, `j`/`Down` decrements, `q`/`Esc` quits.
 
 | Do you need side effects (HTTP, file IO, timers)? | Use | Example |
 |---|---|---|
-| No | `DispatchRuntime` + `fn reducer(...) -> bool` | [Counter](/tui-dispatch/examples/counter/) |
-| Yes | `EffectRuntime` + `fn reducer(...) -> DispatchResult<Effect>` | [GitHub Lookup](/tui-dispatch/tutorials/async-fetch/), [Weather](/tui-dispatch/examples/weather/) |
+| No | `DispatchRuntime` + `EventBus` + `fn reducer(...) -> bool` | [Counter](/tui-dispatch/examples/counter/) |
+| Yes | `EffectRuntime` + `EventBus` + `fn reducer(...) -> DispatchResult<Effect>` | [GitHub Lookup](/tui-dispatch/tutorials/async-fetch/), [Weather](/tui-dispatch/examples/weather/) |
 
 ## When You Need Async: Effects + TaskManager
 
@@ -202,11 +233,13 @@ fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
 }
 ```
 
-Then run it with `EffectRuntime`:
+Then run it with `EffectRuntime` (using the same EventBus setup as above):
 
 ```rust
 let mut runtime = EffectRuntime::new(State::default(), reducer);
-runtime.run(terminal, render, map_event, is_quit, handle_effect).await?;
+runtime
+    .run_with_bus(terminal, &mut bus, &keybindings, render, is_quit, handle_effect)
+    .await?;
 ```
 
 ## Debug Mode (F12)
@@ -249,6 +282,7 @@ effects.effects_count(1);
 ## Next Steps
 
 - [Async Patterns](/tui-dispatch/patterns/async/) - tasks, subscriptions, debouncing
+- [Event Bus](/tui-dispatch/patterns/event-bus/) - routing, focus, handler responses
 - [Tutorial: Fetching Data from an API](/tui-dispatch/tutorials/async-fetch/)
 - [Debug Layer](/tui-dispatch/debugging/debug-layer/)
 - [Runtime Feature Flags](/tui-dispatch/debugging/feature-flags/) - toggle app features at runtime

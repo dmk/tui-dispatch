@@ -236,11 +236,14 @@ async fn main() -> io::Result<()> {
         DebugLayer::simple()
     };
 
+    let mut bus: SimpleEventBus<AppState, Action, AppComponentId> = SimpleEventBus::new();
+    let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
+
     // Set up terminal...
     let mut terminal = setup_terminal()?;
 
     // Run with replay support
-    let output = session.run_effect_app(
+    let output = session.run_effect_app_with_bus(
         &mut terminal,
         store,
         debug_layer,
@@ -248,8 +251,9 @@ async fn main() -> io::Result<()> {
         session.auto_fetch().then_some(Action::AutoFetch),
         Some(Action::Quit),
         |_runtime| {},
-        |frame, area, state, ctx| render(frame, area, state, ctx),
-        |event, state| map_event(event, state),
+        &mut bus,
+        &keybindings,
+        |frame, area, state, ctx, event_ctx| render(frame, area, state, ctx, event_ctx),
         |action| matches!(action, Action::Quit),
         |effect, ctx| handle_effect(effect, ctx),
     ).await?;

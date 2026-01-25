@@ -145,14 +145,23 @@ fn handle_event(&mut self, event: &EventKind, props: Self::Props<'_>) -> impl In
 The parent (or runtime) determines which component is focused:
 
 ```rust
-// In your event mapping
-fn map_event(event: &EventKind, state: &AppState) -> Vec<Action> {
+// In your EventBus handler
+bus.register(ComponentId::MyComponent, |event, state| {
     let props = MyProps {
         data: &state.data,
         is_focused: state.focus == Focus::MyComponent,
     };
-    component.handle_event(event, props).into_iter().collect()
-}
+    let actions: Vec<_> = component.handle_event(&event.kind, props).into_iter().collect();
+    if actions.is_empty() {
+        HandlerResponse::ignored()
+    } else {
+        HandlerResponse {
+            actions,
+            consumed: true,
+            needs_render: false,
+        }
+    }
+});
 ```
 
 ## Props with Action Constructors

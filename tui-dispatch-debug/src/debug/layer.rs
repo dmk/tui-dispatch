@@ -812,7 +812,12 @@ impl<A: Action> DebugLayer<A> {
                 // Consume mouse events when capturing
                 Some(vec![])
             }
-            EventKind::Scroll { delta, column, row } => {
+            EventKind::Scroll {
+                delta,
+                column,
+                row,
+                modifiers,
+            } => {
                 if !self.freeze.enabled {
                     return None;
                 }
@@ -841,6 +846,7 @@ impl<A: Action> DebugLayer<A> {
                                     delta: *delta,
                                     column: *column,
                                     row: *row,
+                                    modifiers: *modifiers,
                                 },
                                 props,
                             )

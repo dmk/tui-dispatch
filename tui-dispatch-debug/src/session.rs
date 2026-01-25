@@ -21,7 +21,10 @@ use tui_dispatch_core::runtime::{
 };
 use tui_dispatch_core::store::{ComposedMiddleware, Middleware};
 use tui_dispatch_core::testing::RenderHarness;
-use tui_dispatch_core::{Action, ActionParams, EventKind};
+use tui_dispatch_core::{
+    Action, ActionParams, BindingContext, ComponentId, EventBus, EventContext, EventKind,
+    EventRoutingState, Keybindings,
+};
 
 /// Records actions for --debug-actions-out snapshots with optional filtering.
 #[derive(Clone)]
@@ -536,6 +539,179 @@ impl DebugSession {
                     render(frame, area, state, render_ctx);
                 },
                 |event, state| map_event(event, state),
+                |action| should_quit(action),
+                |effect, ctx| handle_effect(effect, ctx),
+            )
+            .await;
+
+        match result {
+            Ok(()) => Ok(DebugRunOutput::new(runtime.state().clone(), None)),
+            Err(err) => Err(err),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_effect_app_with_bus<B, S, A, E, St, Id, Ctx, FInit, FRender, FQuit, FEffect>(
+        &self,
+        terminal: &mut Terminal<B>,
+        mut store: St,
+        debug_layer: DebugLayer<A>,
+        replay_items: Vec<ReplayItem<A>>,
+        auto_action: Option<A>,
+        quit_action: Option<A>,
+        init_runtime: FInit,
+        bus: &mut EventBus<S, A, Id, Ctx>,
+        keybindings: &Keybindings<Ctx>,
+        mut render: FRender,
+        mut should_quit: FQuit,
+        mut handle_effect: FEffect,
+    ) -> io::Result<DebugRunOutput<S>>
+    where
+        B: Backend,
+        S: Clone + DebugState + Serialize + EventRoutingState<Id, Ctx> + 'static,
+        A: Action + ActionParams,
+        St: EffectStoreLike<S, A, E>,
+        Id: ComponentId + 'static,
+        Ctx: BindingContext + 'static,
+        FInit: FnOnce(&mut EffectRuntime<S, A, E, St>),
+        FRender: FnMut(&mut ratatui::Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
+        FQuit: FnMut(&A) -> bool,
+        FEffect: FnMut(E, &mut EffectContext<A>),
+    {
+        let size = terminal.size().unwrap_or_else(|_| Size::new(80, 24));
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+        let auto_action = auto_action;
+
+        // Check if replay items contain any await markers
+        let has_awaits = replay_items.iter().any(|item| item.is_await());
+        let replay_timeout = self.replay_timeout();
+
+        if self.args.render_once {
+            let final_state = if has_awaits {
+                // Need runtime for effects when replay has await markers
+                let runtime = EffectRuntime::from_store(store);
+                let mut action_rx = runtime.subscribe_actions();
+                let action_tx = runtime.action_tx();
+
+                // Spawn replay task that processes items with await support
+                let replay_items_clone = replay_items;
+                let auto_action_clone = auto_action.clone();
+                let auto_fetch = self.auto_fetch();
+                let replay_handle = tokio::spawn(async move {
+                    for item in replay_items_clone {
+                        match item {
+                            ReplayItem::Action(action) => {
+                                let _ = action_tx.send(action);
+                            }
+                            ReplayItem::AwaitOne { _await: pattern } => {
+                                wait_for_action(&mut action_rx, &[pattern], replay_timeout).await?;
+                            }
+                            ReplayItem::AwaitAny {
+                                _await_any: patterns,
+                            } => {
+                                wait_for_action(&mut action_rx, &patterns, replay_timeout).await?;
+                            }
+                        }
+                    }
+                    if auto_fetch {
+                        if let Some(action) = auto_action_clone {
+                            let _ = action_tx.send(action);
+                        }
+                    }
+                    Ok::<(), ReplayError>(())
+                });
+
+                let mut runtime = runtime;
+                init_runtime(&mut runtime);
+
+                let quit_action = quit_action.ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "replay with await markers requires a quit action",
+                    )
+                })?;
+
+                // Send quit after replay completes
+                let action_tx = runtime.action_tx();
+                let quit = quit_action.clone();
+                tokio::spawn(async move {
+                    // Wait for replay to complete
+                    let _ = replay_handle.await;
+                    // Small delay to let final effects settle
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let _ = action_tx.send(quit);
+                });
+
+                let backend = TestBackend::new(width, height);
+                let mut test_terminal = Terminal::new(backend)?;
+                runtime
+                    .run(
+                        &mut test_terminal,
+                        |_frame, _area, _state, _ctx| {},
+                        |_event, _state| EventOutcome::<A>::ignored(),
+                        |action| should_quit(action),
+                        |effect, ctx| handle_effect(effect, ctx),
+                    )
+                    .await?;
+
+                runtime.state().clone()
+            } else {
+                // Simple dispatch mode (no effects, ignores awaits)
+                for item in replay_items {
+                    if let ReplayItem::Action(action) = item {
+                        let _ = store.dispatch(action);
+                    }
+                }
+                if self.auto_fetch() {
+                    if let Some(action) = auto_action.clone() {
+                        let _ = store.dispatch(action);
+                    }
+                }
+                store.state().clone()
+            };
+
+            let mut harness = RenderHarness::new(width, height);
+            let output = harness.render_to_string_plain(|frame| {
+                let mut event_ctx = EventContext::<Id>::default();
+                render(
+                    frame,
+                    frame.area(),
+                    &final_state,
+                    RenderContext::default(),
+                    &mut event_ctx,
+                );
+            });
+
+            return Ok(DebugRunOutput::new(final_state, Some(output)));
+        }
+
+        // Normal interactive mode - just enqueue actions (ignore awaits)
+        let debug_layer = debug_layer
+            .with_state_snapshots::<S>()
+            .active(self.args.enabled);
+        let mut runtime = EffectRuntime::from_store(store).with_debug(debug_layer);
+        init_runtime(&mut runtime);
+
+        for item in replay_items {
+            if let ReplayItem::Action(action) = item {
+                runtime.enqueue(action);
+            }
+        }
+        if self.auto_fetch() {
+            if let Some(action) = auto_action {
+                runtime.enqueue(action);
+            }
+        }
+
+        let result = runtime
+            .run_with_bus(
+                terminal,
+                bus,
+                keybindings,
+                |frame, area, state, render_ctx, event_ctx| {
+                    render(frame, area, state, render_ctx, event_ctx);
+                },
                 |action| should_quit(action),
                 |effect, ctx| handle_effect(effect, ctx),
             )

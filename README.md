@@ -5,6 +5,7 @@ Centralized state management for Rust TUI apps (ratatui + crossterm). Think Redu
 - Predictable updates: all state mutations live in your reducer.
 - Testable by construction: reducers and emitted effects are plain data.
 - Ergonomic runtime: `DispatchRuntime` / `EffectRuntime` run the event loop.
+- Input routing: `EventBus` handles focus and propagation.
 - Debuggable: built-in debug overlay (F12) for state + action inspection.
 
 ## Quick Start
@@ -43,6 +44,34 @@ enum Action {
     Quit,
 }
 
+#[derive(ComponentId, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum AppComponentId {
+    Counter,
+}
+
+#[derive(BindingContext, Clone, Copy, PartialEq, Eq, Hash)]
+enum AppContext {
+    Main,
+}
+
+impl EventRoutingState<AppComponentId, AppContext> for State {
+    fn focused(&self) -> Option<AppComponentId> {
+        Some(AppComponentId::Counter)
+    }
+
+    fn modal(&self) -> Option<AppComponentId> {
+        None
+    }
+
+    fn binding_context(&self, _id: AppComponentId) -> AppContext {
+        AppContext::Main
+    }
+
+    fn default_context(&self) -> AppContext {
+        AppContext::Main
+    }
+}
+
 fn reducer(state: &mut State, action: Action) -> bool {
     match action {
         Action::Inc => {
@@ -57,14 +86,21 @@ fn reducer(state: &mut State, action: Action) -> bool {
     }
 }
 
-fn render(frame: &mut Frame, area: Rect, state: &State, _ctx: RenderContext) {
+fn render(
+    frame: &mut Frame,
+    area: Rect,
+    state: &State,
+    _ctx: RenderContext,
+    event_ctx: &mut EventContext<AppComponentId>,
+) {
+    event_ctx.set_component_area(AppComponentId::Counter, area);
     frame.render_widget(
         Paragraph::new(format!("count = {}  (j/k, q)", state.count)),
         area,
     );
 }
 
-fn map_event(event: &EventKind, _state: &State) -> Option<Action> {
+fn handle_event(event: &EventKind) -> Option<Action> {
     if let EventKind::Key(key) = event {
         use crossterm::event::KeyCode;
         match key.code {
@@ -86,16 +122,32 @@ async fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut runtime = DispatchRuntime::new(State::default(), reducer);
-    let result = runtime
-        .run(&mut terminal, render, map_event, |a| matches!(a, Action::Quit))
-        .await;
+    let result = run_app(&mut terminal).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     result
+}
+
+async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
+    let mut runtime = DispatchRuntime::new(State::default(), reducer);
+    let mut bus: EventBus<State, Action, AppComponentId, AppContext> = EventBus::new();
+    let keybindings: Keybindings<AppContext> = Keybindings::new();
+
+    bus.register(AppComponentId::Counter, |event, _state| {
+        match handle_event(&event.kind) {
+            Some(action) => HandlerResponse::action(action),
+            None => HandlerResponse::ignored(),
+        }
+    });
+
+    runtime
+        .run_with_bus(&mut terminal, &mut bus, &keybindings, render, |a| {
+            matches!(a, Action::Quit)
+        })
+        .await
 }
 ```
 
@@ -114,7 +166,7 @@ Enable helpers:
 - `features = ["tasks"]` for cancellation + debouncing via `TaskManager`
 - `features = ["subscriptions"]` for continuous sources (interval ticks, streams)
 
-See `docs/src/async.md` and the `weather-example` / `github-lookup-example` apps.
+See `docs/src/content/docs/patterns/async.md` and the `weather-example` / `github-lookup-example` apps.
 
 ## Examples (In This Repo)
 
@@ -127,7 +179,8 @@ cargo run -p markdown-preview -- README.md --debug
 
 ## Documentation
 
-- Book (mdBook): `docs/` (run `make docs-serve`)
+- Docs (Starlight): `docs/` (run `make docs-serve`)
+- EventBus guide: `docs/src/content/docs/patterns/event-bus.md`
 - API docs: https://docs.rs/tui-dispatch
 
 ## Crates

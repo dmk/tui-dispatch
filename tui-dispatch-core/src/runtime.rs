@@ -12,11 +12,12 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::bus::{process_raw_event, spawn_event_poller, RawEvent};
+use crate::bus::{process_raw_event, spawn_event_poller, EventBus, EventRoutingState, RawEvent};
 use crate::effect::{DispatchResult, EffectStore, EffectStoreWithMiddleware};
-use crate::event::EventKind;
+use crate::event::{ComponentId, EventContext, EventKind};
+use crate::keybindings::Keybindings;
 use crate::store::{Middleware, Reducer, Store, StoreWithMiddleware};
-use crate::Action;
+use crate::{Action, BindingContext};
 
 #[cfg(feature = "subscriptions")]
 use crate::subscriptions::Subscriptions;
@@ -415,6 +416,116 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
         cancel_token.cancel();
         Ok(())
     }
+
+    /// Run the event/action loop using an EventBus for routing.
+    pub async fn run_with_bus<B, FRender, FQuit, Id, Ctx>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        bus: &mut EventBus<S, A, Id, Ctx>,
+        keybindings: &Keybindings<Ctx>,
+        mut render: FRender,
+        mut should_quit: FQuit,
+    ) -> io::Result<()>
+    where
+        B: Backend,
+        Id: ComponentId + 'static,
+        Ctx: BindingContext + 'static,
+        S: EventRoutingState<Id, Ctx>,
+        FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
+        FQuit: FnMut(&A) -> bool,
+    {
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
+        let cancel_token = CancellationToken::new();
+        let _handle = spawn_event_poller(
+            event_tx,
+            self.poller_config.poll_timeout,
+            self.poller_config.loop_sleep,
+            cancel_token.clone(),
+        );
+
+        loop {
+            if self.should_render {
+                let state = self.store.state();
+                let render_ctx = RenderContext {
+                    debug_enabled: {
+                        #[cfg(feature = "debug")]
+                        {
+                            self.debug
+                                .as_ref()
+                                .map(|debug| debug.is_enabled())
+                                .unwrap_or(false)
+                        }
+                        #[cfg(not(feature = "debug"))]
+                        {
+                            false
+                        }
+                    },
+                };
+                terminal.draw(|frame| {
+                    #[cfg(feature = "debug")]
+                    if let Some(debug) = self.debug.as_mut() {
+                        let mut render_fn =
+                            |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
+                                render(f, area, state, ctx, bus.context_mut());
+                            };
+                        debug.render(frame, state, render_ctx, &mut render_fn);
+                    } else {
+                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
+                    }
+
+                    #[cfg(not(feature = "debug"))]
+                    {
+                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
+                    }
+                })?;
+                self.should_render = false;
+            }
+
+            tokio::select! {
+                Some(raw_event) = event_rx.recv() => {
+                    let event = process_raw_event(raw_event);
+
+                    #[cfg(feature = "debug")]
+                    if let Some(debug) = self.debug.as_mut() {
+                        if let Some(needs_render) =
+                            debug.handle_event(&event, self.store.state(), &self.action_tx)
+                        {
+                            self.should_render = needs_render;
+                            continue;
+                        }
+                    }
+
+                    let outcome = bus.handle_event(&event, self.store.state(), keybindings);
+                    if outcome.needs_render {
+                        self.should_render = true;
+                    }
+                    for action in outcome.actions {
+                        let _ = self.action_tx.send(action);
+                    }
+                }
+
+                Some(action) = self.action_rx.recv() => {
+                    if should_quit(&action) {
+                        break;
+                    }
+
+                    #[cfg(feature = "debug")]
+                    if let Some(debug) = self.debug.as_mut() {
+                        debug.log_action(&action);
+                    }
+
+                    self.should_render = self.store.dispatch(action);
+                }
+
+                else => {
+                    break;
+                }
+            }
+        }
+
+        cancel_token.cancel();
+        Ok(())
+    }
 }
 
 /// Context passed to effect handlers.
@@ -675,6 +786,133 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                     }
 
                     let outcome: EventOutcome<A> = map_event(&event, self.store.state()).into();
+                    if outcome.needs_render {
+                        self.should_render = true;
+                    }
+                    for action in outcome.actions {
+                        let _ = self.action_tx.send(action);
+                    }
+                }
+
+                Some(action) = self.action_rx.recv() => {
+                    if should_quit(&action) {
+                        break;
+                    }
+
+                    #[cfg(feature = "debug")]
+                    if let Some(debug) = self.debug.as_mut() {
+                        debug.log_action(&action);
+                    }
+
+                    // Broadcast action name for replay await functionality
+                    let _ = self.action_broadcast.send(action.name().to_string());
+
+                    let result = self.store.dispatch(action);
+                    if result.has_effects() {
+                        let mut ctx = self.effect_context();
+                        for effect in result.effects {
+                            handle_effect(effect, &mut ctx);
+                        }
+                    }
+                    self.should_render = result.changed;
+                }
+
+                else => {
+                    break;
+                }
+            }
+        }
+
+        cancel_token.cancel();
+        #[cfg(feature = "subscriptions")]
+        self.subscriptions.cancel_all();
+        #[cfg(feature = "tasks")]
+        self.tasks.cancel_all();
+
+        Ok(())
+    }
+
+    /// Run the event/action loop using an EventBus for routing.
+    pub async fn run_with_bus<B, FRender, FQuit, FEffect, Id, Ctx>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        bus: &mut EventBus<S, A, Id, Ctx>,
+        keybindings: &Keybindings<Ctx>,
+        mut render: FRender,
+        mut should_quit: FQuit,
+        mut handle_effect: FEffect,
+    ) -> io::Result<()>
+    where
+        B: Backend,
+        Id: ComponentId + 'static,
+        Ctx: BindingContext + 'static,
+        S: EventRoutingState<Id, Ctx>,
+        FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
+        FQuit: FnMut(&A) -> bool,
+        FEffect: FnMut(E, &mut EffectContext<A>),
+    {
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
+        let cancel_token = CancellationToken::new();
+        let _handle = spawn_event_poller(
+            event_tx,
+            self.poller_config.poll_timeout,
+            self.poller_config.loop_sleep,
+            cancel_token.clone(),
+        );
+
+        loop {
+            if self.should_render {
+                let state = self.store.state();
+                let render_ctx = RenderContext {
+                    debug_enabled: {
+                        #[cfg(feature = "debug")]
+                        {
+                            self.debug
+                                .as_ref()
+                                .map(|debug| debug.is_enabled())
+                                .unwrap_or(false)
+                        }
+                        #[cfg(not(feature = "debug"))]
+                        {
+                            false
+                        }
+                    },
+                };
+                terminal.draw(|frame| {
+                    #[cfg(feature = "debug")]
+                    if let Some(debug) = self.debug.as_mut() {
+                        let mut render_fn =
+                            |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
+                                render(f, area, state, ctx, bus.context_mut());
+                            };
+                        debug.render(frame, state, render_ctx, &mut render_fn);
+                    } else {
+                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
+                    }
+
+                    #[cfg(not(feature = "debug"))]
+                    {
+                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
+                    }
+                })?;
+                self.should_render = false;
+            }
+
+            tokio::select! {
+                Some(raw_event) = event_rx.recv() => {
+                    let event = process_raw_event(raw_event);
+
+                    #[cfg(feature = "debug")]
+                    if let Some(debug) = self.debug.as_mut() {
+                        if let Some(needs_render) =
+                            debug.handle_event(&event, self.store.state(), &self.action_tx)
+                        {
+                            self.should_render = needs_render;
+                            continue;
+                        }
+                    }
+
+                    let outcome = bus.handle_event(&event, self.store.state(), keybindings);
                     if outcome.needs_render {
                         self.should_render = true;
                     }

@@ -31,9 +31,11 @@ Internal component state (cursor position, scroll offsets) lives in `&mut self`,
 Options:
 
 - Return an app action that causes the reducer to return `true` / `DispatchResult::changed()` (common, simple).
-- In your `map_event`, return `EventOutcome::needs_render()` when the component handled the event but emitted no actions.
+- In your EventBus handler, return `HandlerResponse::ignored().with_render().with_consumed(true)` when the component handled the event but emitted no actions.
 
 If you're writing reusable components, consider an explicit "Render" action (see `examples/weather` which has `Action::Render`).
+
+For more on routing, see [Event Bus](/tui-dispatch/patterns/event-bus/).
 
 ## What's the difference between Effects and TaskManager?
 
