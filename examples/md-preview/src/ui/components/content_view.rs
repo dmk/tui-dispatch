@@ -140,19 +140,18 @@ impl Component<Action> for ContentView {
                 // Prepare the line (with search highlighting if needed)
                 let line = if !search.query.is_empty() && search.matches.contains(&line_idx) {
                     let is_current = search.matches.get(search.current_match) == Some(&line_idx);
-                    let bg = if is_current {
-                        Color::Rgb(80, 80, 40)
+                    let highlight_bg = if is_current {
+                        Color::Rgb(180, 140, 40)
                     } else {
-                        Color::Rgb(50, 50, 30)
+                        Color::Rgb(120, 100, 40)
                     };
-                    Line::from(
-                        rendered
-                            .line
-                            .spans
-                            .iter()
-                            .map(|s| Span::styled(s.content.clone(), s.style.bg(bg)))
-                            .collect::<Vec<_>>(),
-                    )
+                    // Highlight matching text within each span
+                    let highlighted_spans = highlight_matches_in_spans(
+                        &rendered.line.spans,
+                        &search.query,
+                        highlight_bg,
+                    );
+                    Line::from(highlighted_spans)
                 } else {
                     rendered.line.clone()
                 };
@@ -197,4 +196,52 @@ impl Component<Action> for ContentView {
             },
         );
     }
+}
+
+/// Highlight matching substrings within spans while preserving original styling
+fn highlight_matches_in_spans<'a>(
+    spans: &[Span<'a>],
+    query: &str,
+    highlight_bg: Color,
+) -> Vec<Span<'static>> {
+    let query_lower = query.to_lowercase();
+    let mut result = Vec::new();
+
+    for span in spans {
+        let text = span.content.as_ref();
+        let style = span.style;
+
+        if text.is_empty() || query.is_empty() {
+            result.push(Span::styled(text.to_string(), style));
+            continue;
+        }
+
+        let text_lower = text.to_lowercase();
+        let mut last_end = 0;
+
+        for (start, _) in text_lower.match_indices(&query_lower) {
+            // Add non-matching part before this match
+            if start > last_end {
+                result.push(Span::styled(text[last_end..start].to_string(), style));
+            }
+
+            // Add matching part with highlight background
+            let end = start + query.len();
+            result.push(Span::styled(
+                text[start..end].to_string(),
+                style.bg(highlight_bg),
+            ));
+            last_end = end;
+        }
+
+        // Add remaining part after last match
+        if last_end < text.len() {
+            result.push(Span::styled(text[last_end..].to_string(), style));
+        } else if last_end == 0 {
+            // No matches found, keep original span
+            result.push(Span::styled(text.to_string(), style));
+        }
+    }
+
+    result
 }

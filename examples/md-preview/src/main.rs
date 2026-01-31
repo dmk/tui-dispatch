@@ -1,6 +1,9 @@
-//! Markdown Preview - TUI markdown viewer with debug features
+//! Markdown Preview - TUI markdown viewer with sync extensions
 //!
-//! Demonstrates tui-dispatch capabilities:
+//! Demonstrates tui-dispatch sync extensions (no EventBus):
+//! - **Keybindings**: User-configurable key mappings
+//! - **FeatureFlags**: Runtime feature toggles
+//! - **DebugLayer**: State inspection overlay
 //!
 //! ## Feature Flags (CLI)
 //! ```bash
@@ -25,13 +28,13 @@ mod ui;
 
 use clap::Parser;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers},
+    event::{DisableMouseCapture, EnableMouseCapture, KeyCode},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
-use tui_dispatch::{DispatchRuntime, EventKind, EventOutcome, FeatureFlags};
+use tui_dispatch::{DefaultBindingContext, DispatchRuntime, EventKind, EventOutcome, FeatureFlags, Keybindings};
 use tui_dispatch_debug::debug::{DebugLayer, DebugSection, DebugState, ron_string};
 
 use crate::action::Action;
@@ -134,6 +137,30 @@ async fn main() -> io::Result<()> {
     result
 }
 
+/// Create default keybindings - can be customized via config file
+fn default_keybindings() -> Keybindings<DefaultBindingContext> {
+    let mut kb = Keybindings::new();
+
+    // Navigation
+    kb.add_global("scroll_down", vec!["j".into(), "down".into()]);
+    kb.add_global("scroll_up", vec!["k".into(), "up".into()]);
+    kb.add_global("page_down", vec!["ctrl+d".into(), "pagedown".into()]);
+    kb.add_global("page_up", vec!["ctrl+u".into(), "pageup".into()]);
+    kb.add_global("jump_top", vec!["g".into(), "home".into()]);
+    kb.add_global("jump_bottom", vec!["shift+g".into(), "end".into()]);
+
+    // Search
+    kb.add_global("search", vec!["/".into()]);
+    kb.add_global("search_next", vec!["n".into()]);
+    kb.add_global("search_prev", vec!["shift+n".into()]);
+
+    // File
+    kb.add_global("reload", vec!["r".into()]);
+    kb.add_global("quit", vec!["q".into()]);
+
+    kb
+}
+
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     file_path: String,
@@ -146,30 +173,33 @@ async fn run_app<B: ratatui::backend::Backend>(
     let size = terminal.size()?;
     state.terminal_height = size.height;
 
+    // Keybindings - user-configurable key mappings
+    let keybindings = default_keybindings();
+
     // Debug layer - only active when --debug flag passed
     let debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
 
     let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
 
     runtime
-        .run(terminal, render_app, map_event, |action| {
+        .run(terminal, render_app, |event, state| map_event(event, state, &keybindings), |action| {
             matches!(action, Action::Quit)
         })
         .await
 }
 
-fn map_event(event: &EventKind, state: &AppState) -> EventOutcome<Action> {
+fn map_event(event: &EventKind, state: &AppState, keybindings: &Keybindings<DefaultBindingContext>) -> EventOutcome<Action> {
     if let EventKind::Resize(_, height) = event {
         return EventOutcome::action(Action::UiTerminalResize(*height)).with_render();
     }
 
-    EventOutcome::from(handle_event(event, state))
+    EventOutcome::from(handle_event(event, state, keybindings))
 }
 
-fn handle_event(event: &EventKind, state: &AppState) -> Vec<Action> {
+fn handle_event(event: &EventKind, state: &AppState, keybindings: &Keybindings<DefaultBindingContext>) -> Vec<Action> {
     match event {
         EventKind::Key(key) => {
-            // Search mode
+            // Search mode - direct key handling (not configurable)
             if state.search.active {
                 return match key.code {
                     KeyCode::Esc => vec![Action::SearchCancel],
@@ -180,37 +210,25 @@ fn handle_event(event: &EventKind, state: &AppState) -> Vec<Action> {
                 };
             }
 
-            // Normal mode
-            match key.code {
-                // Navigation
-                KeyCode::Char('j') | KeyCode::Down => vec![Action::NavScroll(1)],
-                KeyCode::Char('k') | KeyCode::Up => vec![Action::NavScroll(-1)],
-                KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    vec![Action::NavScrollPage(1)]
-                }
-                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    vec![Action::NavScrollPage(-1)]
-                }
-                KeyCode::PageDown => vec![Action::NavScrollPage(1)],
-                KeyCode::PageUp => vec![Action::NavScrollPage(-1)],
-                KeyCode::Char('g') => vec![Action::NavJumpTop], // simplified, not gg
-                KeyCode::Char('G') => vec![Action::NavJumpBottom],
-                KeyCode::Home => vec![Action::NavJumpTop],
-                KeyCode::End => vec![Action::NavJumpBottom],
-
-                // Search
-                KeyCode::Char('/') => vec![Action::SearchStart],
-                KeyCode::Char('n') => vec![Action::SearchNext],
-                KeyCode::Char('N') => vec![Action::SearchPrev],
-
-                // File
-                KeyCode::Char('r') => vec![Action::FileReload],
-
-                // Quit
-                KeyCode::Char('q') => vec![Action::Quit],
-
-                _ => vec![],
+            // Normal mode - use keybindings for configurable commands
+            if let Some(cmd) = keybindings.get_command(*key, DefaultBindingContext) {
+                return match cmd.as_str() {
+                    "scroll_down" => vec![Action::NavScroll(1)],
+                    "scroll_up" => vec![Action::NavScroll(-1)],
+                    "page_down" => vec![Action::NavScrollPage(1)],
+                    "page_up" => vec![Action::NavScrollPage(-1)],
+                    "jump_top" => vec![Action::NavJumpTop],
+                    "jump_bottom" => vec![Action::NavJumpBottom],
+                    "search" => vec![Action::SearchStart],
+                    "search_next" => vec![Action::SearchNext],
+                    "search_prev" => vec![Action::SearchPrev],
+                    "reload" => vec![Action::FileReload],
+                    "quit" => vec![Action::Quit],
+                    _ => vec![],
+                };
             }
+
+            vec![]
         }
         EventKind::Scroll { delta, .. } => {
             vec![Action::NavScroll((delta * 3) as i16)]

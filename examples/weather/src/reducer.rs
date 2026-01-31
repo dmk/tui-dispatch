@@ -20,8 +20,12 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
     match action {
         // ===== Weather actions =====
         Action::WeatherFetch => {
-            // Set loading state, emit fetch effect
-            state.weather = DataResource::Loading;
+            // If we already have data, keep showing it during refresh
+            if state.weather.is_loaded() {
+                state.is_refreshing = true;
+            } else {
+                state.weather = DataResource::Loading;
+            }
             state.tick_count = 0;
             state.loading_anim_ticks_remaining = 0;
             let loc = state.current_location();
@@ -33,12 +37,14 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
 
         Action::WeatherDidLoad(data) => {
             state.weather = DataResource::Loaded(data);
+            state.is_refreshing = false;
             state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
             DispatchResult::changed()
         }
 
         Action::WeatherDidError(msg) => {
             state.weather = DataResource::Failed(msg);
+            state.is_refreshing = false;
             state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
             DispatchResult::changed()
         }
@@ -113,7 +119,9 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
 
             let (lat, lon) = (location.lat, location.lon);
             state.location = location;
+            // New city = fresh load (not a refresh of existing data)
             state.weather = DataResource::Loading;
+            state.is_refreshing = false;
             state.search_mode = false;
             state.search_query.clear();
             state.search_results.clear();

@@ -66,6 +66,10 @@ pub struct AppState {
     #[debug(section = "Weather", label = "Data", debug_fmt)]
     pub weather: DataResource<WeatherData>,
 
+    /// Whether a refresh is in progress (keeps showing current data during fetch)
+    #[debug(section = "Weather", label = "Refreshing")]
+    pub is_refreshing: bool,
+
     /// Temperature unit preference
     #[debug(section = "Weather", label = "Unit", debug_fmt)]
     pub unit: TempUnit,
@@ -111,6 +115,7 @@ impl AppState {
         Self {
             location,
             weather: DataResource::Empty,
+            is_refreshing: false,
             unit: TempUnit::default(),
             tick_count: 0,
             loading_anim_ticks_remaining: 0,
@@ -129,7 +134,7 @@ impl AppState {
     }
 
     pub fn loading_anim_active(&self) -> bool {
-        self.weather.is_loading() || self.loading_anim_ticks_remaining > 0
+        self.weather.is_loading() || self.is_refreshing || self.loading_anim_ticks_remaining > 0
     }
 }
 

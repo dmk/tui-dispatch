@@ -83,6 +83,7 @@ enum BodyBlock {
     Line(Line<'static>),
     Sprite { art: Text<'static>, height: u16 },
     Temperature { text: String, celsius: f32 },
+    Spacer { height: u16 },
 }
 
 impl BodyBlock {
@@ -91,6 +92,7 @@ impl BodyBlock {
             BodyBlock::Line(_) => 1,
             BodyBlock::Sprite { height, .. } => *height,
             BodyBlock::Temperature { .. } => 4, // blocky font height
+            BodyBlock::Spacer { height } => *height,
         }
     }
 
@@ -108,6 +110,9 @@ impl BodyBlock {
                     .with_fill(temperature_gradient(celsius));
                 let widget = ArtBox::new(&renderer, &text);
                 frame.render_widget(widget, area);
+            }
+            BodyBlock::Spacer { .. } => {
+                // Empty space - just reserve the area, render nothing
             }
         }
     }
@@ -171,20 +176,44 @@ fn blocks_for_state(state: &AppState) -> Vec<BodyBlock> {
             ]
         }
         WeatherView::Loading => {
-            // Loading animation is shown via the header gradient
-            vec![blank_line()]
+            // Reserve space matching Ready layout to prevent jumps
+            let (art_lines, _) = sprites::weather_sprite(0, state.terminal_size);
+            let sprite_height = art_lines.lines.len() as u16;
+
+            vec![
+                blank_line(),
+                BodyBlock::Spacer { height: sprite_height },
+                blank_line(),
+                BodyBlock::Spacer { height: 4 }, // Temperature height
+                BodyBlock::Line(
+                    Line::from(vec![Span::styled(
+                        "Loading...",
+                        Style::default().fg(Color::DarkGray),
+                    )])
+                    .centered(),
+                ),
+            ]
         }
-        WeatherView::Empty => vec![
-            blank_line(),
-            BodyBlock::Line(
-                Line::from(vec![
-                    Span::styled("Press ", Style::default().fg(Color::DarkGray)),
-                    Span::styled("r", Style::default().fg(Color::Cyan).bold()),
-                    Span::styled(" to fetch weather", Style::default().fg(Color::DarkGray)),
-                ])
-                .centered(),
-            ),
-        ],
+        WeatherView::Empty => {
+            // Reserve space matching Ready layout to prevent jumps
+            let (art_lines, _) = sprites::weather_sprite(0, state.terminal_size);
+            let sprite_height = art_lines.lines.len() as u16;
+
+            vec![
+                blank_line(),
+                BodyBlock::Spacer { height: sprite_height },
+                blank_line(),
+                BodyBlock::Spacer { height: 4 }, // Temperature height
+                BodyBlock::Line(
+                    Line::from(vec![
+                        Span::styled("Press ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("r", Style::default().fg(Color::Cyan).bold()),
+                        Span::styled(" to fetch weather", Style::default().fg(Color::DarkGray)),
+                    ])
+                    .centered(),
+                ),
+            ]
+        }
     }
 }
 

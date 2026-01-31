@@ -1,5 +1,5 @@
 [package]
-name = "counter"
+name = "counter-example"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,9 +9,5 @@ path = "src/main.rs"
 
 [dependencies]
 tui-dispatch = { path = "../../tui-dispatch" }
-tui-dispatch-components = { path = "../../tui-dispatch-components" }
-tui-dispatch-debug = { path = "../../tui-dispatch-debug" }
 ratatui = "0.29"
 crossterm = "0.28"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tokio-util = "0.7"

@@ -28,6 +28,7 @@ impl Component<Action> for StatusBar {
         let style = StatusBarStyle {
             base: tui_dispatch_components::BaseStyle {
                 bg: Some(Color::Rgb(30, 30, 40)),
+                border: None,
                 ..Default::default()
             },
             text: Style::default().fg(Color::DarkGray),
