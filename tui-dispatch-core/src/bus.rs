@@ -5,8 +5,7 @@ use crate::keybindings::Keybindings;
 use crate::runtime::EventOutcome;
 use crate::{Action, BindingContext};
 use crossterm::event::{self, KeyEventKind, MouseEventKind};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -63,7 +62,17 @@ impl<Id: ComponentId> RoutingPlan<Id> {
         let modal = state.modal();
         let focused = state.focused();
 
-        let mut targets = Vec::with_capacity(8);
+        let mut targets = Vec::with_capacity(
+            subscribers.len()
+                + if event.is_global() {
+                    global_subscribers.len()
+                } else {
+                    0
+                }
+                + if modal.is_some() { 1 } else { 0 }
+                + if hovered.is_some() { 1 } else { 0 }
+                + if focused.is_some() { 1 } else { 0 },
+        );
 
         // Modal gets first priority
         if let Some(id) = modal {
@@ -385,14 +394,22 @@ where
 
         let is_broadcast = event.is_broadcast();
         let is_mouse_event = matches!(event, EventKind::Mouse(_) | EventKind::Scroll { .. });
+        let key_event = match event {
+            EventKind::Key(key)
+                if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
+            {
+                Some(key)
+            }
+            _ => None,
+        };
 
         // Gather routing inputs
         let subscribers = self
             .subscriptions
             .get(&event.event_type())
-            .cloned()
-            .unwrap_or_default();
-        let global_subscribers = &self.global_subscribers;
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let global_subscribers = self.global_subscribers.as_slice();
         let hovered = if is_mouse_event {
             self.mouse_position_from_event(event)
                 .and_then(|(col, row)| self.hit_test(col, row))
@@ -401,7 +418,7 @@ where
         };
 
         // Build routing plan
-        let plan = RoutingPlan::build(event, state, &subscribers, global_subscribers, hovered);
+        let plan = RoutingPlan::build(event, state, subscribers, global_subscribers, hovered);
 
         // Prepare binding context for global handlers
         let default_binding_ctx = state.default_context();
@@ -410,28 +427,34 @@ where
             .or_else(|| state.focused())
             .map(|id| state.binding_context(id))
             .unwrap_or(default_binding_ctx);
-        let global_command = Self::command_for_context(event, keybindings, global_binding_ctx);
-
         // Dispatch state
+        let mut command_cache: HashMap<Ctx, Option<&str>> = HashMap::new();
         let mut actions = Vec::new();
         let mut needs_render = false;
         let mut consumed = false;
-        let mut called = HashSet::new();
+        let mut called: Vec<Id> = Vec::with_capacity(plan.targets.len());
 
         // Route to components
         for (target, id) in plan.iter() {
-            if !called.insert(id) {
+            if called.contains(&id) {
                 continue;
             }
+            called.push(id);
 
             if let Some(handler) = self.handlers.get_mut(&id) {
                 let binding_ctx = state.binding_context(id);
-                let command = Self::command_for_context(event, keybindings, binding_ctx);
+                let command = if let Some(key) = key_event {
+                    *command_cache
+                        .entry(binding_ctx)
+                        .or_insert_with(|| keybindings.get_command_ref(key, binding_ctx))
+                } else {
+                    None
+                };
                 let response = Self::call_handler(
                     handler.as_mut(),
                     target,
                     event,
-                    command.as_deref(),
+                    command,
                     binding_ctx,
                     &self.context,
                     state,
@@ -453,12 +476,19 @@ where
         // Global handlers (always run last, skip if modal blocks and not global event)
         let should_run_global = !plan.modal_blocks || event.is_global();
         if should_run_global {
+            let global_command = if let Some(key) = key_event {
+                *command_cache
+                    .entry(global_binding_ctx)
+                    .or_insert_with(|| keybindings.get_command_ref(key, global_binding_ctx))
+            } else {
+                None
+            };
             for handler in self.global_handlers.iter_mut() {
                 let response = Self::call_handler(
                     handler.as_mut(),
                     RouteTarget::Global,
                     event,
-                    global_command.as_deref(),
+                    global_command,
                     global_binding_ctx,
                     &self.context,
                     state,
@@ -477,21 +507,6 @@ where
         EventOutcome {
             actions,
             needs_render,
-        }
-    }
-
-    fn command_for_context(
-        event: &EventKind,
-        keybindings: &Keybindings<Ctx>,
-        binding_ctx: Ctx,
-    ) -> Option<Arc<str>> {
-        match event {
-            EventKind::Key(key)
-                if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
-            {
-                keybindings.get_command(*key, binding_ctx).map(Arc::from)
-            }
-            _ => None,
         }
     }
 

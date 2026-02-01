@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::sync::OnceLock;
 
 /// Trait for user-defined keybinding contexts
 ///
@@ -33,17 +34,41 @@ pub trait BindingContext: Clone + Copy + Eq + Hash {
 /// Keybindings configuration with context support
 ///
 /// Generic over the context type `C` which must implement `BindingContext`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Keybindings<C: BindingContext> {
     /// Global keybindings - checked as fallback for all contexts
     global: HashMap<String, Vec<String>>,
     /// Context-specific keybindings
     contexts: HashMap<C, HashMap<String, Vec<String>>>,
+    /// Cached parsed bindings for fast lookup
+    compiled: OnceLock<CompiledKeybindings<C>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ParsedKey {
+    code: KeyCode,
+    modifiers: KeyModifiers,
+}
+
+#[derive(Debug, Clone)]
+struct CompiledKeybindings<C: BindingContext> {
+    global: HashMap<ParsedKey, String>,
+    contexts: HashMap<C, HashMap<ParsedKey, String>>,
 }
 
 impl<C: BindingContext> Default for Keybindings<C> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<C: BindingContext> Clone for Keybindings<C> {
+    fn clone(&self) -> Self {
+        Self {
+            global: self.global.clone(),
+            contexts: self.contexts.clone(),
+            compiled: OnceLock::new(),
+        }
     }
 }
 
@@ -99,12 +124,14 @@ impl<C: BindingContext> Keybindings<C> {
         Self {
             global: HashMap::new(),
             contexts: HashMap::new(),
+            compiled: OnceLock::new(),
         }
     }
 
     /// Add a global keybinding
     pub fn add_global(&mut self, command: impl Into<String>, keys: Vec<String>) {
         self.global.insert(command.into(), keys);
+        self.invalidate_cache();
     }
 
     /// Add a context-specific keybinding
@@ -113,6 +140,7 @@ impl<C: BindingContext> Keybindings<C> {
             .entry(context)
             .or_default()
             .insert(command.into(), keys);
+        self.invalidate_cache();
     }
 
     /// Get bindings for a specific context
@@ -129,42 +157,23 @@ impl<C: BindingContext> Keybindings<C> {
     ///
     /// First checks context-specific bindings, then falls back to global
     pub fn get_command(&self, key: KeyEvent, context: C) -> Option<String> {
-        // First try context-specific bindings
-        if let Some(context_bindings) = self.contexts.get(&context) {
-            if let Some(cmd) = self.match_key_in_bindings(key, context_bindings) {
-                return Some(cmd);
-            }
-        }
-
-        // Fall back to global bindings
-        self.match_key_in_bindings(key, &self.global)
+        self.get_command_ref(&key, context).map(str::to_string)
     }
 
-    /// Helper to match a key against a set of bindings
-    fn match_key_in_bindings(
-        &self,
-        key: KeyEvent,
-        bindings: &HashMap<String, Vec<String>>,
-    ) -> Option<String> {
-        for (command, keys) in bindings {
-            for key_str in keys {
-                if let Some(parsed_key) = parse_key_string(key_str) {
-                    // Compare code and modifiers (ignore kind and state)
-                    // For character keys, compare case-insensitively
-                    let codes_match = match (&parsed_key.code, &key.code) {
-                        (KeyCode::Char(c1), KeyCode::Char(c2)) => {
-                            c1.to_lowercase().to_string() == c2.to_lowercase().to_string()
-                        }
-                        _ => parsed_key.code == key.code,
-                    };
+    /// Get command name for a key event by reference
+    ///
+    /// Returns a borrowed `&str` to avoid allocations on hot paths.
+    pub fn get_command_ref(&self, key: &KeyEvent, context: C) -> Option<&str> {
+        let parsed = ParsedKey::from_key_event(key)?;
+        let compiled = self.compiled();
 
-                    if codes_match && parsed_key.modifiers == key.modifiers {
-                        return Some(command.clone());
-                    }
-                }
+        if let Some(context_bindings) = compiled.contexts.get(&context) {
+            if let Some(cmd) = context_bindings.get(&parsed) {
+                return Some(cmd.as_str());
             }
         }
-        None
+
+        compiled.global.get(&parsed).map(String::as_str)
     }
 
     /// Get the first keybinding string for a command in the given context
@@ -199,7 +208,78 @@ impl<C: BindingContext> Keybindings<C> {
             }
         }
 
+        defaults.invalidate_cache();
         defaults
+    }
+
+    fn compiled(&self) -> &CompiledKeybindings<C> {
+        self.compiled
+            .get_or_init(|| CompiledKeybindings::build(self))
+    }
+
+    fn invalidate_cache(&mut self) {
+        self.compiled = OnceLock::new();
+    }
+}
+
+impl ParsedKey {
+    fn from_key_event(key: &KeyEvent) -> Option<Self> {
+        Some(Self {
+            code: normalize_code(key.code)?,
+            modifiers: key.modifiers,
+        })
+    }
+
+    fn from_key_string(key_str: &str) -> Option<Self> {
+        let key = parse_key_string(key_str)?;
+        Self::from_key_event(&key)
+    }
+}
+
+impl<C: BindingContext> CompiledKeybindings<C> {
+    fn build(bindings: &Keybindings<C>) -> Self {
+        let mut global = HashMap::new();
+        for (command, keys) in &bindings.global {
+            insert_bindings(&mut global, command, keys);
+        }
+
+        let mut contexts = HashMap::new();
+        for (context, bindings) in &bindings.contexts {
+            let entry = contexts.entry(*context).or_insert_with(HashMap::new);
+            for (command, keys) in bindings {
+                insert_bindings(entry, command, keys);
+            }
+        }
+
+        Self { global, contexts }
+    }
+}
+
+fn insert_bindings(target: &mut HashMap<ParsedKey, String>, command: &str, keys: &[String]) {
+    for key_str in keys {
+        if let Some(parsed) = ParsedKey::from_key_string(key_str) {
+            target.entry(parsed).or_insert_with(|| command.to_string());
+        }
+    }
+}
+
+fn normalize_code(code: KeyCode) -> Option<KeyCode> {
+    match code {
+        KeyCode::Char(c) => normalize_char(c).map(KeyCode::Char),
+        other => Some(other),
+    }
+}
+
+fn normalize_char(c: char) -> Option<char> {
+    if c.is_ascii() {
+        return Some(c.to_ascii_lowercase());
+    }
+    let mut folded = c.to_lowercase();
+    let first = folded.next()?;
+    if folded.next().is_some() {
+        None
+    } else {
+        Some(first)
     }
 }
 

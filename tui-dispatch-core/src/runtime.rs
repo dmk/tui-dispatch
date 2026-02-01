@@ -805,7 +805,9 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                     }
 
                     // Broadcast action name for replay await functionality
-                    let _ = self.action_broadcast.send(action.name().to_string());
+                    if self.action_broadcast.receiver_count() > 0 {
+                        let _ = self.action_broadcast.send(action.name().to_string());
+                    }
 
                     let result = self.store.dispatch(action);
                     if result.has_effects() {
@@ -932,7 +934,9 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                     }
 
                     // Broadcast action name for replay await functionality
-                    let _ = self.action_broadcast.send(action.name().to_string());
+                    if self.action_broadcast.receiver_count() > 0 {
+                        let _ = self.action_broadcast.send(action.name().to_string());
+                    }
 
                     let result = self.store.dispatch(action);
                     if result.has_effects() {
