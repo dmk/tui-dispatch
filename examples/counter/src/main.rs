@@ -14,7 +14,9 @@ use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::layout::{Alignment, Constraint, Flex, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
@@ -93,7 +95,8 @@ fn main() -> io::Result<()> {
             frame.render_widget(paragraph, center);
 
             // Help text at bottom
-            let [_, help_area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+            let [_, help_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
             let help = Paragraph::new("k/↑ increment  j/↓ decrement  q quit")
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::DarkGray));

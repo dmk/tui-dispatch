@@ -182,7 +182,9 @@ fn blocks_for_state(state: &AppState) -> Vec<BodyBlock> {
 
             vec![
                 blank_line(),
-                BodyBlock::Spacer { height: sprite_height },
+                BodyBlock::Spacer {
+                    height: sprite_height,
+                },
                 blank_line(),
                 BodyBlock::Spacer { height: 4 }, // Temperature height
                 BodyBlock::Line(
@@ -201,7 +203,9 @@ fn blocks_for_state(state: &AppState) -> Vec<BodyBlock> {
 
             vec![
                 blank_line(),
-                BodyBlock::Spacer { height: sprite_height },
+                BodyBlock::Spacer {
+                    height: sprite_height,
+                },
                 blank_line(),
                 BodyBlock::Spacer { height: 4 }, // Temperature height
                 BodyBlock::Line(

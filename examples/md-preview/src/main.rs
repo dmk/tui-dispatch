@@ -34,7 +34,9 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
-use tui_dispatch::{DefaultBindingContext, DispatchRuntime, EventKind, EventOutcome, FeatureFlags, Keybindings};
+use tui_dispatch::{
+    DefaultBindingContext, DispatchRuntime, EventKind, EventOutcome, FeatureFlags, Keybindings,
+};
 use tui_dispatch_debug::debug::{DebugLayer, DebugSection, DebugState, ron_string};
 
 use crate::action::Action;
@@ -182,13 +184,20 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
 
     runtime
-        .run(terminal, render_app, |event, state| map_event(event, state, &keybindings), |action| {
-            matches!(action, Action::Quit)
-        })
+        .run(
+            terminal,
+            render_app,
+            |event, state| map_event(event, state, &keybindings),
+            |action| matches!(action, Action::Quit),
+        )
         .await
 }
 
-fn map_event(event: &EventKind, state: &AppState, keybindings: &Keybindings<DefaultBindingContext>) -> EventOutcome<Action> {
+fn map_event(
+    event: &EventKind,
+    state: &AppState,
+    keybindings: &Keybindings<DefaultBindingContext>,
+) -> EventOutcome<Action> {
     if let EventKind::Resize(_, height) = event {
         return EventOutcome::action(Action::UiTerminalResize(*height)).with_render();
     }
@@ -196,7 +205,11 @@ fn map_event(event: &EventKind, state: &AppState, keybindings: &Keybindings<Defa
     EventOutcome::from(handle_event(event, state, keybindings))
 }
 
-fn handle_event(event: &EventKind, state: &AppState, keybindings: &Keybindings<DefaultBindingContext>) -> Vec<Action> {
+fn handle_event(
+    event: &EventKind,
+    state: &AppState,
+    keybindings: &Keybindings<DefaultBindingContext>,
+) -> Vec<Action> {
     match event {
         EventKind::Key(key) => {
             // Search mode - direct key handling (not configurable)
