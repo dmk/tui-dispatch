@@ -12,7 +12,9 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::bus::{process_raw_event, spawn_event_poller, EventBus, EventRoutingState, RawEvent};
+use crate::bus::{
+    process_raw_event, spawn_event_poller, EventBus, EventOutcome, EventRoutingState, RawEvent,
+};
 use crate::effect::{DispatchResult, EffectStore, EffectStoreWithMiddleware};
 use crate::event::{ComponentId, EventContext, EventKind};
 use crate::keybindings::Keybindings;
@@ -42,15 +44,6 @@ impl Default for PollerConfig {
     }
 }
 
-/// Result of mapping an event into actions plus an optional render hint.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EventOutcome<A> {
-    /// Actions to enqueue.
-    pub actions: Vec<A>,
-    /// Whether to force a re-render.
-    pub needs_render: bool,
-}
-
 /// Context passed to render closures.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RenderContext {
@@ -62,92 +55,6 @@ impl RenderContext {
     /// Whether the app should treat input focus as active.
     pub fn is_focused(self) -> bool {
         !self.debug_enabled
-    }
-}
-
-impl<A> EventOutcome<A> {
-    /// No actions and no render.
-    pub fn ignored() -> Self {
-        Self {
-            actions: Vec::new(),
-            needs_render: false,
-        }
-    }
-
-    /// No actions, but request a render.
-    pub fn needs_render() -> Self {
-        Self {
-            actions: Vec::new(),
-            needs_render: true,
-        }
-    }
-
-    /// Wrap a single action.
-    pub fn action(action: A) -> Self {
-        Self {
-            actions: vec![action],
-            needs_render: false,
-        }
-    }
-
-    /// Wrap multiple actions.
-    pub fn actions<I>(actions: I) -> Self
-    where
-        I: IntoIterator<Item = A>,
-    {
-        Self {
-            actions: actions.into_iter().collect(),
-            needs_render: false,
-        }
-    }
-
-    /// Mark that a render is needed.
-    pub fn with_render(mut self) -> Self {
-        self.needs_render = true;
-        self
-    }
-}
-
-impl<A> Default for EventOutcome<A> {
-    fn default() -> Self {
-        Self::ignored()
-    }
-}
-
-impl<A> From<A> for EventOutcome<A> {
-    fn from(action: A) -> Self {
-        Self::action(action)
-    }
-}
-
-impl<A> From<Vec<A>> for EventOutcome<A> {
-    fn from(actions: Vec<A>) -> Self {
-        Self {
-            actions,
-            needs_render: false,
-        }
-    }
-}
-
-impl<A> From<Option<A>> for EventOutcome<A> {
-    fn from(action: Option<A>) -> Self {
-        match action {
-            Some(action) => Self::action(action),
-            None => Self::ignored(),
-        }
-    }
-}
-
-impl<A> EventOutcome<A> {
-    /// Create from any iterator of actions
-    ///
-    /// Useful for converting `Component::handle_event` results which return
-    /// `impl IntoIterator<Item = A>`.
-    pub fn from_actions(iter: impl IntoIterator<Item = A>) -> Self {
-        Self {
-            actions: iter.into_iter().collect(),
-            needs_render: false,
-        }
     }
 }
 

@@ -116,7 +116,8 @@ pub use features::{DynamicFeatures, FeatureFlags};
 // Event system exports
 pub use bus::{
     process_raw_event, spawn_event_poller, DefaultBindingContext, EventBus, EventHandler,
-    EventRoutingState, HandlerResponse, RawEvent, RouteTarget, RoutedEvent, SimpleEventBus,
+    EventOutcome, EventRoutingState, HandlerResponse, RawEvent, RouteTarget, RoutedEvent,
+    SimpleEventBus,
 };
 pub use event::{ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId};
 
@@ -131,8 +132,8 @@ pub use store::{
 
 // Runtime exports
 pub use runtime::{
-    DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike, EventOutcome,
-    PollerConfig, RenderContext,
+    DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike, PollerConfig,
+    RenderContext,
 };
 
 // Effect exports
@@ -173,7 +174,8 @@ pub mod prelude {
     pub use crate::action::{Action, ActionCategory, ActionParams};
     pub use crate::bus::{
         process_raw_event, spawn_event_poller, DefaultBindingContext, EventBus, EventHandler,
-        EventRoutingState, HandlerResponse, RawEvent, RouteTarget, RoutedEvent, SimpleEventBus,
+        EventOutcome, EventRoutingState, HandlerResponse, RawEvent, RouteTarget, RoutedEvent,
+        SimpleEventBus,
     };
     pub use crate::component::Component;
     pub use crate::effect::{
@@ -196,7 +198,7 @@ pub mod prelude {
     // Runtime helpers
     pub use crate::runtime::{
         DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike,
-        EventOutcome, PollerConfig, RenderContext,
+        PollerConfig, RenderContext,
     };
     #[cfg(feature = "subscriptions")]
     pub use crate::subscriptions::{SubKey, SubPauseHandle, Subscriptions};

@@ -16,9 +16,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
-use tui_dispatch_core::runtime::{
-    EffectContext, EffectRuntime, EffectStoreLike, EventOutcome, RenderContext,
-};
+use tui_dispatch_core::bus::EventOutcome;
+use tui_dispatch_core::runtime::{EffectContext, EffectRuntime, EffectStoreLike, RenderContext};
 use tui_dispatch_core::store::{ComposedMiddleware, Middleware};
 use tui_dispatch_core::testing::RenderHarness;
 use tui_dispatch_core::{
