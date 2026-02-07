@@ -130,6 +130,41 @@ runtime
     .await?;
 ```
 
+## Configuring Global Keys
+
+By default, Esc, Ctrl+C, and Ctrl+Q are treated as "global" events — they bypass modal blocking and reach global subscribers. This can be surprising for apps that use Esc to close modals.
+
+Use `GlobalKeyPolicy` to customize this behavior:
+
+```rust
+use tui_dispatch::{EventBus, GlobalKeyPolicy};
+
+// Default: Esc, Ctrl+C, Ctrl+Q are global
+let bus = EventBus::new();
+
+// Remove Esc from global keys (keep Ctrl+C, Ctrl+Q)
+let bus = EventBus::new()
+    .with_global_key_policy(GlobalKeyPolicy::without_esc());
+
+// Only Ctrl+C is global
+let bus = EventBus::new()
+    .with_global_key_policy(GlobalKeyPolicy::keys(vec![
+        (KeyCode::Char('c'), KeyModifiers::CONTROL),
+    ]));
+
+// No key events are global (only Resize remains global)
+let bus = EventBus::new()
+    .with_global_key_policy(GlobalKeyPolicy::none());
+
+// Custom predicate
+let bus = EventBus::new()
+    .with_global_key_policy(GlobalKeyPolicy::custom(|event| {
+        matches!(event, EventKind::Key(k) if k.modifiers.contains(KeyModifiers::CONTROL))
+    }));
+```
+
+Resize events are always global regardless of the policy.
+
 ## Routing order
 
 - Modal (if any)

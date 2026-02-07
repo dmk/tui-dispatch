@@ -102,8 +102,8 @@ pub mod prelude {
     // Event system
     pub use tui_dispatch_core::{
         process_raw_event, spawn_event_poller, DefaultBindingContext, Event, EventBus,
-        EventContext, EventHandler, EventKind, EventRoutingState, EventType, HandlerResponse,
-        NumericComponentId, RawEvent, RouteTarget, RoutedEvent, SimpleEventBus,
+        EventContext, EventHandler, EventKind, EventRoutingState, EventType, GlobalKeyPolicy,
+        HandlerResponse, NumericComponentId, RawEvent, RouteTarget, RoutedEvent, SimpleEventBus,
     };
 
     // Keybindings

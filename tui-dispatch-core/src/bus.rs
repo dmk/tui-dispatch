@@ -1,6 +1,6 @@
 //! Event bus for dispatching events to registered handlers
 
-use crate::event::{ComponentId, EventContext, EventKind, EventType};
+use crate::event::{ComponentId, EventContext, EventKind, EventType, GlobalKeyPolicy};
 use crate::keybindings::Keybindings;
 use crate::{Action, BindingContext};
 use crossterm::event::{self, KeyEventKind, MouseEventKind};
@@ -141,6 +141,7 @@ impl<Id: ComponentId> RoutingPlan<Id> {
     /// Build a routing plan for an event.
     fn build<S, Ctx>(
         event: &EventKind,
+        is_global: bool,
         state: &S,
         subscribers: &[Id],
         global_subscribers: &[Id],
@@ -156,7 +157,7 @@ impl<Id: ComponentId> RoutingPlan<Id> {
 
         let mut targets = Vec::with_capacity(
             subscribers.len()
-                + if event.is_global() {
+                + if is_global {
                     global_subscribers.len()
                 } else {
                     0
@@ -192,7 +193,7 @@ impl<Id: ComponentId> RoutingPlan<Id> {
         }
 
         // Global subscribers (for global events, even when modal is active)
-        if event.is_global() {
+        if is_global {
             for &id in global_subscribers {
                 targets.push((RouteTarget::Subscriber(id), id));
             }
@@ -306,6 +307,7 @@ pub struct EventBus<S, A: Action, Id: ComponentId, Ctx: BindingContext> {
     global_subscribers: Vec<Id>,
     registration_order: Vec<Id>,
     context: EventContext<Id>,
+    global_key_policy: GlobalKeyPolicy,
 }
 
 /// Default binding context for apps that don't need custom contexts.
@@ -360,7 +362,25 @@ where
             global_subscribers: Vec::new(),
             registration_order: Vec::new(),
             context: EventContext::default(),
+            global_key_policy: GlobalKeyPolicy::Default,
         }
+    }
+
+    /// Set the global key policy.
+    ///
+    /// Controls which key events are treated as "global" — global events
+    /// bypass modal blocking and are delivered to global subscribers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Don't treat Esc as global (useful for modal-heavy apps)
+    /// let bus = EventBus::new()
+    ///     .with_global_key_policy(GlobalKeyPolicy::without_esc());
+    /// ```
+    pub fn with_global_key_policy(mut self, policy: GlobalKeyPolicy) -> Self {
+        self.global_key_policy = policy;
+        self
     }
 
     /// Register a handler for a component ID.
@@ -509,8 +529,11 @@ where
             None
         };
 
+        // Resolve global status using the configured policy
+        let is_global = self.global_key_policy.is_global(event);
+
         // Build routing plan
-        let plan = RoutingPlan::build(event, state, subscribers, global_subscribers, hovered);
+        let plan = RoutingPlan::build(event, is_global, state, subscribers, global_subscribers, hovered);
 
         // Prepare binding context for global handlers
         let default_binding_ctx = state.default_context();
@@ -566,7 +589,7 @@ where
         }
 
         // Global handlers (always run last, skip if modal blocks and not global event)
-        let should_run_global = !plan.modal_blocks || event.is_global();
+        let should_run_global = !plan.modal_blocks || is_global;
         if should_run_global {
             let global_command = if let Some(key) = key_event {
                 *command_cache

@@ -119,7 +119,9 @@ pub use bus::{
     EventOutcome, EventRoutingState, HandlerResponse, RawEvent, RouteTarget, RoutedEvent,
     SimpleEventBus,
 };
-pub use event::{ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId};
+pub use event::{
+    ComponentId, Event, EventContext, EventKind, EventType, GlobalKeyPolicy, NumericComponentId,
+};
 
 // Keybindings exports
 pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, Keybindings};
@@ -182,7 +184,8 @@ pub mod prelude {
         ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
     };
     pub use crate::event::{
-        ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId,
+        ComponentId, Event, EventContext, EventKind, EventType, GlobalKeyPolicy,
+        NumericComponentId,
     };
     pub use crate::features::{DynamicFeatures, FeatureFlags};
     pub use crate::keybindings::{

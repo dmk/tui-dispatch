@@ -1,6 +1,6 @@
 //! Event types for the pub/sub system
 
-use crossterm::event::{KeyEvent, KeyModifiers, MouseEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use ratatui::layout::Rect;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -104,6 +104,106 @@ impl EventKind {
     /// Check if this is a broadcast event (delivered to all subscribers, never consumed)
     pub fn is_broadcast(&self) -> bool {
         matches!(self, EventKind::Resize(..) | EventKind::Tick)
+    }
+}
+
+/// Policy for determining which events are treated as global.
+///
+/// Global events bypass modal blocking and are delivered to global subscribers
+/// even when a modal is active. Resize events are always treated as global
+/// regardless of this policy.
+///
+/// By default, Esc, Ctrl+C, and Ctrl+Q are global keys. Use this to customize
+/// that behavior — for example, if your app uses Esc for "close modal" and
+/// doesn't want it treated as global.
+///
+/// # Example
+///
+/// ```ignore
+/// use tui_dispatch::{EventBus, GlobalKeyPolicy};
+///
+/// // Remove Esc from global keys (keep only Ctrl+C, Ctrl+Q)
+/// let bus = EventBus::new()
+///     .with_global_key_policy(GlobalKeyPolicy::without_esc());
+///
+/// // Custom set of global keys
+/// let bus = EventBus::new()
+///     .with_global_key_policy(GlobalKeyPolicy::keys(vec![
+///         (KeyCode::Char('c'), KeyModifiers::CONTROL),
+///     ]));
+///
+/// // No key events are global (only Resize remains global)
+/// let bus = EventBus::new()
+///     .with_global_key_policy(GlobalKeyPolicy::none());
+/// ```
+pub enum GlobalKeyPolicy {
+    /// Default: Esc, Ctrl+C, Ctrl+Q are global. Same as `EventKind::is_global()`.
+    Default,
+    /// Only these specific key combinations are global.
+    /// Each entry is `(KeyCode, required_modifiers)`.
+    Keys(Vec<(KeyCode, KeyModifiers)>),
+    /// Custom predicate function.
+    Custom(Box<dyn Fn(&EventKind) -> bool + Send + Sync>),
+}
+
+impl Default for GlobalKeyPolicy {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl GlobalKeyPolicy {
+    /// No key events are global (only Resize remains global).
+    pub fn none() -> Self {
+        Self::Keys(vec![])
+    }
+
+    /// Default without Esc — only Ctrl+C and Ctrl+Q are global.
+    ///
+    /// Useful for apps that use Esc to close modals/dialogs.
+    pub fn without_esc() -> Self {
+        Self::Keys(vec![
+            (KeyCode::Char('c'), KeyModifiers::CONTROL),
+            (KeyCode::Char('q'), KeyModifiers::CONTROL),
+        ])
+    }
+
+    /// Only these specific key combinations are global.
+    ///
+    /// Each entry is `(KeyCode, required_modifiers)` — the key matches if
+    /// its code equals the given code and its modifiers contain the
+    /// required modifiers.
+    pub fn keys(keys: Vec<(KeyCode, KeyModifiers)>) -> Self {
+        Self::Keys(keys)
+    }
+
+    /// Custom predicate for full control over global classification.
+    ///
+    /// Resize events are still always global regardless of the predicate.
+    pub fn custom(f: impl Fn(&EventKind) -> bool + Send + Sync + 'static) -> Self {
+        Self::Custom(Box::new(f))
+    }
+
+    /// Check whether an event is global under this policy.
+    ///
+    /// Resize events always return true regardless of the policy.
+    pub fn is_global(&self, event: &EventKind) -> bool {
+        // Resize is always global
+        if matches!(event, EventKind::Resize(..)) {
+            return true;
+        }
+        match self {
+            Self::Default => event.is_global(),
+            Self::Keys(keys) => {
+                if let EventKind::Key(key) = event {
+                    keys.iter()
+                        .any(|(code, mods)| key.code == *code && key.modifiers.contains(*mods))
+                } else {
+                    false
+                }
+            }
+            Self::Custom(f) => f(event),
+        }
     }
 }
 
