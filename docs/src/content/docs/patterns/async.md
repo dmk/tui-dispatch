@@ -44,21 +44,21 @@ pub enum DataResource<T> {
 Usage in reducers:
 
 ```rust
-fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::WeatherFetch => {
             state.weather = DataResource::Loading;
-            DispatchResult::changed_with(Effect::FetchWeather)
+            ReducerResult::changed_with(Effect::FetchWeather)
         }
         Action::WeatherDidLoad(data) => {
             state.weather = DataResource::Loaded(data);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::WeatherDidError(msg) => {
             state.weather = DataResource::Failed(msg);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
-        _ => DispatchResult::unchanged(),
+        _ => ReducerResult::unchanged(),
     }
 }
 ```
@@ -117,28 +117,28 @@ enum Effect {
     CopyToClipboard(String),
 }
 
-fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::WeatherFetch => {
             state.weather = DataResource::Loading;
             let loc = &state.location;
-            DispatchResult::changed_with(Effect::FetchWeather {
+            ReducerResult::changed_with(Effect::FetchWeather {
                 lat: loc.lat,
                 lon: loc.lon,
             })
         }
         Action::WeatherDidLoad(data) => {
             state.weather = DataResource::Loaded(data);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::WeatherDidError(msg) => {
             state.weather = DataResource::Failed(msg);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::Copy(text) => {
-            DispatchResult::effect(Effect::CopyToClipboard(text))
+            ReducerResult::effect(Effect::CopyToClipboard(text))
         }
-        _ => DispatchResult::unchanged(),
+        _ => ReducerResult::unchanged(),
     }
 }
 
@@ -162,7 +162,7 @@ for effect in result.effects {
 }
 ```
 
-See [DispatchResult](/tui-dispatch/getting-started/core-concepts/#dispatchresult) for all builder methods.
+See [ReducerResult](/tui-dispatch/getting-started/core-concepts/#dispatchresult) for all builder methods.
 
 ### Testing effects
 
@@ -320,31 +320,31 @@ struct State {
     data: DataResource<Data>,
 }
 
-fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
+fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::Tick => {
             state.animation_frame += 1;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::Search(query) => {
             state.search_query = query.clone();
-            DispatchResult::effect(Effect::Search { query })
+            ReducerResult::effect(Effect::Search { query })
         }
         Action::SearchDidComplete(results) => {
             state.search_results = results;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::Refresh => {
             state.data = DataResource::Loading;
-            DispatchResult::changed_with(Effect::FetchData)
+            ReducerResult::changed_with(Effect::FetchData)
         }
         Action::DataDidLoad(data) => {
             state.data = DataResource::Loaded(data);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::DataDidError(msg) => {
             state.data = DataResource::Failed(msg);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
     }
 }

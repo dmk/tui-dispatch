@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::bus::{
     process_raw_event, spawn_event_poller, EventBus, EventOutcome, EventRoutingState, RawEvent,
 };
-use crate::effect::{DispatchResult, EffectStore, EffectStoreWithMiddleware};
+use crate::effect::{ReducerResult, EffectStore, EffectStoreWithMiddleware};
 use crate::event::{ComponentId, EventContext, EventKind};
 use crate::keybindings::Keybindings;
 use crate::store::{Middleware, Reducer, Store, StoreWithMiddleware};
@@ -123,13 +123,13 @@ impl<S, A: Action, M: Middleware<A>> DispatchStore<S, A> for StoreWithMiddleware
 /// Effect store interface used by `EffectRuntime`.
 pub trait EffectStoreLike<S, A: Action, E> {
     /// Dispatch an action and return state changes plus effects.
-    fn dispatch(&mut self, action: A) -> DispatchResult<E>;
+    fn dispatch(&mut self, action: A) -> ReducerResult<E>;
     /// Get the current state.
     fn state(&self) -> &S;
 }
 
 impl<S, A: Action, E> EffectStoreLike<S, A, E> for EffectStore<S, A, E> {
-    fn dispatch(&mut self, action: A) -> DispatchResult<E> {
+    fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         EffectStore::dispatch(self, action)
     }
 
@@ -141,7 +141,7 @@ impl<S, A: Action, E> EffectStoreLike<S, A, E> for EffectStore<S, A, E> {
 impl<S, A: Action, E, M: Middleware<A>> EffectStoreLike<S, A, E>
     for EffectStoreWithMiddleware<S, A, E, M>
 {
-    fn dispatch(&mut self, action: A) -> DispatchResult<E> {
+    fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         EffectStoreWithMiddleware::dispatch(self, action)
     }
 

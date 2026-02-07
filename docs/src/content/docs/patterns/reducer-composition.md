@@ -164,7 +164,7 @@ All handlers must have the same signature:
 fn handler(state: &mut S, action: A) -> R
 ```
 
-Where `R` is your return type (`bool` or `DispatchResult<E>`).
+Where `R` is your return type (`bool` or `ReducerResult<E>`).
 
 ## Complete Example
 
@@ -291,28 +291,28 @@ fn handle_modal(state: &mut AppState, action: Action) -> bool {
 
 ## With Effects
 
-The macro works with `DispatchResult<E>` too:
+The macro works with `ReducerResult<E>` too:
 
 ```rust
-fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     reducer_compose!(state, action, {
         category "api" => handle_api,
         _ => handle_default,
     })
 }
 
-fn handle_api(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+fn handle_api(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::ApiFetch => {
             state.loading = true;
-            DispatchResult::changed_with(Effect::Fetch)
+            ReducerResult::changed_with(Effect::Fetch)
         }
         Action::ApiDidLoad(data) => {
             state.data = Some(data);
             state.loading = false;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
-        _ => DispatchResult::unchanged(),
+        _ => ReducerResult::unchanged(),
     }
 }
 ```

@@ -68,19 +68,19 @@ Use `DispatchRuntime` or `Store` directly. See the [Counter example](/tui-dispat
 
 ## Adding Effects
 
-When you need async operations, layer effects on top. The reducer returns `DispatchResult` instead of `bool`:
+When you need async operations, layer effects on top. The reducer returns `ReducerResult` instead of `bool`:
 
 ```rust
-fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
+fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
     match action {
         AppAction::Fetch => {
             state.is_loading = true;
-            DispatchResult::changed_with(Effect::FetchData)
+            ReducerResult::changed_with(Effect::FetchData)
         }
         AppAction::DidLoad(data) => {
             state.data = Some(data);
             state.is_loading = false;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
     }
 }

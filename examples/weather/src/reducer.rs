@@ -1,12 +1,12 @@
-//! Reducer - pure function: (state, action) -> DispatchResult
+//! Reducer - pure function: (state, action) -> ReducerResult
 //!
 //! FRAMEWORK PATTERN: Effect Reducer
-//! - fn(state: &mut S, action: A) -> `DispatchResult<E>`
+//! - fn(state: &mut S, action: A) -> `ReducerResult<E>`
 //! - Returns changed flag and any effects to execute
 //! - All state mutations happen here
 //! - Effects are declarative - executed by main loop
 
-use tui_dispatch::{DataResource, DispatchResult};
+use tui_dispatch::{DataResource, ReducerResult};
 
 use crate::action::Action;
 use crate::effect::Effect;
@@ -15,8 +15,8 @@ use crate::state::{AppState, LOADING_ANIM_CYCLE_TICKS};
 /// The reducer handles all state transitions
 ///
 /// # Returns
-/// `DispatchResult` with changed flag and any effects to execute
-pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+/// `ReducerResult` with changed flag and any effects to execute
+pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         // ===== Weather actions =====
         Action::WeatherFetch => {
@@ -29,7 +29,7 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.tick_count = 0;
             state.loading_anim_ticks_remaining = 0;
             let loc = state.current_location();
-            DispatchResult::changed_with(Effect::FetchWeather {
+            ReducerResult::changed_with(Effect::FetchWeather {
                 lat: loc.lat,
                 lon: loc.lon,
             })
@@ -39,14 +39,14 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.weather = DataResource::Loaded(data);
             state.is_refreshing = false;
             state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::WeatherDidError(msg) => {
             state.weather = DataResource::Failed(msg);
             state.is_refreshing = false;
             state.loading_anim_ticks_remaining = ticks_to_phase_zero(state.tick_count);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         // ===== Search actions =====
@@ -56,7 +56,7 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.search_results.clear();
             state.search_error = None;
             state.search_selected = 0;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::SearchClose => {
@@ -65,7 +65,7 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.search_results.clear();
             state.search_error = None;
             state.search_selected = 0;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::SearchQueryChange(query) => {
@@ -73,7 +73,7 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.search_selected = 0;
             state.search_error = None;
             // Don't trigger search on every keystroke - use SearchQuerySubmit or debounce via action
-            DispatchResult::changed_with(Effect::SearchCities {
+            ReducerResult::changed_with(Effect::SearchCities {
                 query: state.search_query.clone(),
             })
         }
@@ -86,35 +86,35 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             if query.is_empty() {
                 state.search_results.clear();
             }
-            DispatchResult::changed_with(Effect::SearchCities { query })
+            ReducerResult::changed_with(Effect::SearchCities { query })
         }
 
         Action::SearchDidLoad(results) => {
             state.search_results = results;
             state.search_error = None;
             state.search_selected = 0;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::SearchDidError(msg) => {
             state.search_results.clear();
             state.search_error = Some(msg);
             state.search_selected = 0;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::SearchSelect(index) => {
             if index < state.search_results.len() && index != state.search_selected {
                 state.search_selected = index;
-                DispatchResult::changed()
+                ReducerResult::changed()
             } else {
-                DispatchResult::unchanged()
+                ReducerResult::unchanged()
             }
         }
 
         Action::SearchConfirm => {
             let Some(location) = state.search_results.get(state.search_selected).cloned() else {
-                return DispatchResult::unchanged();
+                return ReducerResult::unchanged();
             };
 
             let (lat, lon) = (location.lat, location.lon);
@@ -129,25 +129,25 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.search_selected = 0;
             state.tick_count = 0;
             state.loading_anim_ticks_remaining = 0;
-            DispatchResult::changed_with(Effect::FetchWeather { lat, lon })
+            ReducerResult::changed_with(Effect::FetchWeather { lat, lon })
         }
 
         // ===== UI actions =====
         Action::UiToggleUnits => {
             state.unit = state.unit.toggle();
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::UiTerminalResize(width, height) => {
             if state.terminal_size != (width, height) {
                 state.terminal_size = (width, height);
-                DispatchResult::changed()
+                ReducerResult::changed()
             } else {
-                DispatchResult::unchanged()
+                ReducerResult::unchanged()
             }
         }
 
-        Action::Render => DispatchResult::changed(),
+        Action::Render => ReducerResult::changed(),
 
         // ===== Global actions =====
         Action::Tick => {
@@ -157,15 +157,15 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
                 if state.loading_anim_ticks_remaining > 0 {
                     state.loading_anim_ticks_remaining -= 1;
                 }
-                DispatchResult::changed()
+                ReducerResult::changed()
             } else {
-                DispatchResult::unchanged()
+                ReducerResult::unchanged()
             }
         }
 
         Action::Quit => {
             // Quit is handled in main loop, not here
-            DispatchResult::unchanged()
+            ReducerResult::unchanged()
         }
     }
 }

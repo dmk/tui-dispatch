@@ -39,7 +39,7 @@
 //!
 //! # With Effects
 //!
-//! For async operations, use `EffectStore` with `DispatchResult`:
+//! For async operations, use `EffectStore` with `ReducerResult`:
 //!
 //! ```
 //! use tui_dispatch::prelude::*;
@@ -60,16 +60,16 @@
 //!     loading: bool,
 //! }
 //!
-//! fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
+//! fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
 //!     match action {
 //!         Action::Fetch => {
 //!             state.loading = true;
-//!             DispatchResult::changed_with(Effect::FetchData)
+//!             ReducerResult::changed_with(Effect::FetchData)
 //!         }
 //!         Action::DidLoad(data) => {
 //!             state.data = Some(data);
 //!             state.loading = false;
-//!             DispatchResult::changed()
+//!             ReducerResult::changed()
 //!         }
 //!     }
 //! }
@@ -118,7 +118,7 @@ pub mod prelude {
 
     // Effects and state types
     pub use tui_dispatch_core::{
-        DataResource, DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
+        DataResource, ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
     };
 
     // Runtime helpers

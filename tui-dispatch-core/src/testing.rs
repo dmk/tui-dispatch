@@ -1477,7 +1477,7 @@ impl<S: Default, A: Action> Default for StoreTestHarness<S, A> {
 /// Test harness for effect-based stores.
 ///
 /// Similar to [`StoreTestHarness`] but for applications using
-/// [`EffectStore`](crate::EffectStore) with [`DispatchResult`](crate::DispatchResult) reducers.
+/// [`EffectStore`](crate::EffectStore) with [`ReducerResult`](crate::ReducerResult) reducers.
 ///
 /// # Example
 ///
@@ -1533,8 +1533,8 @@ impl<S, A: Action, E> EffectStoreTestHarness<S, A, E> {
 
     /// Dispatch an action to the store.
     ///
-    /// Returns the [`DispatchResult`](crate::DispatchResult) with change status and effects.
-    pub fn dispatch(&mut self, action: A) -> crate::DispatchResult<E> {
+    /// Returns the [`ReducerResult`](crate::ReducerResult) with change status and effects.
+    pub fn dispatch(&mut self, action: A) -> crate::ReducerResult<E> {
         self.store.dispatch(action)
     }
 

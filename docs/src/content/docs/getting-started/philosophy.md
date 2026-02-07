@@ -55,7 +55,7 @@ Plug in what your app needs:
 
 | Extension | Purpose |
 |-----------|---------|
-| **Effects** | Declare async work as data (`DispatchResult`, `EffectStore`, `EffectRuntime`) |
+| **Effects** | Declare async work as data (`ReducerResult`, `EffectStore`, `EffectRuntime`) |
 | **EventBus** | Event routing (modal → hovered → focused → subscribers → global) |
 | **DataResource** | Typed async lifecycle (Empty/Loading/Loaded/Failed) |
 | **TaskManager** | Async task lifecycle |

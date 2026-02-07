@@ -55,7 +55,7 @@ pub type Reducer<S, A> = fn(&mut S, A) -> bool;
 /// ```ignore
 /// fn handler(state: &mut S, action: A) -> R
 /// ```
-/// Where `R` is typically `bool` or `DispatchResult<E>`.
+/// Where `R` is typically `bool` or `ReducerResult<E>`.
 ///
 /// # Category Inference
 ///

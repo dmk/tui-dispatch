@@ -13,13 +13,13 @@
 //!
 //! An effect-aware reducer returns both change status and effects:
 //! ```ignore
-//! fn reducer(state: &mut S, action: A) -> DispatchResult<E>
+//! fn reducer(state: &mut S, action: A) -> ReducerResult<E>
 //! ```
 //!
 //! # Example
 //!
 //! ```ignore
-//! use tui_dispatch::{Action, DispatchResult, EffectStore};
+//! use tui_dispatch::{Action, ReducerResult, EffectStore};
 //!
 //! // Define your effects
 //! enum Effect {
@@ -38,18 +38,18 @@
 //! }
 //!
 //! // Reducer emits effects
-//! fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
+//! fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
 //!     match action {
 //!         AppAction::LoadData => {
 //!             state.loading = true;
-//!             DispatchResult::changed_with(vec![
+//!             ReducerResult::changed_with(vec![
 //!                 Effect::FetchData { url: "https://api.example.com".into() }
 //!             ])
 //!         }
 //!         AppAction::DidLoadData(data) => {
 //!             state.loading = false;
 //!             state.data = Some(data);
-//!             DispatchResult::changed()
+//!             ReducerResult::changed()
 //!         }
 //!     }
 //! }
@@ -77,20 +77,20 @@ use crate::store::Middleware;
 ///
 /// Contains both the state change indicator and any effects to be processed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DispatchResult<E> {
+pub struct ReducerResult<E> {
     /// Whether the state was modified by this action.
     pub changed: bool,
     /// Effects to be processed after dispatch.
     pub effects: Vec<E>,
 }
 
-impl<E> Default for DispatchResult<E> {
+impl<E> Default for ReducerResult<E> {
     fn default() -> Self {
         Self::unchanged()
     }
 }
 
-impl<E> DispatchResult<E> {
+impl<E> ReducerResult<E> {
     /// Create a result indicating no state change and no effects.
     #[inline]
     pub fn unchanged() -> Self {
@@ -170,28 +170,28 @@ impl<E> DispatchResult<E> {
 ///
 /// Takes mutable state and an action, returns whether state changed
 /// and any effects to process.
-pub type EffectReducer<S, A, E> = fn(&mut S, A) -> DispatchResult<E>;
+pub type EffectReducer<S, A, E> = fn(&mut S, A) -> ReducerResult<E>;
 
 /// A store that supports effect-emitting reducers.
 ///
 /// Similar to [`Store`](crate::Store), but the reducer returns
-/// [`DispatchResult<E>`] instead of `bool`, allowing it to declare
+/// [`ReducerResult<E>`] instead of `bool`, allowing it to declare
 /// side effects alongside state changes.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch::{DispatchResult, EffectStore};
+/// use tui_dispatch::{ReducerResult, EffectStore};
 ///
 /// enum Effect { Log(String) }
 /// struct State { count: i32 }
 /// enum Action { Increment }
 ///
-/// fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
+/// fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
 ///     match action {
 ///         Action::Increment => {
 ///             state.count += 1;
-///             DispatchResult::changed_with(Effect::Log(format!("count is {}", state.count)))
+///             ReducerResult::changed_with(Effect::Log(format!("count is {}", state.count)))
 ///         }
 ///     }
 /// }
@@ -240,7 +240,7 @@ where
     /// The reducer is called with the current state and action,
     /// returning whether state changed and any effects to process.
     #[inline]
-    pub fn dispatch(&mut self, action: A) -> DispatchResult<E> {
+    pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         (self.reducer)(&mut self.state, action)
     }
 }
@@ -254,7 +254,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// use tui_dispatch::{DispatchResult, EffectStoreWithMiddleware};
+/// use tui_dispatch::{ReducerResult, EffectStoreWithMiddleware};
 /// use tui_dispatch::debug::ActionLoggerMiddleware;
 ///
 /// let middleware = ActionLoggerMiddleware::with_default_log();
@@ -318,7 +318,7 @@ where
     ///
     /// Calls `middleware.before()`, then `store.dispatch()`,
     /// then `middleware.after()` with the state change indicator.
-    pub fn dispatch(&mut self, action: A) -> DispatchResult<E> {
+    pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         self.middleware.before(&action);
         let result = self.store.dispatch(action.clone());
         self.middleware.after(&action, result.changed);
@@ -360,50 +360,50 @@ mod tests {
         count: i32,
     }
 
-    fn test_reducer(state: &mut TestState, action: TestAction) -> DispatchResult<TestEffect> {
+    fn test_reducer(state: &mut TestState, action: TestAction) -> ReducerResult<TestEffect> {
         match action {
             TestAction::Increment => {
                 state.count += 1;
-                DispatchResult::changed()
+                ReducerResult::changed()
             }
             TestAction::Decrement => {
                 state.count -= 1;
-                DispatchResult::changed_with(TestEffect::Log(format!("count: {}", state.count)))
+                ReducerResult::changed_with(TestEffect::Log(format!("count: {}", state.count)))
             }
-            TestAction::NoOp => DispatchResult::unchanged(),
+            TestAction::NoOp => ReducerResult::unchanged(),
             TestAction::TriggerEffect => {
-                DispatchResult::effects(vec![TestEffect::Log("triggered".into()), TestEffect::Save])
+                ReducerResult::effects(vec![TestEffect::Log("triggered".into()), TestEffect::Save])
             }
         }
     }
 
     #[test]
     fn test_dispatch_result_builders() {
-        let r: DispatchResult<TestEffect> = DispatchResult::unchanged();
+        let r: ReducerResult<TestEffect> = ReducerResult::unchanged();
         assert!(!r.changed);
         assert!(r.effects.is_empty());
 
-        let r: DispatchResult<TestEffect> = DispatchResult::changed();
+        let r: ReducerResult<TestEffect> = ReducerResult::changed();
         assert!(r.changed);
         assert!(r.effects.is_empty());
 
-        let r = DispatchResult::effect(TestEffect::Save);
+        let r = ReducerResult::effect(TestEffect::Save);
         assert!(!r.changed);
         assert_eq!(r.effects, vec![TestEffect::Save]);
 
-        let r = DispatchResult::changed_with(TestEffect::Save);
+        let r = ReducerResult::changed_with(TestEffect::Save);
         assert!(r.changed);
         assert_eq!(r.effects, vec![TestEffect::Save]);
 
         let r =
-            DispatchResult::changed_with_many(vec![TestEffect::Save, TestEffect::Log("x".into())]);
+            ReducerResult::changed_with_many(vec![TestEffect::Save, TestEffect::Log("x".into())]);
         assert!(r.changed);
         assert_eq!(r.effects.len(), 2);
     }
 
     #[test]
     fn test_dispatch_result_chaining() {
-        let r: DispatchResult<TestEffect> = DispatchResult::unchanged()
+        let r: ReducerResult<TestEffect> = ReducerResult::unchanged()
             .with(TestEffect::Save)
             .mark_changed();
         assert!(r.changed);
@@ -449,10 +449,10 @@ mod tests {
 
     #[test]
     fn test_has_effects() {
-        let r: DispatchResult<TestEffect> = DispatchResult::unchanged();
+        let r: ReducerResult<TestEffect> = ReducerResult::unchanged();
         assert!(!r.has_effects());
 
-        let r = DispatchResult::effect(TestEffect::Save);
+        let r = ReducerResult::effect(TestEffect::Save);
         assert!(r.has_effects());
     }
 }

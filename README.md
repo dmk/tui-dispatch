@@ -85,7 +85,7 @@ If you want the bare minimum, use `tui-dispatch-core`; `tui-dispatch` is a batte
 
 When you need async work (HTTP, file IO, timers), switch to the effect pattern:
 
-- Reducer returns `DispatchResult<Effect>` instead of `bool`
+- Reducer returns `ReducerResult<Effect>` instead of `bool`
 - Reducer emits `Effect` values (data), and an effect handler executes them
 - Async completion sends a normal action back into the runtime (often named `Did*`)
 

@@ -18,7 +18,7 @@ Not in the reducer.
 
 Recommended:
 
-- reducer mutates state and returns `DispatchResult<Effect>`
+- reducer mutates state and returns `ReducerResult<Effect>`
 - effect handler executes effects (spawn tasks, do IO)
 - async completion sends a normal action back (`Did*` style)
 
@@ -30,7 +30,7 @@ Internal component state (cursor position, scroll offsets) lives in `&mut self`,
 
 Options:
 
-- Return an app action that causes the reducer to return `true` / `DispatchResult::changed()` (common, simple).
+- Return an app action that causes the reducer to return `true` / `ReducerResult::changed()` (common, simple).
 - In your EventBus handler, return `HandlerResponse::ignored().with_render().with_consumed(true)` when the component handled the event but emitted no actions.
 
 If you're writing reusable components, consider an explicit "Render" action (see `examples/weather` which has `Action::Render`).

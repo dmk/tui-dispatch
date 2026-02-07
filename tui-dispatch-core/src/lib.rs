@@ -137,7 +137,7 @@ pub use runtime::{
 };
 
 // Effect exports
-pub use effect::{DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware};
+pub use effect::{ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware};
 
 // Resource exports
 pub use resource::DataResource;
@@ -179,7 +179,7 @@ pub mod prelude {
     };
     pub use crate::component::Component;
     pub use crate::effect::{
-        DispatchResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
+        ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
     };
     pub use crate::event::{
         ComponentId, Event, EventContext, EventKind, EventType, NumericComponentId,

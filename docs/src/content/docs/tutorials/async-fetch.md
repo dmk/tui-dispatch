@@ -151,44 +151,44 @@ Effects are data. You can test them easily.
 Create `src/reducer.rs`:
 
 ```rust
-use tui_dispatch::DispatchResult;
+use tui_dispatch::ReducerResult;
 
 use crate::action::Action;
 use crate::effect::Effect;
 use crate::state::AppState;
 
-pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::QueryChange(query) => {
             state.query = query;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::UserFetch(username) => {
             let username = username.trim().to_string();
             if username.is_empty() {
-                return DispatchResult::unchanged();
+                return ReducerResult::unchanged();
             }
 
             state.is_loading = true;
             state.error = None;
             state.user = None;
 
-            DispatchResult::changed_with(Effect::FetchUser { username })
+            ReducerResult::changed_with(Effect::FetchUser { username })
         }
 
         Action::UserDidLoad(user) => {
             state.user = Some(user);
             state.is_loading = false;
             state.error = None;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::UserDidError(msg) => {
             state.is_loading = false;
             state.error = Some(msg);
             state.user = None;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::Clear => {
@@ -196,10 +196,10 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.user = None;
             state.error = None;
             state.is_loading = false;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
-        Action::Quit => DispatchResult::unchanged(),
+        Action::Quit => ReducerResult::unchanged(),
     }
 }
 ```

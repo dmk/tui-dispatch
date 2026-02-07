@@ -1,49 +1,49 @@
-//! Reducer - pure function: (state, action) -> DispatchResult
+//! Reducer - pure function: (state, action) -> ReducerResult
 //!
 //! The reducer is the single place where state mutations happen.
-//! It returns a DispatchResult indicating:
+//! It returns a ReducerResult indicating:
 //! - Whether the state changed (triggers re-render)
 //! - Any effects to execute (async operations)
 
-use tui_dispatch::DispatchResult;
+use tui_dispatch::ReducerResult;
 
 use crate::action::Action;
 use crate::effect::Effect;
 use crate::state::AppState;
 
 /// The reducer handles all state transitions
-pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
+pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::QueryChange(query) => {
             state.query = query;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::UserFetch(username) => {
             let username = username.trim().to_string();
             if username.is_empty() {
-                return DispatchResult::unchanged();
+                return ReducerResult::unchanged();
             }
 
             // Set loading state and emit fetch effect
             state.is_loading = true;
             state.error = None;
             state.user = None;
-            DispatchResult::changed_with(Effect::FetchUser { username })
+            ReducerResult::changed_with(Effect::FetchUser { username })
         }
 
         Action::UserDidLoad(user) => {
             state.user = Some(user);
             state.is_loading = false;
             state.error = None;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::UserDidError(msg) => {
             state.is_loading = false;
             state.error = Some(msg);
             state.user = None;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::Clear => {
@@ -51,12 +51,12 @@ pub fn reducer(state: &mut AppState, action: Action) -> DispatchResult<Effect> {
             state.user = None;
             state.error = None;
             state.is_loading = false;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
 
         Action::Quit => {
             // Quit is handled in main loop
-            DispatchResult::unchanged()
+            ReducerResult::unchanged()
         }
     }
 }

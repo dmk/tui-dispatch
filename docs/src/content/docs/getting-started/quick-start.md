@@ -127,22 +127,22 @@ struct State {
     error: Option<String>,
 }
 
-fn reducer(state: &mut State, action: Action) -> DispatchResult<Effect> {
+fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::Fetch => {
             state.loading = true;
             state.error = None;
-            DispatchResult::changed_with(Effect::FetchData)
+            ReducerResult::changed_with(Effect::FetchData)
         }
         Action::DidLoad(data) => {
             state.loading = false;
             state.data = Some(data);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
         Action::DidError(err) => {
             state.loading = false;
             state.error = Some(err);
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
     }
 }

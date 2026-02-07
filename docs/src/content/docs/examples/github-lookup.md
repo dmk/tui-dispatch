@@ -34,14 +34,14 @@ This example shows the recommended async flow:
 // Intent action triggers async work
 Action::UserFetch(username) => {
     state.is_loading = true;
-    DispatchResult::changed_with(Effect::FetchUser { username })
+    ReducerResult::changed_with(Effect::FetchUser { username })
 }
 
 // Result action updates state
 Action::UserDidLoad(user) => {
     state.user = Some(user);
     state.is_loading = false;
-    DispatchResult::changed()
+    ReducerResult::changed()
 }
 ```
 

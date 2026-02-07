@@ -51,18 +51,18 @@ fn reducer(state: &mut AppState, action: AppAction) -> bool {
 }
 ```
 
-**Effect reducer** (returns `DispatchResult<E>`):
+**Effect reducer** (returns `ReducerResult<E>`):
 ```rust
-fn reducer(state: &mut AppState, action: AppAction) -> DispatchResult<Effect> {
+fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
     match action {
         AppAction::WeatherFetch => {
             state.is_loading = true;
-            DispatchResult::changed_with(Effect::FetchWeather)
+            ReducerResult::changed_with(Effect::FetchWeather)
         }
         AppAction::WeatherDidLoad(data) => {
             state.weather = Some(data);
             state.is_loading = false;
-            DispatchResult::changed()
+            ReducerResult::changed()
         }
     }
 }
@@ -99,18 +99,18 @@ enum Effect {
 }
 ```
 
-### DispatchResult
+### ReducerResult
 The return type of an effect reducer. Contains whether state changed and any effects to execute.
 
 ```rust
-DispatchResult::unchanged()            // No change, no effects
-DispatchResult::changed()              // State changed, no effects
-DispatchResult::effect(e)              // No change, one effect
-DispatchResult::changed_with(e)        // State changed, one effect
-DispatchResult::changed_with_many(v)   // State changed, multiple effects
+ReducerResult::unchanged()            // No change, no effects
+ReducerResult::changed()              // State changed, no effects
+ReducerResult::effect(e)              // No change, one effect
+ReducerResult::changed_with(e)        // State changed, one effect
+ReducerResult::changed_with_many(v)   // State changed, multiple effects
 ```
 
-Use `EffectStore` instead of `Store` when your reducer returns `DispatchResult`:
+Use `EffectStore` instead of `Store` when your reducer returns `ReducerResult`:
 ```rust
 let mut store = EffectStore::new(AppState::default(), reducer);
 let result = store.dispatch(action);
@@ -288,7 +288,7 @@ Terminal Input → map to Action → store.dispatch(action) → reducer → rend
 
 With effects:
 ```
-reducer returns DispatchResult { changed, effects }
+reducer returns ReducerResult { changed, effects }
   → render if changed
   → for each effect: spawn async task → send result action back to dispatch
 ```
