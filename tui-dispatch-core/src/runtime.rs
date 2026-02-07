@@ -92,6 +92,35 @@ pub trait DebugHooks<A>: Sized {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shared draw macro — renders a frame with optional debug overlay.
+//
+// `$render_call` must be callable as `$render_call(frame, area, state, ctx)`.
+// For bus variants, wrap the user's render closure to include EventContext.
+// ---------------------------------------------------------------------------
+macro_rules! draw_frame {
+    ($self:expr, $terminal:expr, $render_call:expr) => {{
+        let render_ctx = $self.render_ctx();
+        let state = $self.store.state();
+        $terminal.draw(|frame| {
+            #[cfg(feature = "debug")]
+            if let Some(debug) = $self.debug.as_mut() {
+                let mut rf = |f: &mut Frame, area: Rect, s: &S, ctx: RenderContext| {
+                    ($render_call)(f, area, s, ctx)
+                };
+                debug.render(frame, state, render_ctx, &mut rf);
+            } else {
+                ($render_call)(frame, frame.area(), state, render_ctx);
+            }
+            #[cfg(not(feature = "debug"))]
+            {
+                ($render_call)(frame, frame.area(), state, render_ctx);
+            }
+        })?;
+        $self.should_render = false;
+    }};
+}
+
 /// Store interface used by `DispatchRuntime`.
 pub trait DispatchStore<S, A: Action> {
     /// Dispatch an action and return whether the state changed.
@@ -216,6 +245,60 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
         self.store.state()
     }
 
+    fn render_ctx(&self) -> RenderContext {
+        RenderContext {
+            debug_enabled: {
+                #[cfg(feature = "debug")]
+                {
+                    self.debug.as_ref().is_some_and(|d| d.is_enabled())
+                }
+                #[cfg(not(feature = "debug"))]
+                {
+                    false
+                }
+            },
+        }
+    }
+
+    /// Returns `Some(needs_render)` if the debug layer intercepted the event.
+    #[allow(unused_variables)]
+    fn debug_intercept_event(&mut self, event: &EventKind) -> Option<bool> {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = self.debug.as_mut() {
+            return debug.handle_event(event, self.store.state(), &self.action_tx);
+        }
+        None
+    }
+
+    #[allow(unused_variables)]
+    fn debug_log_action(&mut self, action: &A) {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = self.debug.as_mut() {
+            debug.log_action(action);
+        }
+    }
+
+    fn enqueue_outcome(&mut self, outcome: EventOutcome<A>) {
+        if outcome.needs_render {
+            self.should_render = true;
+        }
+        for action in outcome.actions {
+            let _ = self.action_tx.send(action);
+        }
+    }
+
+    fn spawn_poller(&self) -> (mpsc::UnboundedReceiver<RawEvent>, CancellationToken) {
+        let (event_tx, event_rx) = mpsc::unbounded_channel::<RawEvent>();
+        let cancel_token = CancellationToken::new();
+        let _handle = spawn_event_poller(
+            event_tx,
+            self.poller_config.poll_timeout,
+            self.poller_config.loop_sleep,
+            cancel_token.clone(),
+        );
+        (event_rx, cancel_token)
+    }
+
     /// Run the event/action loop until quit.
     pub async fn run<B, FRender, FEvent, FQuit, R>(
         &mut self,
@@ -231,92 +314,33 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
         R: Into<EventOutcome<A>>,
         FQuit: FnMut(&A) -> bool,
     {
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
-        let cancel_token = CancellationToken::new();
-        let _handle = spawn_event_poller(
-            event_tx,
-            self.poller_config.poll_timeout,
-            self.poller_config.loop_sleep,
-            cancel_token.clone(),
-        );
+        let (mut event_rx, cancel_token) = self.spawn_poller();
 
         loop {
             if self.should_render {
-                let state = self.store.state();
-                let render_ctx = RenderContext {
-                    debug_enabled: {
-                        #[cfg(feature = "debug")]
-                        {
-                            self.debug
-                                .as_ref()
-                                .map(|debug| debug.is_enabled())
-                                .unwrap_or(false)
-                        }
-                        #[cfg(not(feature = "debug"))]
-                        {
-                            false
-                        }
-                    },
-                };
-                terminal.draw(|frame| {
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        let mut render_fn =
-                            |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
-                                render(f, area, state, ctx);
-                            };
-                        debug.render(frame, state, render_ctx, &mut render_fn);
-                    } else {
-                        render(frame, frame.area(), state, render_ctx);
-                    }
-
-                    #[cfg(not(feature = "debug"))]
-                    {
-                        render(frame, frame.area(), state, render_ctx);
-                    }
-                })?;
-                self.should_render = false;
+                draw_frame!(self, terminal, render);
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
                     let event = process_raw_event(raw_event);
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        if let Some(needs_render) =
-                            debug.handle_event(&event, self.store.state(), &self.action_tx)
-                        {
-                            self.should_render = needs_render;
-                            continue;
-                        }
+                    if let Some(needs_render) = self.debug_intercept_event(&event) {
+                        self.should_render = needs_render;
+                        continue;
                     }
-
                     let outcome: EventOutcome<A> = map_event(&event, self.store.state()).into();
-                    if outcome.needs_render {
-                        self.should_render = true;
-                    }
-                    for action in outcome.actions {
-                        let _ = self.action_tx.send(action);
-                    }
+                    self.enqueue_outcome(outcome);
                 }
 
                 Some(action) = self.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        debug.log_action(&action);
-                    }
-
+                    self.debug_log_action(&action);
                     self.should_render = self.store.dispatch(action);
                 }
 
-                else => {
-                    break;
-                }
+                else => { break; }
             }
         }
 
@@ -341,92 +365,39 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
         FQuit: FnMut(&A) -> bool,
     {
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
-        let cancel_token = CancellationToken::new();
-        let _handle = spawn_event_poller(
-            event_tx,
-            self.poller_config.poll_timeout,
-            self.poller_config.loop_sleep,
-            cancel_token.clone(),
-        );
+        let (mut event_rx, cancel_token) = self.spawn_poller();
 
         loop {
             if self.should_render {
-                let state = self.store.state();
-                let render_ctx = RenderContext {
-                    debug_enabled: {
-                        #[cfg(feature = "debug")]
-                        {
-                            self.debug
-                                .as_ref()
-                                .map(|debug| debug.is_enabled())
-                                .unwrap_or(false)
-                        }
-                        #[cfg(not(feature = "debug"))]
-                        {
-                            false
-                        }
-                    },
-                };
-                terminal.draw(|frame| {
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        let mut render_fn =
-                            |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
-                                render(f, area, state, ctx, bus.context_mut());
-                            };
-                        debug.render(frame, state, render_ctx, &mut render_fn);
-                    } else {
-                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
-                    }
-
-                    #[cfg(not(feature = "debug"))]
-                    {
-                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
-                    }
-                })?;
-                self.should_render = false;
+                draw_frame!(self, terminal, |f, area, s, ctx| render(
+                    f,
+                    area,
+                    s,
+                    ctx,
+                    bus.context_mut()
+                ));
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
                     let event = process_raw_event(raw_event);
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        if let Some(needs_render) =
-                            debug.handle_event(&event, self.store.state(), &self.action_tx)
-                        {
-                            self.should_render = needs_render;
-                            continue;
-                        }
+                    if let Some(needs_render) = self.debug_intercept_event(&event) {
+                        self.should_render = needs_render;
+                        continue;
                     }
-
                     let outcome = bus.handle_event(&event, self.store.state(), keybindings);
-                    if outcome.needs_render {
-                        self.should_render = true;
-                    }
-                    for action in outcome.actions {
-                        let _ = self.action_tx.send(action);
-                    }
+                    self.enqueue_outcome(outcome);
                 }
 
                 Some(action) = self.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        debug.log_action(&action);
-                    }
-
+                    self.debug_log_action(&action);
                     self.should_render = self.store.dispatch(action);
                 }
 
-                else => {
-                    break;
-                }
+                else => { break; }
             }
         }
 
@@ -614,6 +585,89 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
         }
     }
 
+    fn render_ctx(&self) -> RenderContext {
+        RenderContext {
+            debug_enabled: {
+                #[cfg(feature = "debug")]
+                {
+                    self.debug.as_ref().is_some_and(|d| d.is_enabled())
+                }
+                #[cfg(not(feature = "debug"))]
+                {
+                    false
+                }
+            },
+        }
+    }
+
+    #[allow(unused_variables)]
+    fn debug_intercept_event(&mut self, event: &EventKind) -> Option<bool> {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = self.debug.as_mut() {
+            return debug.handle_event(event, self.store.state(), &self.action_tx);
+        }
+        None
+    }
+
+    #[allow(unused_variables)]
+    fn debug_log_action(&mut self, action: &A) {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = self.debug.as_mut() {
+            debug.log_action(action);
+        }
+    }
+
+    fn enqueue_outcome(&mut self, outcome: EventOutcome<A>) {
+        if outcome.needs_render {
+            self.should_render = true;
+        }
+        for action in outcome.actions {
+            let _ = self.action_tx.send(action);
+        }
+    }
+
+    fn broadcast_action(&self, action: &A) {
+        if self.action_broadcast.receiver_count() > 0 {
+            let _ = self.action_broadcast.send(action.name().to_string());
+        }
+    }
+
+    fn spawn_poller(&self) -> (mpsc::UnboundedReceiver<RawEvent>, CancellationToken) {
+        let (event_tx, event_rx) = mpsc::unbounded_channel::<RawEvent>();
+        let cancel_token = CancellationToken::new();
+        let _handle = spawn_event_poller(
+            event_tx,
+            self.poller_config.poll_timeout,
+            self.poller_config.loop_sleep,
+            cancel_token.clone(),
+        );
+        (event_rx, cancel_token)
+    }
+
+    fn cleanup(&mut self, cancel_token: CancellationToken) {
+        cancel_token.cancel();
+        #[cfg(feature = "subscriptions")]
+        self.subscriptions.cancel_all();
+        #[cfg(feature = "tasks")]
+        self.tasks.cancel_all();
+    }
+
+    fn dispatch_and_handle_effects(
+        &mut self,
+        action: A,
+        handle_effect: &mut impl FnMut(E, &mut EffectContext<A>),
+    ) {
+        self.broadcast_action(&action);
+        let result = self.store.dispatch(action);
+        if result.has_effects() {
+            let mut ctx = self.effect_context();
+            for effect in result.effects {
+                handle_effect(effect, &mut ctx);
+            }
+        }
+        self.should_render = result.changed;
+    }
+
     /// Run the event/action loop until quit.
     pub async fn run<B, FRender, FEvent, FQuit, FEffect, R>(
         &mut self,
@@ -631,113 +685,37 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
         FQuit: FnMut(&A) -> bool,
         FEffect: FnMut(E, &mut EffectContext<A>),
     {
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
-        let cancel_token = CancellationToken::new();
-        let _handle = spawn_event_poller(
-            event_tx,
-            self.poller_config.poll_timeout,
-            self.poller_config.loop_sleep,
-            cancel_token.clone(),
-        );
+        let (mut event_rx, cancel_token) = self.spawn_poller();
 
         loop {
             if self.should_render {
-                let state = self.store.state();
-                let render_ctx = RenderContext {
-                    debug_enabled: {
-                        #[cfg(feature = "debug")]
-                        {
-                            self.debug
-                                .as_ref()
-                                .map(|debug| debug.is_enabled())
-                                .unwrap_or(false)
-                        }
-                        #[cfg(not(feature = "debug"))]
-                        {
-                            false
-                        }
-                    },
-                };
-                terminal.draw(|frame| {
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        let mut render_fn =
-                            |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
-                                render(f, area, state, ctx);
-                            };
-                        debug.render(frame, state, render_ctx, &mut render_fn);
-                    } else {
-                        render(frame, frame.area(), state, render_ctx);
-                    }
-
-                    #[cfg(not(feature = "debug"))]
-                    {
-                        render(frame, frame.area(), state, render_ctx);
-                    }
-                })?;
-                self.should_render = false;
+                draw_frame!(self, terminal, render);
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
                     let event = process_raw_event(raw_event);
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        if let Some(needs_render) =
-                            debug.handle_event(&event, self.store.state(), &self.action_tx)
-                        {
-                            self.should_render = needs_render;
-                            continue;
-                        }
+                    if let Some(needs_render) = self.debug_intercept_event(&event) {
+                        self.should_render = needs_render;
+                        continue;
                     }
-
                     let outcome: EventOutcome<A> = map_event(&event, self.store.state()).into();
-                    if outcome.needs_render {
-                        self.should_render = true;
-                    }
-                    for action in outcome.actions {
-                        let _ = self.action_tx.send(action);
-                    }
+                    self.enqueue_outcome(outcome);
                 }
 
                 Some(action) = self.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        debug.log_action(&action);
-                    }
-
-                    // Broadcast action name for replay await functionality
-                    if self.action_broadcast.receiver_count() > 0 {
-                        let _ = self.action_broadcast.send(action.name().to_string());
-                    }
-
-                    let result = self.store.dispatch(action);
-                    if result.has_effects() {
-                        let mut ctx = self.effect_context();
-                        for effect in result.effects {
-                            handle_effect(effect, &mut ctx);
-                        }
-                    }
-                    self.should_render = result.changed;
+                    self.debug_log_action(&action);
+                    self.dispatch_and_handle_effects(action, &mut handle_effect);
                 }
 
-                else => {
-                    break;
-                }
+                else => { break; }
             }
         }
 
-        cancel_token.cancel();
-        #[cfg(feature = "subscriptions")]
-        self.subscriptions.cancel_all();
-        #[cfg(feature = "tasks")]
-        self.tasks.cancel_all();
-
+        self.cleanup(cancel_token);
         Ok(())
     }
 
@@ -760,113 +738,43 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
         FQuit: FnMut(&A) -> bool,
         FEffect: FnMut(E, &mut EffectContext<A>),
     {
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RawEvent>();
-        let cancel_token = CancellationToken::new();
-        let _handle = spawn_event_poller(
-            event_tx,
-            self.poller_config.poll_timeout,
-            self.poller_config.loop_sleep,
-            cancel_token.clone(),
-        );
+        let (mut event_rx, cancel_token) = self.spawn_poller();
 
         loop {
             if self.should_render {
-                let state = self.store.state();
-                let render_ctx = RenderContext {
-                    debug_enabled: {
-                        #[cfg(feature = "debug")]
-                        {
-                            self.debug
-                                .as_ref()
-                                .map(|debug| debug.is_enabled())
-                                .unwrap_or(false)
-                        }
-                        #[cfg(not(feature = "debug"))]
-                        {
-                            false
-                        }
-                    },
-                };
-                terminal.draw(|frame| {
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        let mut render_fn =
-                            |f: &mut Frame, area: Rect, state: &S, ctx: RenderContext| {
-                                render(f, area, state, ctx, bus.context_mut());
-                            };
-                        debug.render(frame, state, render_ctx, &mut render_fn);
-                    } else {
-                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
-                    }
-
-                    #[cfg(not(feature = "debug"))]
-                    {
-                        render(frame, frame.area(), state, render_ctx, bus.context_mut());
-                    }
-                })?;
-                self.should_render = false;
+                draw_frame!(self, terminal, |f, area, s, ctx| render(
+                    f,
+                    area,
+                    s,
+                    ctx,
+                    bus.context_mut()
+                ));
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
                     let event = process_raw_event(raw_event);
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        if let Some(needs_render) =
-                            debug.handle_event(&event, self.store.state(), &self.action_tx)
-                        {
-                            self.should_render = needs_render;
-                            continue;
-                        }
+                    if let Some(needs_render) = self.debug_intercept_event(&event) {
+                        self.should_render = needs_render;
+                        continue;
                     }
-
                     let outcome = bus.handle_event(&event, self.store.state(), keybindings);
-                    if outcome.needs_render {
-                        self.should_render = true;
-                    }
-                    for action in outcome.actions {
-                        let _ = self.action_tx.send(action);
-                    }
+                    self.enqueue_outcome(outcome);
                 }
 
                 Some(action) = self.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-
-                    #[cfg(feature = "debug")]
-                    if let Some(debug) = self.debug.as_mut() {
-                        debug.log_action(&action);
-                    }
-
-                    // Broadcast action name for replay await functionality
-                    if self.action_broadcast.receiver_count() > 0 {
-                        let _ = self.action_broadcast.send(action.name().to_string());
-                    }
-
-                    let result = self.store.dispatch(action);
-                    if result.has_effects() {
-                        let mut ctx = self.effect_context();
-                        for effect in result.effects {
-                            handle_effect(effect, &mut ctx);
-                        }
-                    }
-                    self.should_render = result.changed;
+                    self.debug_log_action(&action);
+                    self.dispatch_and_handle_effects(action, &mut handle_effect);
                 }
 
-                else => {
-                    break;
-                }
+                else => { break; }
             }
         }
 
-        cancel_token.cancel();
-        #[cfg(feature = "subscriptions")]
-        self.subscriptions.cancel_all();
-        #[cfg(feature = "tasks")]
-        self.tasks.cancel_all();
-
+        self.cleanup(cancel_token);
         Ok(())
     }
 }
