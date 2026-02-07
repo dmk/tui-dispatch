@@ -110,7 +110,7 @@ impl<S, A: Action> DispatchStore<S, A> for Store<S, A> {
     }
 }
 
-impl<S, A: Action, M: Middleware<A>> DispatchStore<S, A> for StoreWithMiddleware<S, A, M> {
+impl<S, A: Action, M: Middleware<S, A>> DispatchStore<S, A> for StoreWithMiddleware<S, A, M> {
     fn dispatch(&mut self, action: A) -> bool {
         StoreWithMiddleware::dispatch(self, action)
     }
@@ -138,7 +138,7 @@ impl<S, A: Action, E> EffectStoreLike<S, A, E> for EffectStore<S, A, E> {
     }
 }
 
-impl<S, A: Action, E, M: Middleware<A>> EffectStoreLike<S, A, E>
+impl<S, A: Action, E, M: Middleware<S, A>> EffectStoreLike<S, A, E>
     for EffectStoreWithMiddleware<S, A, E, M>
 {
     fn dispatch(&mut self, action: A) -> ReducerResult<E> {

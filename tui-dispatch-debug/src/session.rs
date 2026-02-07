@@ -48,14 +48,14 @@ impl<A> DebugActionRecorder<A> {
     }
 }
 
-impl<A: Action> Middleware<A> for DebugActionRecorder<A> {
-    fn before(&mut self, action: &A) {
+impl<S, A: Action> Middleware<S, A> for DebugActionRecorder<A> {
+    fn before(&mut self, action: &A, _state: &S) {
         if self.filter.should_log(action.name()) {
             self.actions.borrow_mut().push(action.clone());
         }
     }
 
-    fn after(&mut self, _action: &A, _state_changed: bool) {}
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {}
 }
 
 /// Output from a debug-aware app run.
@@ -318,9 +318,9 @@ impl DebugSession {
             .map(|_| DebugActionRecorder::new(self.action_filter()))
     }
 
-    pub fn middleware_with_recorder<A: Action>(
+    pub fn middleware_with_recorder<S, A: Action>(
         &self,
-    ) -> (ComposedMiddleware<A>, Option<DebugActionRecorder<A>>) {
+    ) -> (ComposedMiddleware<S, A>, Option<DebugActionRecorder<A>>) {
         let mut middleware = ComposedMiddleware::new();
         let recorder = self.action_recorder();
         if let Some(recorder) = recorder.clone() {

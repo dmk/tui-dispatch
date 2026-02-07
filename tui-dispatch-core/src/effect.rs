@@ -271,7 +271,7 @@ where
 pub struct EffectStoreWithMiddleware<S, A, E, M>
 where
     A: Action,
-    M: Middleware<A>,
+    M: Middleware<S, A>,
 {
     store: EffectStore<S, A, E>,
     middleware: M,
@@ -280,7 +280,7 @@ where
 impl<S, A, E, M> EffectStoreWithMiddleware<S, A, E, M>
 where
     A: Action,
-    M: Middleware<A>,
+    M: Middleware<S, A>,
 {
     /// Create a new effect store with middleware.
     pub fn new(state: S, reducer: EffectReducer<S, A, E>, middleware: M) -> Self {
@@ -319,9 +319,9 @@ where
     /// Calls `middleware.before()`, then `store.dispatch()`,
     /// then `middleware.after()` with the state change indicator.
     pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
-        self.middleware.before(&action);
+        self.middleware.before(&action, &self.store.state);
         let result = self.store.dispatch(action.clone());
-        self.middleware.after(&action, result.changed);
+        self.middleware.after(&action, result.changed, &self.store.state);
         result
     }
 }

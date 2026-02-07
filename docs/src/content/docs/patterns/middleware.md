@@ -8,19 +8,21 @@ Middleware intercepts actions before and after they reach the reducer, enabling 
 ## The Middleware Trait
 
 ```rust
-pub trait Middleware<A: Action> {
+pub trait Middleware<S, A: Action> {
     /// Called before the action is dispatched to the reducer
-    fn before(&mut self, action: &A);
+    fn before(&mut self, action: &A, state: &S);
 
     /// Called after the reducer processes the action
-    fn after(&mut self, action: &A, state_changed: bool);
+    fn after(&mut self, action: &A, state_changed: bool, state: &S);
 }
 ```
+
+Middleware receives a read-only reference to the store's state both before and after dispatch. This enables patterns like state-diff logging, conditional middleware, and persistence.
 
 The dispatch flow with middleware:
 
 ```
-action → middleware.before() → reducer() → middleware.after() → result
+action → middleware.before(&state) → reducer() → middleware.after(&state) → result
 ```
 
 ## Using StoreWithMiddleware
@@ -182,12 +184,12 @@ impl TimingMiddleware {
     }
 }
 
-impl<A: Action> Middleware<A> for TimingMiddleware {
-    fn before(&mut self, action: &A) {
+impl<S, A: Action> Middleware<S, A> for TimingMiddleware {
+    fn before(&mut self, action: &A, _state: &S) {
         self.start = Some(Instant::now());
     }
 
-    fn after(&mut self, action: &A, state_changed: bool) {
+    fn after(&mut self, action: &A, state_changed: bool, _state: &S) {
         if let Some(start) = self.start.take() {
             let elapsed = start.elapsed();
             if elapsed.as_millis() > 10 {
@@ -212,10 +214,10 @@ struct MetricsMiddleware {
     total_dispatches: u64,
 }
 
-impl<A: Action> Middleware<A> for MetricsMiddleware {
-    fn before(&mut self, _action: &A) {}
+impl<S, A: Action> Middleware<S, A> for MetricsMiddleware {
+    fn before(&mut self, _action: &A, _state: &S) {}
 
-    fn after(&mut self, action: &A, _state_changed: bool) {
+    fn after(&mut self, action: &A, _state_changed: bool, _state: &S) {
         self.total_dispatches += 1;
         *self.action_counts.entry(action.name()).or_insert(0) += 1;
     }

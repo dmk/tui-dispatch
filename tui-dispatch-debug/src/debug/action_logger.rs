@@ -411,8 +411,8 @@ impl ActionLoggerMiddleware {
     }
 }
 
-impl<A: ActionParams> Middleware<A> for ActionLoggerMiddleware {
-    fn before(&mut self, action: &A) {
+impl<S, A: ActionParams> Middleware<S, A> for ActionLoggerMiddleware {
+    fn before(&mut self, action: &A, _state: &S) {
         // Inactive: no-op
         if !self.active {
             return;
@@ -431,7 +431,7 @@ impl<A: ActionParams> Middleware<A> for ActionLoggerMiddleware {
         }
     }
 
-    fn after(&mut self, _action: &A, _state_changed: bool) {
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {
         // No-op - we no longer track state_changed
     }
 }
@@ -656,16 +656,16 @@ mod tests {
         let mut middleware = ActionLoggerMiddleware::with_default_log();
 
         // Log a Connect action
-        middleware.before(&TestAction::Connect);
-        middleware.after(&TestAction::Connect, true);
+        middleware.before(&TestAction::Connect, &());
+        middleware.after(&TestAction::Connect, true, &());
 
         // Verify Connect was logged
         let log = middleware.log().unwrap();
         assert_eq!(log.len(), 1);
 
         // Now dispatch a Tick (filtered out by default)
-        middleware.before(&TestAction::Tick);
-        middleware.after(&TestAction::Tick, false);
+        middleware.before(&TestAction::Tick, &());
+        middleware.after(&TestAction::Tick, false, &());
 
         // Log should still have only 1 entry (Tick was filtered)
         let log = middleware.log().unwrap();

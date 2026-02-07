@@ -275,12 +275,12 @@ impl<S, A: Action> Store<S, A> {
 ///
 /// Wraps a `Store` and allows middleware to intercept actions
 /// before and after they are processed by the reducer.
-pub struct StoreWithMiddleware<S, A: Action, M: Middleware<A>> {
+pub struct StoreWithMiddleware<S, A: Action, M: Middleware<S, A>> {
     store: Store<S, A>,
     middleware: M,
 }
 
-impl<S, A: Action, M: Middleware<A>> StoreWithMiddleware<S, A, M> {
+impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     /// Create a new store with middleware
     pub fn new(state: S, reducer: Reducer<S, A>, middleware: M) -> Self {
         Self {
@@ -291,9 +291,9 @@ impl<S, A: Action, M: Middleware<A>> StoreWithMiddleware<S, A, M> {
 
     /// Dispatch an action through middleware and store
     pub fn dispatch(&mut self, action: A) -> bool {
-        self.middleware.before(&action);
+        self.middleware.before(&action, &self.store.state);
         let changed = self.store.dispatch(action.clone());
-        self.middleware.after(&action, changed);
+        self.middleware.after(&action, changed, &self.store.state);
         changed
     }
 
@@ -321,22 +321,24 @@ impl<S, A: Action, M: Middleware<A>> StoreWithMiddleware<S, A, M> {
 /// Middleware trait for intercepting actions
 ///
 /// Implement this trait to add logging, persistence, or other
-/// cross-cutting concerns to your store.
-pub trait Middleware<A: Action> {
+/// cross-cutting concerns to your store. Middleware receives
+/// a reference to the current state in both `before` and `after`,
+/// enabling patterns like state-diff logging and conditional persistence.
+pub trait Middleware<S, A: Action> {
     /// Called before the action is dispatched to the reducer
-    fn before(&mut self, action: &A);
+    fn before(&mut self, action: &A, state: &S);
 
     /// Called after the action is processed by the reducer
-    fn after(&mut self, action: &A, state_changed: bool);
+    fn after(&mut self, action: &A, state_changed: bool, state: &S);
 }
 
 /// A no-op middleware that does nothing
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoopMiddleware;
 
-impl<A: Action> Middleware<A> for NoopMiddleware {
-    fn before(&mut self, _action: &A) {}
-    fn after(&mut self, _action: &A, _state_changed: bool) {}
+impl<S, A: Action> Middleware<S, A> for NoopMiddleware {
+    fn before(&mut self, _action: &A, _state: &S) {}
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {}
 }
 
 /// Middleware that logs actions (for debugging)
@@ -366,14 +368,14 @@ impl LoggingMiddleware {
     }
 }
 
-impl<A: Action> Middleware<A> for LoggingMiddleware {
-    fn before(&mut self, action: &A) {
+impl<S, A: Action> Middleware<S, A> for LoggingMiddleware {
+    fn before(&mut self, action: &A, _state: &S) {
         if self.log_before {
             tracing::debug!(action = %action.name(), "Dispatching action");
         }
     }
 
-    fn after(&mut self, action: &A, state_changed: bool) {
+    fn after(&mut self, action: &A, state_changed: bool, _state: &S) {
         if self.log_after {
             tracing::debug!(
                 action = %action.name(),
@@ -385,11 +387,11 @@ impl<A: Action> Middleware<A> for LoggingMiddleware {
 }
 
 /// Compose multiple middleware into a single middleware
-pub struct ComposedMiddleware<A: Action> {
-    middlewares: Vec<Box<dyn Middleware<A>>>,
+pub struct ComposedMiddleware<S, A: Action> {
+    middlewares: Vec<Box<dyn Middleware<S, A>>>,
 }
 
-impl<A: Action> std::fmt::Debug for ComposedMiddleware<A> {
+impl<S, A: Action> std::fmt::Debug for ComposedMiddleware<S, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ComposedMiddleware")
             .field("middlewares_count", &self.middlewares.len())
@@ -397,13 +399,13 @@ impl<A: Action> std::fmt::Debug for ComposedMiddleware<A> {
     }
 }
 
-impl<A: Action> Default for ComposedMiddleware<A> {
+impl<S, A: Action> Default for ComposedMiddleware<S, A> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A: Action> ComposedMiddleware<A> {
+impl<S, A: Action> ComposedMiddleware<S, A> {
     /// Create a new composed middleware
     pub fn new() -> Self {
         Self {
@@ -412,22 +414,22 @@ impl<A: Action> ComposedMiddleware<A> {
     }
 
     /// Add a middleware to the composition
-    pub fn add<M: Middleware<A> + 'static>(&mut self, middleware: M) {
+    pub fn add<M: Middleware<S, A> + 'static>(&mut self, middleware: M) {
         self.middlewares.push(Box::new(middleware));
     }
 }
 
-impl<A: Action> Middleware<A> for ComposedMiddleware<A> {
-    fn before(&mut self, action: &A) {
+impl<S, A: Action> Middleware<S, A> for ComposedMiddleware<S, A> {
+    fn before(&mut self, action: &A, state: &S) {
         for middleware in &mut self.middlewares {
-            middleware.before(action);
+            middleware.before(action, state);
         }
     }
 
-    fn after(&mut self, action: &A, state_changed: bool) {
+    fn after(&mut self, action: &A, state_changed: bool, state: &S) {
         // Call in reverse order for proper nesting
         for middleware in self.middlewares.iter_mut().rev() {
-            middleware.after(action, state_changed);
+            middleware.after(action, state_changed, state);
         }
     }
 }
@@ -509,12 +511,12 @@ mod tests {
         after_count: usize,
     }
 
-    impl<A: Action> Middleware<A> for CountingMiddleware {
-        fn before(&mut self, _action: &A) {
+    impl<S, A: Action> Middleware<S, A> for CountingMiddleware {
+        fn before(&mut self, _action: &A, _state: &S) {
             self.before_count += 1;
         }
 
-        fn after(&mut self, _action: &A, _state_changed: bool) {
+        fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {
             self.after_count += 1;
         }
     }
