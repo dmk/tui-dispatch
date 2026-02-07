@@ -36,7 +36,8 @@ This is ongoing work. If you find yourself writing the same pattern repeatedly, 
 
 ## Architecture: Core + Extensions
 
-tui-dispatch follows a layered architecture. The core is minimal; everything else is opt-in.
+tui-dispatch follows a layered architecture. The core is minimal; if you want the bare minimum, use `tui-dispatch-core`.
+The `tui-dispatch` crate is a batteries-included facade that re-exports core + debug + macros.
 
 ### Layer 0: Core primitives
 
@@ -54,14 +55,16 @@ Plug in what your app needs:
 
 | Extension | Purpose |
 |-----------|---------|
-| **EventBus** | Event routing (modal → focused → global) |
+| **Effects** | Declare async work as data (`DispatchResult`, `EffectStore`, `EffectRuntime`) |
+| **EventBus** | Event routing (modal → hovered → focused → subscribers → global) |
 | **DataResource** | Typed async lifecycle (Empty/Loading/Loaded/Failed) |
 | **TaskManager** | Async task lifecycle |
 | **Subscriptions** | Stream management |
 
-Each extension has a consistent pattern: create it, store it in your app struct (or AppState), use it where needed.
+Each extension has a consistent pattern: create it and wire it where needed.
+State-centric pieces like `DataResource` live in `AppState`, while runtime helpers like `TaskManager` and `Subscriptions`
+live in the runtime and are accessed via `EffectContext`.
 
 ### Layer 2: Components
 
 The `tui-dispatch-components` crate provides reusable UI components that follow the patterns above. They're optional - you can write your own components using just Layer 0.
-

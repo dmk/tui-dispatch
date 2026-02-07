@@ -18,7 +18,15 @@ let keybindings = Keybindings::new();
 
 DispatchRuntime::new(AppState::default(), reducer)
     .with_debug(DebugLayer::simple())  // F12 to toggle
-    .run_with_bus(terminal, &mut bus, &keybindings, render, is_quit)
+    .run_with_bus(
+        terminal,
+        &mut bus,
+        &keybindings,
+        |frame, area, state, ctx, _event_ctx| {
+            render(frame, area, state, ctx);
+        },
+        is_quit,
+    )
     .await?;
 ```
 
@@ -54,9 +62,10 @@ Default keybindings (when debug mode is active):
 - `A` - Show/hide action log
 - `J/K`, arrows, `PgUp/PgDn`, `g/G`, mouse wheel - Scroll tables
 - `Y` - Copy frozen frame to clipboard
-- `W` - Save state snapshot to a RON file
+- `W` - Save state snapshot as JSON
 - `I` - Toggle mouse capture for cell inspection
-- `Esc` / `Q` - Close overlay
+- `Esc` - Exit debug mode
+- `Q` - Close overlay
 
 To save loadable snapshots for `--debug-state-in`, configure the layer with
 `DebugLayer::with_state_snapshots::<AppState>()`.

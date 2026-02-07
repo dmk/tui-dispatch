@@ -9,10 +9,10 @@ A markdown file viewer showcasing the debug layer and advanced tui-dispatch feat
 
 ```bash
 # View README.md
-cargo run -p markdown-preview
+cargo run -p md-preview-example --bin mdpreview
 
 # View a specific file
-cargo run -p markdown-preview -- path/to/file.md
+cargo run -p md-preview-example --bin mdpreview -- path/to/file.md
 ```
 
 ## What It Shows
@@ -52,7 +52,8 @@ Press **F12** to enter debug mode. The debug layer freezes the frame and provide
 | `a` / `A` | Show action log |
 | `y` / `Y` | Copy frame to clipboard (via OSC52) |
 | `i` / `I` | Enable mouse capture for cell inspection |
-| `Esc` / `Q` | Close overlay |
+| `Esc` | Exit debug mode |
+| `Q` | Close overlay |
 
 When mouse capture is enabled, click any cell to inspect its styling (symbol, foreground, background, modifiers).
 
@@ -118,13 +119,13 @@ Enable/disable via CLI:
 
 ```bash
 # Enable line numbers
-cargo run -p markdown-preview -- README.md --enable line_numbers
+cargo run -p md-preview-example --bin mdpreview -- README.md --enable line_numbers
 
 # Disable wrapping, enable line numbers
-cargo run -p markdown-preview -- README.md --disable wrap_lines --enable line_numbers
+cargo run -p md-preview-example --bin mdpreview -- README.md --disable wrap_lines --enable line_numbers
 
 # Multiple flags (comma-separated)
-cargo run -p markdown-preview -- README.md --enable line_numbers,show_stats
+cargo run -p md-preview-example --bin mdpreview -- README.md --enable line_numbers,show_stats
 ```
 
 ### Search Functionality

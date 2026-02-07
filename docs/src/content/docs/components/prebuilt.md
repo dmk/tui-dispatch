@@ -11,7 +11,7 @@ For the underlying widget system, see [ratatui widgets documentation](https://do
 
 ```toml
 [dependencies]
-tui-dispatch-components = "0.5.3"
+tui-dispatch-components = "0.5.4"
 ```
 
 ## Available Components
@@ -410,14 +410,17 @@ if state.show_modal {
 ### Styling
 
 ```rust
-use tui_dispatch_components::{ModalStyle, BorderStyle, Padding};
+use tui_dispatch_components::{BaseStyle, ModalStyle, Padding};
 use ratatui::style::Color;
 
 let style = ModalStyle {
     dim_factor: 0.5,                      // 0.0 = no dim, 1.0 = black
-    border: Some(BorderStyle::default()), // Optional border
-    padding: Padding::xy(2, 1),           // Inner padding
-    bg: Some(Color::Rgb(30, 30, 40)),     // Background color
+    base: BaseStyle {
+        bg: Some(Color::Rgb(30, 30, 40)),
+        padding: Padding::xy(2, 1),
+        border: None,
+        fg: None,
+    },
 };
 ```
 

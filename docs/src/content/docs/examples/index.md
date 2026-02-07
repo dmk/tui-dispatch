@@ -58,7 +58,7 @@ From the repository root:
 
 ```bash
 # Counter - the minimal example
-cargo run -p counter
+cargo run -p counter-example
 
 # GitHub Lookup
 cargo run -p github-lookup-example
@@ -70,8 +70,8 @@ cargo run -p weather-example
 cargo run -p weather-example -- --city London --debug
 
 # Markdown preview (default: README.md)
-cargo run -p markdown-preview
+cargo run -p md-preview-example --bin mdpreview
 
 # Markdown preview with debug mode
-cargo run -p markdown-preview -- path/to/file.md --debug
+cargo run -p md-preview-example --bin mdpreview -- path/to/file.md --debug
 ```

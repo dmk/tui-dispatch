@@ -42,7 +42,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tui-dispatch = { version = "0.5.3", features = ["tasks"] }
+tui-dispatch = { version = "0.5.4", features = ["tasks"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 ratatui = "0.29"
 crossterm = "0.28"
@@ -414,10 +414,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use tui_dispatch::{
-    BindingContext, ComponentId, EffectContext, EffectRuntime, EventBus, EventContext, EventKind,
-    EventRoutingState, HandlerResponse, Keybindings, RenderContext,
-};
+use tui_dispatch::prelude::*;
 
 use crate::action::Action;
 use crate::effect::Effect;

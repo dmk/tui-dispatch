@@ -6,7 +6,7 @@ Centralized state management for Rust TUI apps (ratatui + crossterm). Redux/Elm 
 
 ```toml
 [dependencies]
-tui-dispatch = "0.5.3"
+tui-dispatch = "0.5.4"
 ratatui = "0.29"
 crossterm = "0.28"
 ```
@@ -70,7 +70,8 @@ That's the core: State, Action, reducer, Store.
 
 ## Add What You Need
 
-tui-dispatch is layered. Start with the core, add extensions when needed:
+tui-dispatch is layered. Start with the core, add extensions when needed.
+If you want the bare minimum, use `tui-dispatch-core`; `tui-dispatch` is a batteries-included facade.
 
 | Extension | When to use |
 |-----------|-------------|
@@ -98,10 +99,10 @@ See `docs/src/content/docs/patterns/async.md` and the `weather-example` / `githu
 ## Examples (In This Repo)
 
 ```bash
-cargo run -p counter
+cargo run -p counter-example
 cargo run -p github-lookup-example
 cargo run -p weather-example -- --city London --debug
-cargo run -p markdown-preview -- README.md --debug
+cargo run -p md-preview-example --bin mdpreview -- README.md --debug
 ```
 
 ## Documentation

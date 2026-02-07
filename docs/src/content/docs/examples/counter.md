@@ -8,7 +8,7 @@ The simplest possible tui-dispatch app - a counter that you can increment and de
 ## Run it
 
 ```bash
-cargo run -p counter
+cargo run -p counter-example
 ```
 
 ## Keys
@@ -19,13 +19,15 @@ cargo run -p counter
 
 ## What it demonstrates
 
-This ~80 line example shows the core pattern:
+This ~120 line example shows the core pattern without any extensions:
 
 1. **State** - A struct holding what the app knows
 2. **Actions** - An enum describing what can happen
 3. **Reducer** - A function that updates state based on actions
 4. **Store** - Container that holds state and applies reducer
-5. **Main loop** - Event polling, action dispatch, conditional render
+5. **Main loop** - Synchronous event polling, action dispatch, conditional render
+
+No async runtime, no EventBus, no debug layer — just the essentials.
 
 ## Code walkthrough
 
@@ -42,71 +44,63 @@ struct AppState {
 
 ```rust
 #[derive(Clone, Debug, Action)]
-#[action(infer_categories)]
-enum AppAction {
-    CountIncrement,
-    CountDecrement,
+enum Action {
+    Increment,
+    Decrement,
     Quit,
 }
 ```
 
-The `#[action(infer_categories)]` attribute automatically groups actions by prefix:
-- `CountIncrement` and `CountDecrement` both have category "count"
-
 ### Reducer
 
 ```rust
-fn reducer(state: &mut AppState, action: AppAction) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> bool {
     match action {
-        AppAction::CountIncrement => {
+        Action::Increment => {
             state.count += 1;
             true  // state changed, need re-render
         }
-        AppAction::CountDecrement => {
+        Action::Decrement => {
             state.count -= 1;
             true
         }
-        AppAction::Quit => false,  // handled in main loop
+        Action::Quit => false,  // handled in main loop
     }
 }
 ```
 
 The reducer returns `bool` - true means state changed and UI should re-render.
 
-### Store
+### Store + Main Loop
 
 ```rust
 let mut store = Store::new(AppState::default(), reducer);
 
-// Later, dispatch actions:
-let state_changed = store.dispatch(action);
-```
+loop {
+    // Render
+    terminal.draw(|frame| {
+        // ... render UI using store.state() ...
+    })?;
 
-### Event routing with SimpleEventBus
+    // Handle input
+    if let Event::Key(key) = event::read()? {
+        let action = match key.code {
+            KeyCode::Char('k') | KeyCode::Up => Action::Increment,
+            KeyCode::Char('j') | KeyCode::Down => Action::Decrement,
+            KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+            _ => continue,
+        };
 
-```rust
-let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
-    .with_debug(DebugLayer::simple());
-let mut bus: SimpleEventBus<AppState, AppAction, CounterComponentId> = SimpleEventBus::new();
-let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
-
-bus.register(CounterComponentId::Counter, |event, _state| {
-    match handle_event(&event.kind) {
-        Some(action) => HandlerResponse::action(action),
-        None => HandlerResponse::ignored(),
+        if !store.dispatch(action) {
+            break;
+        }
     }
-});
-
-runtime
-    .run_with_bus(terminal, &mut bus, &keybindings, render, |action| {
-        matches!(action, AppAction::Quit)
-    })
-    .await?;
+}
 ```
 
-The `SimpleEventBus` uses `DefaultBindingContext`, which avoids the need to define a custom context enum for simple apps.
+The loop renders, waits for a key event, maps it to an action, and dispatches. When `dispatch` returns `false` (the `Quit` arm), the loop exits.
 
 ## Next steps
 
-- [Weather example](/tui-dispatch/examples/weather/) - adds async API calls and middleware
+- [Weather example](/tui-dispatch/examples/weather/) - adds async API calls, effects, EventBus, and debug overlay
 - [Markdown Preview](/tui-dispatch/examples/markdown-preview/) - adds debug overlay and feature flags

@@ -119,7 +119,7 @@ let result = store.dispatch(action);
 ```
 
 ### EventBus
-For apps with multiple focusable components. Routes input based on focus state (modal → focused → global) and resolves keybindings.
+For apps with multiple focusable components. Routes input based on focus state (modal → hovered → focused → subscribers → global) and resolves keybindings.
 
 Requires two app-level types: `ComponentId` to represent focusable targets, and `EventRoutingState` to read focus from your state.
 

@@ -21,7 +21,7 @@ The debug session system enables:
 
 ```rust
 use clap::Parser;
-use tui_dispatch::debug::DebugCliArgs;
+use tui_dispatch_debug::DebugCliArgs;
 
 #[derive(Parser)]
 struct Args {
@@ -52,10 +52,16 @@ Available flags:
 `DebugSession` orchestrates the CLI flags into your app:
 
 ```rust
-use tui_dispatch::debug::{DebugCliArgs, DebugSession};
+use tui_dispatch_debug::{DebugCliArgs, DebugSession};
 
-let args = DebugCliArgs::parse();
-let session = DebugSession::new(args);
+#[derive(Parser)]
+struct Args {
+    #[clap(flatten)]
+    debug: DebugCliArgs,
+}
+
+let args = Args::parse();
+let session = DebugSession::new(args.debug);
 
 // Check if debug mode is enabled
 if session.enabled() {
@@ -98,7 +104,7 @@ let mut store = StoreWithMiddleware::new(state, reducer, middleware);
 // ... run your app ...
 
 // Save recorded actions when done
-session.save_actions(&recorder)?;
+session.save_actions(recorder.as_ref())?;
 ```
 
 The recorder respects `--debug-actions-include` and `--debug-actions-exclude` patterns.
@@ -206,7 +212,8 @@ Here's a full example integrating debug session into an effect-based app:
 use clap::Parser;
 use std::io;
 use tui_dispatch::prelude::*;
-use tui_dispatch::debug::{DebugCliArgs, DebugLayer, DebugSession};
+use tui_dispatch_debug::{DebugCliArgs, DebugSession};
+use tui_dispatch_debug::debug::DebugLayer;
 
 #[derive(Parser)]
 struct Args {
@@ -262,7 +269,7 @@ async fn main() -> io::Result<()> {
     restore_terminal(&mut terminal)?;
 
     // Save recorded actions
-    session.save_actions(&recorder)?;
+    session.save_actions(recorder.as_ref())?;
 
     // Save schemas if requested
     #[cfg(feature = "json-schema")]

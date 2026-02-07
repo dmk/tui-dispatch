@@ -90,7 +90,7 @@ Enable features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tui-dispatch = { version = "0.5.3", features = ["tasks", "subscriptions"] }
+tui-dispatch = { version = "0.5.4", features = ["tasks", "subscriptions"] }
 ```
 
 | Feature | What it enables | When to use |
@@ -222,11 +222,13 @@ tasks.cancel_all();
 
 ### Integrating with Effects
 
+When using `EffectRuntime`, effects are handled via `EffectContext`:
+
 ```rust
-fn handle_effect(effect: Effect, tasks: &mut TaskManager<Action>, tx: Sender<Action>) {
+fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
     match effect {
         Effect::FetchWeather { lat, lon } => {
-            tasks.spawn("weather", async move {
+            ctx.tasks().spawn("weather", async move {
                 match api::fetch(lat, lon).await {
                     Ok(data) => Action::WeatherDidLoad(data),
                     Err(e) => Action::WeatherDidError(e.to_string()),
@@ -234,7 +236,7 @@ fn handle_effect(effect: Effect, tasks: &mut TaskManager<Action>, tx: Sender<Act
             });
         }
         Effect::Search { query } => {
-            tasks.debounce("search", Duration::from_millis(200), async move {
+            ctx.tasks().debounce("search", Duration::from_millis(200), async move {
                 Action::SearchDidComplete(backend.search(&query).await)
             });
         }

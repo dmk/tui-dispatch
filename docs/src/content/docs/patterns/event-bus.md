@@ -3,7 +3,7 @@ title: Event Bus
 description: Route input through EventBus with state-driven focus
 ---
 
-For apps with multiple focusable components, EventBus routes input based on focus state. You register handlers for components and the bus decides routing order (modal → hovered → focused → global).
+For apps with multiple focusable components, EventBus routes input based on focus state. You register handlers for components and the bus decides routing order (modal → hovered → focused → subscribers → global).
 
 For simple single-component apps, you can handle events directly in your main loop without EventBus—see the [minimal example](/tui-dispatch/getting-started/quick-start/#minimal-example-counter).
 
@@ -136,6 +136,10 @@ runtime
 - Hovered (mouse/scroll only)
 - Focused
 - Subscribers
-- Global handlers
+- Global subscribers (global events only)
+- Global handlers (always last)
 
+Modal blocks non-broadcast events from reaching hovered/focused/subscribers.
+Global subscribers only receive **global** events.
+Global handlers run last and still run for global events even if a modal is active (they are skipped for non-global events when modal blocks).
 Resize and Tick events broadcast to subscribers (Resize/Tick) and global handlers regardless of `consumed`.
