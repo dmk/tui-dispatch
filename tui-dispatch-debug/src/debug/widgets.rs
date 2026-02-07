@@ -450,8 +450,8 @@ impl Widget for DebugTableWidget<'_> {
                     } else {
                         self.style.row_styles.1
                     };
-                    let ron_style = RonSyntaxStyle::with_base(self.style.value);
-                    let value_line = Line::from(ron_spans(value, &ron_style));
+                    let syntax_style = DebugSyntaxStyle::with_base(self.style.value);
+                    let value_line = Line::from(debug_spans(value, &syntax_style));
                     Row::new(vec![
                         Cell::from(key.clone()).style(self.style.key),
                         Cell::from(value_line).style(self.style.value),
@@ -546,11 +546,11 @@ impl Widget for CellPreviewWidget<'_> {
 }
 
 // ============================================================================
-// RON Highlighting
+// Debug Value Highlighting
 // ============================================================================
 
 #[derive(Clone)]
-pub(crate) struct RonSyntaxStyle {
+pub(crate) struct DebugSyntaxStyle {
     punctuation: Style,
     string: Style,
     number: Style,
@@ -559,7 +559,7 @@ pub(crate) struct RonSyntaxStyle {
     fallback: Style,
 }
 
-impl RonSyntaxStyle {
+impl DebugSyntaxStyle {
     pub(crate) fn with_base(base: Style) -> Self {
         Self {
             punctuation: Style::default().fg(DebugStyle::text_secondary()),
@@ -572,7 +572,7 @@ impl RonSyntaxStyle {
     }
 }
 
-pub(crate) fn ron_spans(value: &str, style: &RonSyntaxStyle) -> Vec<Span<'static>> {
+pub(crate) fn debug_spans(value: &str, style: &DebugSyntaxStyle) -> Vec<Span<'static>> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut chars = value.chars().peekable();
 
@@ -600,7 +600,7 @@ pub(crate) fn ron_spans(value: &str, style: &RonSyntaxStyle) -> Vec<Span<'static
             continue;
         }
 
-        if is_ron_punctuation(ch) {
+        if is_debug_punctuation(ch) {
             spans.push(Span::styled(ch.to_string(), style.punctuation));
             continue;
         }
@@ -636,7 +636,7 @@ pub(crate) fn ron_spans(value: &str, style: &RonSyntaxStyle) -> Vec<Span<'static
                     break;
                 }
             }
-            let token_style = if is_ron_keyword(&token) {
+            let token_style = if is_debug_keyword(&token) {
                 style.keyword
             } else {
                 style.identifier
@@ -651,7 +651,7 @@ pub(crate) fn ron_spans(value: &str, style: &RonSyntaxStyle) -> Vec<Span<'static
     spans
 }
 
-fn is_ron_punctuation(ch: char) -> bool {
+fn is_debug_punctuation(ch: char) -> bool {
     matches!(ch, '{' | '}' | '[' | ']' | '(' | ')' | ':' | ',' | '=')
 }
 
@@ -677,7 +677,7 @@ fn is_ident_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
 }
 
-fn is_ron_keyword(token: &str) -> bool {
+fn is_debug_keyword(token: &str) -> bool {
     matches!(token, "true" | "false" | "None" | "Some" | "null")
 }
 
@@ -825,8 +825,8 @@ impl Widget for ActionLogWidget<'_> {
                 } else {
                     params_compact
                 };
-                let ron_style = RonSyntaxStyle::with_base(self.style.params);
-                let params_line = Line::from(ron_spans(&params, &ron_style));
+                let syntax_style = DebugSyntaxStyle::with_base(self.style.params);
+                let params_line = Line::from(debug_spans(&params, &syntax_style));
 
                 Row::new(vec![
                     Cell::from(format!("{}", entry.sequence)).style(self.style.sequence),

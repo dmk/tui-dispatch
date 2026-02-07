@@ -27,8 +27,8 @@ use super::table::{
     ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay, DebugTableRow,
 };
 use super::widgets::{
-    dim_buffer, paint_snapshot, ron_spans, ActionLogStyle, CellPreviewWidget, DebugTableStyle,
-    RonSyntaxStyle,
+    debug_spans, dim_buffer, paint_snapshot, ActionLogStyle, CellPreviewWidget, DebugSyntaxStyle,
+    DebugTableStyle,
 };
 use super::DebugFreeze;
 
@@ -2097,7 +2097,7 @@ impl<A: Action> DebugLayer<A> {
                     return;
                 }
 
-                let ron_style = RonSyntaxStyle::with_base(style.value);
+                let syntax_style = DebugSyntaxStyle::with_base(style.value);
                 let mut rows = Vec::new();
                 let mut entry_index = 0usize;
                 for row in table.rows.iter() {
@@ -2121,7 +2121,7 @@ impl<A: Action> DebugLayer<A> {
                             value_text = pad_text(&value_text, value_width);
 
                             let mut value_spans: Vec<Span<'static>> =
-                                ron_spans(&value_text, &ron_style)
+                                debug_spans(&value_text, &syntax_style)
                                     .into_iter()
                                     .map(|span| span.patch_style(row_style))
                                     .collect();
@@ -2227,7 +2227,7 @@ impl<A: Action> DebugLayer<A> {
                     return;
                 }
 
-                let ron_style = RonSyntaxStyle::with_base(style.params);
+                let syntax_style = DebugSyntaxStyle::with_base(style.params);
                 let rows: Vec<Line> = log
                     .entries
                     .iter()
@@ -2253,7 +2253,7 @@ impl<A: Action> DebugLayer<A> {
                         let params_trimmed = truncate_with_ellipsis(&params_compact, params_width);
                         let params_text = pad_text(&params_trimmed, params_width);
                         let mut params_spans: Vec<Span<'static>> =
-                            ron_spans(&params_text, &ron_style)
+                            debug_spans(&params_text, &syntax_style)
                                 .into_iter()
                                 .map(|span| span.patch_style(row_style))
                                 .collect();
@@ -2436,14 +2436,14 @@ impl<A: Action> DebugLayer<A> {
         }
 
         let value_style = Style::default().fg(DebugStyle::text_primary());
-        let ron_style = RonSyntaxStyle::with_base(value_style);
+        let syntax_style = DebugSyntaxStyle::with_base(value_style);
 
         detail
             .params
             .lines()
             .map(|line| {
                 let mut spans = vec![Span::styled("  ", value_style)];
-                spans.extend(ron_spans(line, &ron_style));
+                spans.extend(debug_spans(line, &syntax_style));
                 Line::from(spans)
             })
             .collect()

@@ -250,12 +250,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 if field_count == 1 {
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
-                            tui_dispatch::debug::ron_string(&#(#field_names),*)
+                            tui_dispatch::debug::debug_string(&#(#field_names),*)
                         }
                     }
                 } else {
                     let parts = field_names.iter().map(|field| {
-                        quote! { tui_dispatch::debug::ron_string(&#field) }
+                        quote! { tui_dispatch::debug::debug_string(&#field) }
                     });
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
@@ -279,7 +279,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                     let parts = field_names.iter().map(|field| {
                         let label = field.to_string();
                         quote! {
-                            format!("{}: {}", #label, tui_dispatch::debug::ron_string(&#field))
+                            format!("{}: {}", #label, tui_dispatch::debug::debug_string(&#field))
                         }
                     });
                     quote! {
@@ -307,12 +307,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 if field_count == 1 {
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
-                            tui_dispatch::debug::ron_string_pretty(&#(#field_names),*)
+                            tui_dispatch::debug::debug_string_pretty(&#(#field_names),*)
                         }
                     }
                 } else {
                     let parts = field_names.iter().map(|field| {
-                        quote! { tui_dispatch::debug::ron_string_pretty(&#field) }
+                        quote! { tui_dispatch::debug::debug_string_pretty(&#field) }
                     });
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
@@ -336,7 +336,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                     let parts = field_names.iter().map(|field| {
                         let label = field.to_string();
                         quote! {
-                            format!("{}: {}", #label, tui_dispatch::debug::ron_string_pretty(&#field))
+                            format!("{}: {}", #label, tui_dispatch::debug::debug_string_pretty(&#field))
                         }
                     });
                     quote! {
@@ -880,7 +880,7 @@ pub fn derive_debug_state(input: TokenStream) -> TokenStream {
                     } else if field.debug_fmt {
                         quote! { format!("{:?}", self.#field_ident) }
                     } else {
-                        quote! { tui_dispatch::debug::ron_string(&self.#field_ident) }
+                        quote! { tui_dispatch::debug::debug_string(&self.#field_ident) }
                     };
 
                     Some(quote! {

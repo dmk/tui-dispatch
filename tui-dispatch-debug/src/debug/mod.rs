@@ -27,7 +27,7 @@
 //! // - B: Toggle debug banner position
 //! // - J/K, arrows, PgUp/PgDn, g/G: Scroll overlays
 //! // - Y: Copy frozen frame to clipboard
-//! // - W: Save state snapshot to a RON file
+//! // - W: Save state snapshot as JSON
 //! // - I: Toggle mouse capture for cell inspection
 //! ```
 //!
@@ -146,7 +146,7 @@ pub use action_logger::{
 pub use cell::{
     format_color_compact, format_modifier_compact, inspect_cell, point_in_rect, CellPreview,
 };
-pub use format::{ron_string, ron_string_compact, ron_string_pretty};
+pub use format::{debug_string, debug_string_compact, debug_string_pretty};
 pub use table::{
     ActionLogDisplayEntry, ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay,
     DebugTableRow,

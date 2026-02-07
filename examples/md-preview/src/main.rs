@@ -37,7 +37,7 @@ use std::io;
 use tui_dispatch::{
     DefaultBindingContext, DispatchRuntime, EventKind, EventOutcome, FeatureFlags, Keybindings,
 };
-use tui_dispatch_debug::debug::{DebugLayer, DebugSection, DebugState, ron_string};
+use tui_dispatch_debug::debug::{debug_string, DebugLayer, DebugSection, DebugState};
 
 use crate::action::Action;
 use crate::features::Features;
@@ -78,23 +78,23 @@ impl DebugState for AppState {
 
         vec![
             DebugSection::new("Document")
-                .entry("file", ron_string(&self.file_path))
-                .entry("total_lines", ron_string(&self.stats.total_lines)),
+                .entry("file", debug_string(&self.file_path))
+                .entry("total_lines", debug_string(&self.stats.total_lines)),
             DebugSection::new("AST Statistics")
-                .entry("headings", ron_string(&self.stats.heading_count))
-                .entry("links", ron_string(&self.stats.link_count))
-                .entry("code_blocks", ron_string(&self.stats.code_block_count))
-                .entry("list_items", ron_string(&self.stats.list_item_count))
-                .entry("paragraphs", ron_string(&self.stats.paragraph_count)),
+                .entry("headings", debug_string(&self.stats.heading_count))
+                .entry("links", debug_string(&self.stats.link_count))
+                .entry("code_blocks", debug_string(&self.stats.code_block_count))
+                .entry("list_items", debug_string(&self.stats.list_item_count))
+                .entry("paragraphs", debug_string(&self.stats.paragraph_count)),
             DebugSection::new("View")
-                .entry("scroll_offset", ron_string(&self.scroll_offset))
-                .entry("max_scroll", ron_string(&self.max_scroll()))
-                .entry("terminal_height", ron_string(&self.terminal_height)),
+                .entry("scroll_offset", debug_string(&self.scroll_offset))
+                .entry("max_scroll", debug_string(&self.max_scroll()))
+                .entry("terminal_height", debug_string(&self.terminal_height)),
             DebugSection::new("Search")
-                .entry("active", ron_string(&self.search.active))
-                .entry("query", ron_string(&query))
-                .entry("matches", ron_string(&self.search.matches.len()))
-                .entry("current", ron_string(&self.search.current_match)),
+                .entry("active", debug_string(&self.search.active))
+                .entry("query", debug_string(&query))
+                .entry("matches", debug_string(&self.search.matches.len()))
+                .entry("current", debug_string(&self.search.current_match)),
         ]
     }
 }
