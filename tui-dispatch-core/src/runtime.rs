@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::bus::{
     process_raw_event, spawn_event_poller, EventBus, EventOutcome, EventRoutingState, RawEvent,
 };
-use crate::effect::{ReducerResult, EffectStore, EffectStoreWithMiddleware};
+use crate::effect::{EffectStore, EffectStoreWithMiddleware, ReducerResult};
 use crate::event::{ComponentId, EventContext, EventKind};
 use crate::keybindings::Keybindings;
 use crate::store::{Middleware, Reducer, Store, StoreWithMiddleware};

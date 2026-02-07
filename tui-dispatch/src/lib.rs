@@ -118,7 +118,7 @@ pub mod prelude {
 
     // Effects and state types
     pub use tui_dispatch_core::{
-        DataResource, ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
+        DataResource, EffectReducer, EffectStore, EffectStoreWithMiddleware, ReducerResult,
     };
 
     // Runtime helpers

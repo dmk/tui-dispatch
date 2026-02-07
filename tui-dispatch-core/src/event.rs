@@ -136,20 +136,16 @@ impl EventKind {
 /// let bus = EventBus::new()
 ///     .with_global_key_policy(GlobalKeyPolicy::none());
 /// ```
+#[derive(Default)]
 pub enum GlobalKeyPolicy {
     /// Default: Esc, Ctrl+C, Ctrl+Q are global. Same as `EventKind::is_global()`.
+    #[default]
     Default,
     /// Only these specific key combinations are global.
     /// Each entry is `(KeyCode, required_modifiers)`.
     Keys(Vec<(KeyCode, KeyModifiers)>),
     /// Custom predicate function.
     Custom(Box<dyn Fn(&EventKind) -> bool + Send + Sync>),
-}
-
-impl Default for GlobalKeyPolicy {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl GlobalKeyPolicy {

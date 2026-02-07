@@ -321,7 +321,8 @@ where
     pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         self.middleware.before(&action, &self.store.state);
         let result = self.store.dispatch(action.clone());
-        self.middleware.after(&action, result.changed, &self.store.state);
+        self.middleware
+            .after(&action, result.changed, &self.store.state);
         result
     }
 }

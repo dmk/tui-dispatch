@@ -533,7 +533,14 @@ where
         let is_global = self.global_key_policy.is_global(event);
 
         // Build routing plan
-        let plan = RoutingPlan::build(event, is_global, state, subscribers, global_subscribers, hovered);
+        let plan = RoutingPlan::build(
+            event,
+            is_global,
+            state,
+            subscribers,
+            global_subscribers,
+            hovered,
+        );
 
         // Prepare binding context for global handlers
         let default_binding_ctx = state.default_context();

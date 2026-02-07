@@ -139,7 +139,7 @@ pub use runtime::{
 };
 
 // Effect exports
-pub use effect::{ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware};
+pub use effect::{EffectReducer, EffectStore, EffectStoreWithMiddleware, ReducerResult};
 
 // Resource exports
 pub use resource::DataResource;
@@ -180,12 +180,9 @@ pub mod prelude {
         SimpleEventBus,
     };
     pub use crate::component::Component;
-    pub use crate::effect::{
-        ReducerResult, EffectReducer, EffectStore, EffectStoreWithMiddleware,
-    };
+    pub use crate::effect::{EffectReducer, EffectStore, EffectStoreWithMiddleware, ReducerResult};
     pub use crate::event::{
-        ComponentId, Event, EventContext, EventKind, EventType, GlobalKeyPolicy,
-        NumericComponentId,
+        ComponentId, Event, EventContext, EventKind, EventType, GlobalKeyPolicy, NumericComponentId,
     };
     pub use crate::features::{DynamicFeatures, FeatureFlags};
     pub use crate::keybindings::{

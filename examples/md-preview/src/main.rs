@@ -37,7 +37,7 @@ use std::io;
 use tui_dispatch::{
     DefaultBindingContext, DispatchRuntime, EventKind, EventOutcome, FeatureFlags, Keybindings,
 };
-use tui_dispatch_debug::debug::{debug_string, DebugLayer, DebugSection, DebugState};
+use tui_dispatch_debug::debug::{DebugLayer, DebugSection, DebugState, debug_string};
 
 use crate::action::Action;
 use crate::features::Features;
