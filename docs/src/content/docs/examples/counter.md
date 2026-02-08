@@ -102,5 +102,6 @@ The loop renders, waits for a key event, maps it to an action, and dispatches. W
 
 ## Next steps
 
-- [Weather example](/tui-dispatch/examples/weather/) - adds async API calls, effects, EventBus, and debug overlay
+- [GitHub Lookup](/tui-dispatch/examples/github-lookup/) - adds async API calls, effects, and TaskManager
 - [Markdown Preview](/tui-dispatch/examples/markdown-preview/) - adds debug overlay and feature flags
+- [dmk/tui-stuff](https://github.com/dmk/tui-stuff) - more complete apps built with tui-dispatch

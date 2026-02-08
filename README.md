@@ -94,16 +94,18 @@ Enable helpers:
 - `features = ["tasks"]` for cancellation + debouncing via `TaskManager`
 - `features = ["subscriptions"]` for continuous sources (interval ticks, streams)
 
-See `docs/src/content/docs/patterns/async.md` and the `weather-example` / `github-lookup-example` apps.
+See `docs/src/content/docs/patterns/async.md` and the `github-lookup-example` app.
 
-## Examples (In This Repo)
+## Examples
 
 ```bash
 cargo run -p counter-example
 cargo run -p github-lookup-example
-cargo run -p weather-example -- --city London --debug
 cargo run -p md-preview-example --bin mdpreview -- README.md --debug
+cargo run -p minesweeper-example
 ```
+
+For more complete apps, see [dmk/tui-stuff](https://github.com/dmk/tui-stuff).
 
 ## Documentation
 
@@ -118,10 +120,6 @@ cargo run -p md-preview-example --bin mdpreview -- README.md --debug
 - `tui-dispatch-macros`: derives (`Action`, `DebugState`, `FeatureFlags`, ...)
 - `tui-dispatch-components`: reusable components (SelectList, TextInput, TreeView, ...)
 - `tui-dispatch-debug`: debug overlay + headless debug sessions
-
-## Real-World Usage
-
-Used in production by [memtui](https://github.com/dmk/memtui), a TUI for Redis/Memcached/etcd.
 
 ## License
 

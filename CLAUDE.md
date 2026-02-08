@@ -9,8 +9,10 @@ tui-dispatch is a centralized state management framework for Rust TUI apps, insp
 - `tui-dispatch`: Re-export crate with prelude
 - `tui-dispatch-core`: Core traits and types (Store, EventBus, Component, testing, debug)
 - `tui-dispatch-macros`: Derive macros (Action, ComponentId, BindingContext)
-- `examples/weather`: Full app demo with async API calls
-- `examples/markdown-preview`: Debug overlay demo
+- `examples/counter`: Minimal Store-only example
+- `examples/github-lookup`: Async API calls with EffectStore
+- `examples/md-preview`: Debug overlay demo
+- `examples/minesweeper`: Middleware cancel/inject patterns
 
 ## Core Architecture
 

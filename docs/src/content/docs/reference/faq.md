@@ -33,7 +33,7 @@ Options:
 - Return an app action that causes the reducer to return `true` / `ReducerResult::changed()` (common, simple).
 - In your EventBus handler, return `HandlerResponse::ignored().with_render().with_consumed(true)` when the component handled the event but emitted no actions.
 
-If you're writing reusable components, consider an explicit "Render" action (see `examples/weather` which has `Action::Render`).
+If you're writing reusable components, consider an explicit "Render" action.
 
 For more on routing, see [Event Bus](/tui-dispatch/patterns/event-bus/).
 
@@ -55,7 +55,7 @@ Enable `subscriptions` and use `Subscriptions` (usually through `EffectRuntime`)
 - `interval_immediate(...)` if you want an initial fire
 - `stream(...)` to forward a stream into actions
 
-See [Async Patterns](/tui-dispatch/patterns/async/) and `examples/weather`.
+See [Async Patterns](/tui-dispatch/patterns/async/).
 
 ## How do I enable the debug overlay?
 

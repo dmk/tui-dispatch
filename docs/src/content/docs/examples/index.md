@@ -3,7 +3,7 @@ title: Examples Overview
 description: Example applications demonstrating tui-dispatch patterns
 ---
 
-tui-dispatch includes four example applications, from simple to complex.
+This repo includes starter examples. For more complete apps, see [dmk/tui-stuff](https://github.com/dmk/tui-stuff).
 
 ## Counter
 
@@ -28,18 +28,6 @@ A GitHub user lookup TUI. Good next step after Counter.
 
 [Read more →](/tui-dispatch/examples/github-lookup/)
 
-## Weather
-
-A weather TUI that fetches data from the Open-Meteo API.
-
-**Demonstrates:**
-- Async API calls with `Did*` action pattern
-- Loading states and error handling
-- Action logging middleware
-- Debug mode (`--debug` flag)
-
-[Read more →](/tui-dispatch/examples/weather/)
-
 ## Markdown Preview
 
 A markdown file viewer with debug overlay and feature flags.
@@ -52,6 +40,15 @@ A markdown file viewer with debug overlay and feature flags.
 
 [Read more →](/tui-dispatch/examples/markdown-preview/)
 
+## Minesweeper
+
+A minesweeper game demonstrating middleware cancel/inject patterns.
+
+**Demonstrates:**
+- Middleware for game logic (mine placement on first click)
+- Cancel/inject action patterns
+- Grid-based UI rendering
+
 ## Running Examples
 
 From the repository root:
@@ -63,15 +60,16 @@ cargo run -p counter-example
 # GitHub Lookup
 cargo run -p github-lookup-example
 
-# Weather (default city: Kyiv)
-cargo run -p weather-example
-
-# Weather with debug mode
-cargo run -p weather-example -- --city London --debug
-
 # Markdown preview (default: README.md)
 cargo run -p md-preview-example --bin mdpreview
 
 # Markdown preview with debug mode
 cargo run -p md-preview-example --bin mdpreview -- path/to/file.md --debug
+
+# Minesweeper
+cargo run -p minesweeper-example
 ```
+
+## More Examples
+
+See [dmk/tui-stuff](https://github.com/dmk/tui-stuff) for larger apps built with tui-dispatch.
