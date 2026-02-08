@@ -80,7 +80,7 @@
 //! assert_eq!(result.effects.len(), 1);
 //! ```
 //!
-//! See the [mdBook documentation](https://docs.rs/tui-dispatch) for full guides.
+//! See the [documentation](https://docs.rs/tui-dispatch) for full guides.
 
 // Re-export everything from core
 pub use tui_dispatch_core::reducer_compose;
@@ -129,11 +129,11 @@ pub mod prelude {
 
     // Tasks (requires "tasks" feature)
     #[cfg(feature = "tasks")]
-    pub use tui_dispatch_core::{TaskKey, TaskManager};
+    pub use tui_dispatch_core::{TaskKey, TaskManager, TaskPauseHandle};
 
     // Subscriptions (requires "subscriptions" feature)
     #[cfg(feature = "subscriptions")]
-    pub use tui_dispatch_core::{SubKey, Subscriptions};
+    pub use tui_dispatch_core::{SubKey, SubPauseHandle, Subscriptions};
 
     // Debug
     pub use tui_dispatch_debug::debug::{

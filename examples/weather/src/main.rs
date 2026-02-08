@@ -17,7 +17,7 @@
 //! # Features
 //!
 //! - **Debug mode** (F12): Freeze UI, inspect state, view action log
-//! - **Auto-refresh**: Weather updates automatically every 5 minutes
+//! - **Auto-refresh**: Weather updates automatically every 30 seconds
 //! - **Action logging**: All actions tracked with timestamps
 //!
 //! # Usage
@@ -78,8 +78,8 @@ struct Args {
     #[arg(long, short, default_value = "Kyiv")]
     city: String,
 
-    /// Refresh interval in seconds
-    #[arg(long, short, default_value = "30")]
+    /// Refresh interval in seconds (minimum 1)
+    #[arg(long, short, default_value = "30", value_parser = clap::value_parser!(u64).range(1..))]
     refresh_interval: u64,
 
     #[command(flatten)]

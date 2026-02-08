@@ -93,6 +93,7 @@ runtime
 | Key | Action |
 |-----|--------|
 | `r` / `F5` | Refresh weather |
+| `/` | Search |
 | `u` | Toggle units (°C/°F) |
 | `q` / `Esc` | Quit |
 

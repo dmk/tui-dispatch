@@ -162,7 +162,7 @@ for effect in result.effects {
 }
 ```
 
-See [ReducerResult](/tui-dispatch/getting-started/core-concepts/#dispatchresult) for all builder methods.
+See [ReducerResult](/tui-dispatch/getting-started/core-concepts/#reducerresult) for all builder methods.
 
 ### Testing effects
 

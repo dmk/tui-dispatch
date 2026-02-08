@@ -252,5 +252,5 @@ impl App {
 
 ## See Also
 
-- [Core Concepts: BindingContext](/tui-dispatch/getting-started/core-concepts/#bindingcontext) - Trait definition
+- [Core Concepts: Keybindings](/tui-dispatch/getting-started/core-concepts/#keybindings) - Keybindings overview
 - [Debug Layer](/tui-dispatch/debugging/debug-layer/) - Uses keybindings internally for F12/S/A keys
