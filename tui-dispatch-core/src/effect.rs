@@ -340,7 +340,6 @@ where
         let injected = self
             .middleware
             .after(&action, result.changed, &self.store.state);
-        self.dispatch_depth -= 1;
 
         for a in injected {
             let sub = self.dispatch(a);
@@ -348,6 +347,7 @@ where
             result.effects.extend(sub.effects);
         }
 
+        self.dispatch_depth -= 1;
         result
     }
 }

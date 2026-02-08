@@ -304,12 +304,12 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
         );
 
         if self.middleware.before(&action, &self.store.state) {
-            let changed = self.store.dispatch(action.clone());
+            let mut changed = self.store.dispatch(action.clone());
             let injected = self.middleware.after(&action, changed, &self.store.state);
-            self.dispatch_depth -= 1;
             for a in injected {
-                self.dispatch(a);
+                changed |= self.dispatch(a);
             }
+            self.dispatch_depth -= 1;
             changed
         } else {
             self.dispatch_depth -= 1;
