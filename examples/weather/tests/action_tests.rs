@@ -113,13 +113,14 @@ fn test_action_categories() {
     let tick = Action::Tick;
 
     // Categories are inferred from naming convention
-    // The category() method returns the inferred category string
-    assert_eq!(did_load.category(), Some("weather_did"));
+    // "Did" is treated as a boundary marker, grouping intent+result actions
+    // e.g., WeatherFetch and WeatherDidLoad both get category "weather"
+    assert_eq!(did_load.category(), Some("weather"));
     assert_eq!(toggle.category(), Some("ui"));
     assert_eq!(tick.category(), None); // Uncategorized
 
     // Generated predicates for categorized actions
-    assert!(did_load.is_weather_did());
+    assert!(did_load.is_weather());
     assert!(toggle.is_ui());
 }
 

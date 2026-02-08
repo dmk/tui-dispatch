@@ -77,5 +77,5 @@ pub enum Action {
 // - impl Action for Action { fn name(&self) -> &'static str }
 // - impl ActionParams for Action { fn params(&self) -> String }
 // - impl ActionCategory for Action { fn category(&self) -> Option<&'static str> }
-// - enum ActionCategory { Weather, Ui, AsyncResult, Uncategorized }
-// - is_weather(), is_ui(), is_async_result() predicates
+// - enum ActionCategory { Weather, Search, SearchQuery, Ui, Uncategorized }
+// - is_weather(), is_search(), is_search_query(), is_ui() predicates

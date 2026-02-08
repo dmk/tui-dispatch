@@ -66,7 +66,7 @@ pub type Reducer<S, A> = fn(&mut S, A) -> bool;
 /// |--------|------|----------|
 /// | `NavScrollUp` | Scroll | `"nav"` |
 /// | `SearchQuerySubmit` | Submit | `"search_query"` |
-/// | `WeatherDidLoad` | Load | `"weather_did"` |
+/// | `WeatherDidLoad` | Did | `"weather"` |
 /// | `Quit` | (none) | `None` |
 ///
 /// For predictable categories, use explicit `#[category = "name"]` attributes.

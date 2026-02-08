@@ -130,7 +130,9 @@ fn infer_category(name: &str) -> Option<String> {
     let mut prefix_end = parts.len();
     let mut found_verb = false;
     for (i, part) in parts.iter().enumerate().skip(1) {
-        if ACTION_VERBS.contains(&part.as_str()) {
+        // "Did" marks the boundary between domain prefix and async result verb
+        // e.g., WeatherDidLoad → ["Weather", "Did", "Load"] → category "weather"
+        if part == "Did" || ACTION_VERBS.contains(&part.as_str()) {
             prefix_end = i;
             found_verb = true;
             break;
