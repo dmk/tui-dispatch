@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.6.0] - 2026-02-08
+
+Breaking middleware API changes, new EventBus customization, feature-gated dependencies, and docs/examples cleanup.
+
+### Breaking Changes
+
+- **`Middleware<A>` → `Middleware<S, A>`**: Middleware `before()` and `after()` now receive `&S` state reference. Update implementations: `before(&mut self, action: &A, state: &S) -> bool`, `after(&mut self, action: &A, state_changed: bool, state: &S) -> Vec<A>`
+- **`DispatchResult<E>` renamed to `ReducerResult<E>`**: All references must be updated
+- **`tracing` and `serde` are now feature-gated** in `tui-dispatch-core`: previously always-on dependencies, now require `features = ["tracing"]` or `features = ["serde"]`. `LoggingMiddleware` requires the `tracing` feature
+- **Action category inference**: `Did` is now treated as a verb boundary in category inference, grouping intent and result actions under the same category. `WeatherDidLoad` is now category `"weather"` instead of `"weather_did"`, matching `WeatherFetch`. This aligns macro behavior with documented semantics
+- **`EventOutcome` moved** from `runtime` to `bus` module — import paths changed
+- **Debug formatting helpers renamed**: `ron_string` → `debug_string`, `ron_string_compact` → `debug_string_compact`, `ron_string_pretty` → `debug_string_pretty`
+- **`bitflags` dependency removed** from `tui-dispatch-core`
+
+### Added
+
+- **`GlobalKeyPolicy`** for customizing which keys bypass modal blocking in EventBus: `GlobalKeyPolicy::without_esc()`, `::keys()`, `::none()`, `::custom()`. New `EventBus::with_global_key_policy()` builder
+- **Middleware cancel/inject semantics**: `before()` returns `false` to cancel an action; `after()` returns `Vec<A>` to inject follow-up actions through the full pipeline with recursion depth guard (`MAX_DISPATCH_DEPTH`)
+- Minesweeper example demonstrating middleware cancel/inject patterns
+- Facade prelude now exports `SubPauseHandle`, `TaskPauseHandle`, `DefaultBindingContext`, `SimpleEventBus`, and `GlobalKeyPolicy`
+
+### Fixed
+
+- **Middleware dispatch correctness**: `StoreWithMiddleware::dispatch()` now aggregates return values from injected actions — previously it could return `false` even when injected actions changed state, suppressing re-renders
+- **Middleware recursion guard**: Dispatch depth is now decremented after recursive injected dispatches complete, so `MAX_DISPATCH_DEPTH` correctly detects injection loops instead of being bypassed
+- Same fixes applied to `EffectStoreWithMiddleware`
+
+### Removed
+
+- Weather example (moved to [dmk/tui-stuff](https://github.com/dmk/tui-stuff))
+
+### Improved
+
+- Keybindings matching and EventBus event routing performance
+- Runtime event loop methods deduplicated (internal)
+
+### Docs
+
+- Fixed broken internal doc anchors (`#dispatchresult` → `#reducerresult`, `#bindingcontext` → `#keybindings`)
+- Fixed markdown-preview example docs showing removed `run_with_bus()` API — now shows actual `DispatchRuntime::run()` usage
+- Removed stale "mdBook" reference from crate-level docs
+- Converted core rustdoc examples from `ignore` to compile-tested (`Store`, `EffectStore`, crate-level example)
+- Added Starlight docs site build to PR CI
+
 ## [0.5.4] - 2026-01-25
 
 ### Added

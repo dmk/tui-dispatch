@@ -6,7 +6,7 @@ Centralized state management for Rust TUI apps (ratatui + crossterm). Redux/Elm 
 
 ```toml
 [dependencies]
-tui-dispatch = "0.5.4"
+tui-dispatch = "0.6.0"
 ratatui = "0.29"
 crossterm = "0.28"
 ```
