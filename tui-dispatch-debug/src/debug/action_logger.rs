@@ -412,10 +412,10 @@ impl ActionLoggerMiddleware {
 }
 
 impl<S, A: ActionParams> Middleware<S, A> for ActionLoggerMiddleware {
-    fn before(&mut self, action: &A, _state: &S) {
+    fn before(&mut self, action: &A, _state: &S) -> bool {
         // Inactive: no-op
         if !self.active {
-            return;
+            return true;
         }
 
         let name = action.name();
@@ -429,10 +429,12 @@ impl<S, A: ActionParams> Middleware<S, A> for ActionLoggerMiddleware {
         if let Some(ref mut log) = self.log {
             log.log(action);
         }
+
+        true
     }
 
-    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {
-        // No-op - we no longer track state_changed
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) -> Vec<A> {
+        vec![]
     }
 }
 

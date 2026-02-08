@@ -275,6 +275,7 @@ where
 {
     store: EffectStore<S, A, E>,
     middleware: M,
+    dispatch_depth: usize,
 }
 
 impl<S, A, E, M> EffectStoreWithMiddleware<S, A, E, M>
@@ -287,6 +288,7 @@ where
         Self {
             store: EffectStore::new(state, reducer),
             middleware,
+            dispatch_depth: 0,
         }
     }
 
@@ -316,13 +318,36 @@ where
 
     /// Dispatch an action through middleware and store.
     ///
-    /// Calls `middleware.before()`, then `store.dispatch()`,
-    /// then `middleware.after()` with the state change indicator.
+    /// The action passes through `middleware.before()` (which can cancel it),
+    /// then the reducer, then `middleware.after()` (which can inject follow-up actions).
+    /// Injected actions go through the full pipeline recursively; their effects
+    /// are merged into the returned result.
     pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
-        self.middleware.before(&action, &self.store.state);
-        let result = self.store.dispatch(action.clone());
-        self.middleware
+        use crate::store::MAX_DISPATCH_DEPTH;
+
+        self.dispatch_depth += 1;
+        assert!(
+            self.dispatch_depth <= MAX_DISPATCH_DEPTH,
+            "middleware dispatch depth exceeded {MAX_DISPATCH_DEPTH} — likely infinite injection loop"
+        );
+
+        if !self.middleware.before(&action, &self.store.state) {
+            self.dispatch_depth -= 1;
+            return ReducerResult::unchanged();
+        }
+
+        let mut result = self.store.dispatch(action.clone());
+        let injected = self
+            .middleware
             .after(&action, result.changed, &self.store.state);
+        self.dispatch_depth -= 1;
+
+        for a in injected {
+            let sub = self.dispatch(a);
+            result.changed |= sub.changed;
+            result.effects.extend(sub.effects);
+        }
+
         result
     }
 }

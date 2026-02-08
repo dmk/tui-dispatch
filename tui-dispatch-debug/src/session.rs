@@ -49,13 +49,16 @@ impl<A> DebugActionRecorder<A> {
 }
 
 impl<S, A: Action> Middleware<S, A> for DebugActionRecorder<A> {
-    fn before(&mut self, action: &A, _state: &S) {
+    fn before(&mut self, action: &A, _state: &S) -> bool {
         if self.filter.should_log(action.name()) {
             self.actions.borrow_mut().push(action.clone());
         }
+        true
     }
 
-    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {}
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) -> Vec<A> {
+        vec![]
+    }
 }
 
 /// Output from a debug-aware app run.

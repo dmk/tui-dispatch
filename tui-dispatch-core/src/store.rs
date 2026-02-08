@@ -278,6 +278,7 @@ impl<S, A: Action> Store<S, A> {
 pub struct StoreWithMiddleware<S, A: Action, M: Middleware<S, A>> {
     store: Store<S, A>,
     middleware: M,
+    dispatch_depth: usize,
 }
 
 impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
@@ -286,15 +287,34 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
         Self {
             store: Store::new(state, reducer),
             middleware,
+            dispatch_depth: 0,
         }
     }
 
     /// Dispatch an action through middleware and store
+    ///
+    /// The action passes through `middleware.before()` (which can cancel it),
+    /// then the reducer, then `middleware.after()` (which can inject follow-up actions).
+    /// Injected actions go through the full pipeline recursively.
     pub fn dispatch(&mut self, action: A) -> bool {
-        self.middleware.before(&action, &self.store.state);
-        let changed = self.store.dispatch(action.clone());
-        self.middleware.after(&action, changed, &self.store.state);
-        changed
+        self.dispatch_depth += 1;
+        assert!(
+            self.dispatch_depth <= MAX_DISPATCH_DEPTH,
+            "middleware dispatch depth exceeded {MAX_DISPATCH_DEPTH} — likely infinite injection loop"
+        );
+
+        if self.middleware.before(&action, &self.store.state) {
+            let changed = self.store.dispatch(action.clone());
+            let injected = self.middleware.after(&action, changed, &self.store.state);
+            self.dispatch_depth -= 1;
+            for a in injected {
+                self.dispatch(a);
+            }
+            changed
+        } else {
+            self.dispatch_depth -= 1;
+            false
+        }
     }
 
     /// Get a reference to the current state
@@ -318,18 +338,40 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     }
 }
 
+/// Maximum dispatch depth before panicking to prevent infinite middleware injection loops.
+pub(crate) const MAX_DISPATCH_DEPTH: usize = 16;
+
 /// Middleware trait for intercepting actions
 ///
-/// Implement this trait to add logging, persistence, or other
-/// cross-cutting concerns to your store. Middleware receives
-/// a reference to the current state in both `before` and `after`,
-/// enabling patterns like state-diff logging and conditional persistence.
+/// Implement this trait to add logging, persistence, throttling, or other
+/// cross-cutting concerns to your store. Middleware can:
+///
+/// - **Observe**: inspect actions and state (logging, analytics, persistence)
+/// - **Cancel**: return `false` from `before()` to prevent the action from reaching the reducer
+/// - **Inject**: return follow-up actions from `after()` that are dispatched through the full pipeline
+///
+/// # Cancel
+///
+/// Return `false` from `before()` to cancel the action — the reducer is never called and
+/// `after()` is not invoked. Useful for throttling, validation, and auth guards.
+///
+/// # Inject
+///
+/// Return actions from `after()` to trigger follow-up dispatches. Injected actions go through
+/// the full middleware + reducer pipeline. A recursion depth limit prevents infinite loops.
+///
+/// Useful for cascading behavior: moving a card to "Done" triggers a notification,
+/// without the move reducer knowing about notifications.
 pub trait Middleware<S, A: Action> {
-    /// Called before the action is dispatched to the reducer
-    fn before(&mut self, action: &A, state: &S);
+    /// Called before the action is dispatched to the reducer.
+    ///
+    /// Return `true` to proceed with dispatch, `false` to cancel.
+    fn before(&mut self, action: &A, state: &S) -> bool;
 
-    /// Called after the action is processed by the reducer
-    fn after(&mut self, action: &A, state_changed: bool, state: &S);
+    /// Called after the action is processed by the reducer.
+    ///
+    /// Return any follow-up actions to dispatch through the full pipeline.
+    fn after(&mut self, action: &A, state_changed: bool, state: &S) -> Vec<A>;
 }
 
 /// A no-op middleware that does nothing
@@ -337,8 +379,12 @@ pub trait Middleware<S, A: Action> {
 pub struct NoopMiddleware;
 
 impl<S, A: Action> Middleware<S, A> for NoopMiddleware {
-    fn before(&mut self, _action: &A, _state: &S) {}
-    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {}
+    fn before(&mut self, _action: &A, _state: &S) -> bool {
+        true
+    }
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) -> Vec<A> {
+        vec![]
+    }
 }
 
 /// Middleware that logs actions (for debugging)
@@ -369,13 +415,14 @@ impl LoggingMiddleware {
 }
 
 impl<S, A: Action> Middleware<S, A> for LoggingMiddleware {
-    fn before(&mut self, action: &A, _state: &S) {
+    fn before(&mut self, action: &A, _state: &S) -> bool {
         if self.log_before {
             tracing::debug!(action = %action.name(), "Dispatching action");
         }
+        true
     }
 
-    fn after(&mut self, action: &A, state_changed: bool, _state: &S) {
+    fn after(&mut self, action: &A, state_changed: bool, _state: &S) -> Vec<A> {
         if self.log_after {
             tracing::debug!(
                 action = %action.name(),
@@ -383,6 +430,7 @@ impl<S, A: Action> Middleware<S, A> for LoggingMiddleware {
                 "Action processed"
             );
         }
+        vec![]
     }
 }
 
@@ -420,17 +468,22 @@ impl<S, A: Action> ComposedMiddleware<S, A> {
 }
 
 impl<S, A: Action> Middleware<S, A> for ComposedMiddleware<S, A> {
-    fn before(&mut self, action: &A, state: &S) {
+    fn before(&mut self, action: &A, state: &S) -> bool {
         for middleware in &mut self.middlewares {
-            middleware.before(action, state);
+            if !middleware.before(action, state) {
+                return false;
+            }
         }
+        true
     }
 
-    fn after(&mut self, action: &A, state_changed: bool, state: &S) {
+    fn after(&mut self, action: &A, state_changed: bool, state: &S) -> Vec<A> {
+        let mut injected = Vec::new();
         // Call in reverse order for proper nesting
         for middleware in self.middlewares.iter_mut().rev() {
-            middleware.after(action, state_changed, state);
+            injected.extend(middleware.after(action, state_changed, state));
         }
+        injected
     }
 }
 
@@ -512,12 +565,14 @@ mod tests {
     }
 
     impl<S, A: Action> Middleware<S, A> for CountingMiddleware {
-        fn before(&mut self, _action: &A, _state: &S) {
+        fn before(&mut self, _action: &A, _state: &S) -> bool {
             self.before_count += 1;
+            true
         }
 
-        fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) {
+        fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) -> Vec<A> {
             self.after_count += 1;
+            vec![]
         }
     }
 

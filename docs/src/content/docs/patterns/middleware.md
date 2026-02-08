@@ -3,27 +3,44 @@ title: Middleware
 description: Intercepting actions before and after they reach the reducer
 ---
 
-Middleware intercepts actions before and after they reach the reducer, enabling cross-cutting concerns like logging, analytics, and debugging without modifying your reducer logic.
+Middleware intercepts actions before and after they reach the reducer, enabling cross-cutting concerns like logging, analytics, throttling, and debugging without modifying your reducer logic.
 
 ## The Middleware Trait
 
 ```rust
 pub trait Middleware<S, A: Action> {
-    /// Called before the action is dispatched to the reducer
-    fn before(&mut self, action: &A, state: &S);
+    /// Called before the action is dispatched to the reducer.
+    /// Return `true` to proceed, `false` to cancel the action.
+    fn before(&mut self, action: &A, state: &S) -> bool;
 
-    /// Called after the reducer processes the action
-    fn after(&mut self, action: &A, state_changed: bool, state: &S);
+    /// Called after the reducer processes the action.
+    /// Return follow-up actions to dispatch through the full pipeline.
+    fn after(&mut self, action: &A, state_changed: bool, state: &S) -> Vec<A>;
 }
 ```
 
-Middleware receives a read-only reference to the store's state both before and after dispatch. This enables patterns like state-diff logging, conditional middleware, and persistence.
+Middleware receives a read-only reference to the store's state both before and after dispatch.
+
+### Cancel
+
+Returning `false` from `before()` prevents the action from reaching the reducer entirely. Use this for throttling, rate limiting, or conditional gating.
+
+### Inject
+
+Returning actions from `after()` dispatches them through the full middleware → reducer → middleware pipeline. This enables derived actions, automatic follow-ups, and cascade patterns.
 
 The dispatch flow with middleware:
 
 ```
-action → middleware.before(&state) → reducer() → middleware.after(&state) → result
+action → middleware.before(&state) →  false? → cancelled
+                                  →  true?  → reducer() → middleware.after(&state) → result
+                                                                   ↓
+                                                            injected actions
+                                                                   ↓
+                                                     full pipeline (recursive)
 ```
+
+A recursion depth guard (`MAX_DISPATCH_DEPTH = 16`) prevents infinite injection loops.
 
 ## Using StoreWithMiddleware
 
@@ -85,8 +102,8 @@ let store = StoreWithMiddleware::new(state, reducer, composed);
 ```
 
 Execution order:
-- `before()`: called in order (first added → last added)
-- `after()`: called in reverse order (last added → first added)
+- `before()`: called in order (first added → last added). Short-circuits if any returns `false`.
+- `after()`: called in reverse order (last added → first added). All injected actions are collected.
 
 This ensures proper nesting (like try/finally blocks).
 
@@ -138,10 +155,9 @@ let middleware = ActionLoggerMiddleware::with_default_log();
 // After some dispatches...
 if let Some(log) = middleware.log() {
     for entry in log.entries() {
-        println!("{}: {} (changed: {})",
+        println!("{}: {}",
             entry.elapsed,
             entry.name,
-            entry.state_changed
         );
     }
 
@@ -185,11 +201,12 @@ impl TimingMiddleware {
 }
 
 impl<S, A: Action> Middleware<S, A> for TimingMiddleware {
-    fn before(&mut self, action: &A, _state: &S) {
+    fn before(&mut self, action: &A, _state: &S) -> bool {
         self.start = Some(Instant::now());
+        true
     }
 
-    fn after(&mut self, action: &A, state_changed: bool, _state: &S) {
+    fn after(&mut self, action: &A, state_changed: bool, _state: &S) -> Vec<A> {
         if let Some(start) = self.start.take() {
             let elapsed = start.elapsed();
             if elapsed.as_millis() > 10 {
@@ -200,6 +217,66 @@ impl<S, A: Action> Middleware<S, A> for TimingMiddleware {
                 );
             }
         }
+        vec![]
+    }
+}
+```
+
+### Cancelling Actions
+
+Use `before()` returning `false` to prevent actions from reaching the reducer:
+
+```rust
+struct ThrottleMiddleware {
+    last_dispatch: Option<Instant>,
+    min_interval: Duration,
+}
+
+impl<S, A: Action> Middleware<S, A> for ThrottleMiddleware {
+    fn before(&mut self, _action: &A, _state: &S) -> bool {
+        let now = Instant::now();
+        if let Some(last) = self.last_dispatch {
+            if now.duration_since(last) < self.min_interval {
+                return false; // Too soon — cancel
+            }
+        }
+        self.last_dispatch = Some(now);
+        true
+    }
+
+    fn after(&mut self, _action: &A, _state_changed: bool, _state: &S) -> Vec<A> {
+        vec![]
+    }
+}
+```
+
+### Injecting Follow-Up Actions
+
+Use `after()` to inject actions that go through the full pipeline:
+
+```rust
+struct AutoSaveMiddleware {
+    dirty_count: u32,
+    save_threshold: u32,
+}
+
+impl<S, A: Action> Middleware<S, A> for AutoSaveMiddleware
+where
+    A: From<SaveAction>,
+{
+    fn before(&mut self, _action: &A, _state: &S) -> bool {
+        true
+    }
+
+    fn after(&mut self, _action: &A, state_changed: bool, _state: &S) -> Vec<A> {
+        if state_changed {
+            self.dirty_count += 1;
+            if self.dirty_count >= self.save_threshold {
+                self.dirty_count = 0;
+                return vec![SaveAction::AutoSave.into()];
+            }
+        }
+        vec![]
     }
 }
 ```
@@ -215,11 +292,14 @@ struct MetricsMiddleware {
 }
 
 impl<S, A: Action> Middleware<S, A> for MetricsMiddleware {
-    fn before(&mut self, _action: &A, _state: &S) {}
+    fn before(&mut self, _action: &A, _state: &S) -> bool {
+        true
+    }
 
-    fn after(&mut self, action: &A, _state_changed: bool, _state: &S) {
+    fn after(&mut self, action: &A, _state_changed: bool, _state: &S) -> Vec<A> {
         self.total_dispatches += 1;
         *self.action_counts.entry(action.name()).or_insert(0) += 1;
+        vec![]
     }
 }
 ```
@@ -239,7 +319,7 @@ let result = store.dispatch(action);
 // result.effects: Vec<Effect>
 ```
 
-The middleware sees the action but not the effects. Effects are handled separately in your effect handler.
+The middleware sees the action but not the effects. Effects are handled separately in your effect handler. Injected actions from `after()` have their effects merged into the returned result.
 
 ## See Also
 
