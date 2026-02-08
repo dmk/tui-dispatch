@@ -11,13 +11,6 @@
 //!
 //! Run with: cargo run -p github-lookup-example
 
-mod action;
-mod api;
-mod effect;
-mod reducer;
-mod state;
-mod ui;
-
 use std::io;
 
 use crossterm::{
@@ -28,10 +21,12 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_dispatch::{EffectContext, EffectRuntime, EventKind, EventOutcome, RenderContext};
 
-use crate::action::Action;
-use crate::effect::Effect;
-use crate::reducer::reducer;
-use crate::state::AppState;
+use github_lookup::action::Action;
+use github_lookup::api;
+use github_lookup::effect::Effect;
+use github_lookup::reducer::reducer;
+use github_lookup::state::AppState;
+use github_lookup::ui;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {

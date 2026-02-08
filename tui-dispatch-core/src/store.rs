@@ -19,7 +19,7 @@ pub type Reducer<S, A> = fn(&mut S, A) -> bool;
 ///
 /// # Syntax
 ///
-/// ```ignore
+/// ```text
 /// reducer_compose!(state, action, {
 ///     // Arms are tried in order, first match wins
 ///     category "name" => handler,      // Route by action category
@@ -52,7 +52,7 @@ pub type Reducer<S, A> = fn(&mut S, A) -> bool;
 /// # Handler Signature
 ///
 /// All handlers must have the same signature:
-/// ```ignore
+/// ```text
 /// fn handler(state: &mut S, action: A) -> R
 /// ```
 /// Where `R` is typically `bool` or `ReducerResult<E>`.
@@ -203,28 +203,28 @@ macro_rules! reducer_compose {
 /// * `A` - The action type (must implement `Action`)
 ///
 /// # Example
-/// ```ignore
-/// #[derive(Default)]
-/// struct AppState {
-///     counter: i32,
+/// ```
+/// use tui_dispatch_core::{Action, Store};
+///
+/// #[derive(Clone, Debug)]
+/// enum MyAction { Increment, Decrement }
+///
+/// impl Action for MyAction {
+///     fn name(&self) -> &'static str {
+///         match self {
+///             MyAction::Increment => "Increment",
+///             MyAction::Decrement => "Decrement",
+///         }
+///     }
 /// }
 ///
-/// #[derive(Action, Clone, Debug)]
-/// enum MyAction {
-///     Increment,
-///     Decrement,
-/// }
+/// #[derive(Default)]
+/// struct AppState { counter: i32 }
 ///
 /// fn reducer(state: &mut AppState, action: MyAction) -> bool {
 ///     match action {
-///         MyAction::Increment => {
-///             state.counter += 1;
-///             true
-///         }
-///         MyAction::Decrement => {
-///             state.counter -= 1;
-///             true
-///         }
+///         MyAction::Increment => { state.counter += 1; true }
+///         MyAction::Decrement => { state.counter -= 1; true }
 ///     }
 /// }
 ///

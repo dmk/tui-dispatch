@@ -7,34 +7,39 @@
 //! # Overview
 //!
 //! The traditional reducer returns `bool` (state changed or not):
-//! ```ignore
+//! ```text
 //! fn reducer(state: &mut S, action: A) -> bool
 //! ```
 //!
 //! An effect-aware reducer returns both change status and effects:
-//! ```ignore
+//! ```text
 //! fn reducer(state: &mut S, action: A) -> ReducerResult<E>
 //! ```
 //!
 //! # Example
 //!
-//! ```ignore
-//! use tui_dispatch::{Action, ReducerResult, EffectStore};
+//! ```
+//! use tui_dispatch_core::{Action, ReducerResult, EffectStore};
 //!
 //! // Define your effects
 //! enum Effect {
 //!     FetchData { url: String },
-//!     SaveToFile { path: String, data: Vec<u8> },
 //!     CopyToClipboard(String),
 //! }
 //!
 //! // Define state and actions
 //! struct AppState { loading: bool, data: Option<String> }
 //!
-//! #[derive(Clone, Debug, Action)]
-//! enum AppAction {
-//!     LoadData,
-//!     DidLoadData(String),
+//! #[derive(Clone, Debug)]
+//! enum AppAction { LoadData, DidLoadData(String) }
+//!
+//! impl Action for AppAction {
+//!     fn name(&self) -> &'static str {
+//!         match self {
+//!             AppAction::LoadData => "LoadData",
+//!             AppAction::DidLoadData(_) => "DidLoadData",
+//!         }
+//!     }
 //! }
 //!
 //! // Reducer emits effects
@@ -42,9 +47,9 @@
 //!     match action {
 //!         AppAction::LoadData => {
 //!             state.loading = true;
-//!             ReducerResult::changed_with(vec![
+//!             ReducerResult::changed_with(
 //!                 Effect::FetchData { url: "https://api.example.com".into() }
-//!             ])
+//!             )
 //!         }
 //!         AppAction::DidLoadData(data) => {
 //!             state.loading = false;
@@ -55,15 +60,17 @@
 //! }
 //!
 //! // Main loop handles effects
-//! let mut store = EffectStore::new(AppState::default(), reducer);
+//! let mut store = EffectStore::new(
+//!     AppState { loading: false, data: None },
+//!     reducer,
+//! );
 //! let result = store.dispatch(AppAction::LoadData);
+//! assert!(result.changed);
 //!
 //! for effect in result.effects {
 //!     match effect {
-//!         Effect::FetchData { url } => {
-//!             // spawn async task
-//!         }
-//!         // ...
+//!         Effect::FetchData { url } => { /* spawn async task */ }
+//!         _ => {}
 //!     }
 //! }
 //! ```
@@ -180,16 +187,22 @@ pub type EffectReducer<S, A, E> = fn(&mut S, A) -> ReducerResult<E>;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use tui_dispatch::{ReducerResult, EffectStore};
+/// ```
+/// use tui_dispatch_core::{Action, ReducerResult, EffectStore};
+///
+/// #[derive(Clone, Debug)]
+/// enum MyAction { Increment }
+///
+/// impl Action for MyAction {
+///     fn name(&self) -> &'static str { "Increment" }
+/// }
 ///
 /// enum Effect { Log(String) }
 /// struct State { count: i32 }
-/// enum Action { Increment }
 ///
-/// fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
+/// fn reducer(state: &mut State, action: MyAction) -> ReducerResult<Effect> {
 ///     match action {
-///         Action::Increment => {
+///         MyAction::Increment => {
 ///             state.count += 1;
 ///             ReducerResult::changed_with(Effect::Log(format!("count is {}", state.count)))
 ///         }
@@ -197,7 +210,7 @@ pub type EffectReducer<S, A, E> = fn(&mut S, A) -> ReducerResult<E>;
 /// }
 ///
 /// let mut store = EffectStore::new(State { count: 0 }, reducer);
-/// let result = store.dispatch(Action::Increment);
+/// let result = store.dispatch(MyAction::Increment);
 /// assert!(result.changed);
 /// assert_eq!(result.effects.len(), 1);
 /// ```

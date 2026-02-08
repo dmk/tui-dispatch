@@ -30,14 +30,6 @@
 //! cargo run -p weather-example -- --city London
 //! ```
 
-mod action;
-mod api;
-mod components;
-mod effect;
-mod reducer;
-mod sprites;
-mod state;
-
 use std::cell::RefCell;
 use std::io;
 use std::rc::Rc;
@@ -59,15 +51,15 @@ use tui_dispatch_debug::debug::DebugLayer;
 use tui_dispatch_debug::{
     DebugCliArgs, DebugRunOutput, DebugSession, DebugSessionError, ReplayItem,
 };
-
-use crate::action::Action;
-use crate::api::GeocodingError;
-use crate::components::{
+use weather_example::action::Action;
+use weather_example::api;
+use weather_example::api::GeocodingError;
+use weather_example::components::{
     Component, SearchOverlay, SearchOverlayProps, WeatherDisplay, WeatherDisplayProps,
 };
-use crate::effect::Effect;
-use crate::reducer::reducer;
-use crate::state::{AppState, LOADING_ANIM_TICK_MS};
+use weather_example::effect::Effect;
+use weather_example::reducer::reducer;
+use weather_example::state::{AppState, LOADING_ANIM_TICK_MS};
 
 /// Weather TUI - tui-dispatch framework example
 #[derive(Parser, Debug)]

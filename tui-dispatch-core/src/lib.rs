@@ -13,19 +13,23 @@
 //!
 //! # Basic Example
 //!
-//! ```ignore
-//! use tui_dispatch_core::prelude::*;
+//! ```
+//! use tui_dispatch_core::{Action, Store};
 //!
-//! #[derive(Action, Clone, Debug)]
-//! enum MyAction {
-//!     Increment,
-//!     Decrement,
+//! #[derive(Clone, Debug)]
+//! enum MyAction { Increment, Decrement }
+//!
+//! impl Action for MyAction {
+//!     fn name(&self) -> &'static str {
+//!         match self {
+//!             MyAction::Increment => "Increment",
+//!             MyAction::Decrement => "Decrement",
+//!         }
+//!     }
 //! }
 //!
 //! #[derive(Default)]
-//! struct AppState {
-//!     counter: i32,
-//! }
+//! struct AppState { counter: i32 }
 //!
 //! fn reducer(state: &mut AppState, action: MyAction) -> bool {
 //!     match action {
@@ -36,6 +40,7 @@
 //!
 //! let mut store = Store::new(AppState::default(), reducer);
 //! store.dispatch(MyAction::Increment);
+//! assert_eq!(store.state().counter, 1);
 //! ```
 //!
 //! # Async Handler Pattern

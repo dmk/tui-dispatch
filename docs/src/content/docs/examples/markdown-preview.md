@@ -23,22 +23,14 @@ The debug layer is set up with sensible defaults (F12 toggle key), wired into
 the runtime helper:
 
 ```rust
-let debug = DebugLayer::<Action>::simple().active(args.debug);
-let mut runtime = DispatchRuntime::new(AppState::new(file_path, features), reducer)
-    .with_debug(debug);
-
-let mut bus = EventBus::new();
-let keybindings = Keybindings::new();
+let debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
+let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
 
 runtime
-    .run_with_bus(
+    .run(
         terminal,
-        &mut bus,
-        &keybindings,
-        |frame, area, state, ctx, event_ctx| {
-            event_ctx.set_component_area(MarkdownComponentId::Viewer, area);
-            render_app(frame, area, state, ctx);
-        },
+        render_app,
+        |event, state| map_event(event, state, &keybindings),
         |action| matches!(action, Action::Quit),
     )
     .await?;
