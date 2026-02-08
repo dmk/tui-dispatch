@@ -42,7 +42,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tui-dispatch = { version = "0.5.4", features = ["tasks"] }
+tui-dispatch = { version = "0.6.0", features = ["tasks"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 ratatui = "0.29"
 crossterm = "0.28"

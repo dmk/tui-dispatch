@@ -11,7 +11,7 @@ For the underlying widget system, see [ratatui widgets documentation](https://do
 
 ```toml
 [dependencies]
-tui-dispatch-components = "0.5.4"
+tui-dispatch-components = "0.6.0"
 ```
 
 ## Available Components
