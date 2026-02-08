@@ -387,7 +387,10 @@ impl<S, A: Action> Middleware<S, A> for NoopMiddleware {
     }
 }
 
-/// Middleware that logs actions (for debugging)
+/// Middleware that logs actions via the `tracing` crate.
+///
+/// Requires the `tracing` feature.
+#[cfg(feature = "tracing")]
 #[derive(Debug, Clone, Default)]
 pub struct LoggingMiddleware {
     /// Whether to log before dispatch
@@ -396,6 +399,7 @@ pub struct LoggingMiddleware {
     pub log_after: bool,
 }
 
+#[cfg(feature = "tracing")]
 impl LoggingMiddleware {
     /// Create a new logging middleware with default settings (log after only)
     pub fn new() -> Self {
@@ -414,6 +418,7 @@ impl LoggingMiddleware {
     }
 }
 
+#[cfg(feature = "tracing")]
 impl<S, A: Action> Middleware<S, A> for LoggingMiddleware {
     fn before(&mut self, action: &A, _state: &S) -> bool {
         if self.log_before {

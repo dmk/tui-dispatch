@@ -111,9 +111,10 @@ pub mod prelude {
 
     // Store
     pub use tui_dispatch_core::reducer_compose;
+    #[cfg(feature = "tracing")]
+    pub use tui_dispatch_core::LoggingMiddleware;
     pub use tui_dispatch_core::{
-        ComposedMiddleware, LoggingMiddleware, Middleware, NoopMiddleware, Reducer, Store,
-        StoreWithMiddleware,
+        ComposedMiddleware, Middleware, NoopMiddleware, Reducer, Store, StoreWithMiddleware,
     };
 
     // Effects and state types

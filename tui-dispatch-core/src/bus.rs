@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+#[cfg(feature = "tracing")]
 use tracing::{debug, info};
 
 /// Raw event from crossterm before processing
@@ -720,6 +721,7 @@ pub fn spawn_event_poller(
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
+                    #[cfg(feature = "tracing")]
                     info!("Event poller cancelled, draining buffer");
                     // Drain any remaining events from crossterm buffer before exiting
                     while event::poll(Duration::ZERO).unwrap_or(false) {
@@ -743,6 +745,7 @@ pub fn spawn_event_poller(
                             };
                             if let Some(raw) = raw {
                                 if tx.send(raw).is_err() {
+                                    #[cfg(feature = "tracing")]
                                     debug!("Event channel closed, stopping poller");
                                     return;
                                 }

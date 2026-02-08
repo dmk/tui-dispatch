@@ -1,7 +1,6 @@
 //! Keybindings system with context-aware key parsing and lookup
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::OnceLock;
@@ -72,10 +71,11 @@ impl<C: BindingContext> Clone for Keybindings<C> {
     }
 }
 
-impl<C: BindingContext> Serialize for Keybindings<C> {
+#[cfg(feature = "serde")]
+impl<C: BindingContext> serde::Serialize for Keybindings<C> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer,
+        S: serde::Serializer,
     {
         use serde::ser::SerializeMap;
 
@@ -94,14 +94,15 @@ impl<C: BindingContext> Serialize for Keybindings<C> {
     }
 }
 
-impl<'de, C: BindingContext> Deserialize<'de> for Keybindings<C> {
+#[cfg(feature = "serde")]
+impl<'de, C: BindingContext> serde::Deserialize<'de> for Keybindings<C> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
         // Deserialize as a map of string -> bindings
         let raw: HashMap<String, HashMap<String, Vec<String>>> =
-            HashMap::deserialize(deserializer)?;
+            serde::Deserialize::deserialize(deserializer)?;
 
         let mut keybindings = Keybindings::new();
 

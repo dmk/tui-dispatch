@@ -42,8 +42,6 @@
 //! }
 //! ```
 
-use serde::{Deserialize, Serialize};
-
 /// Represents the lifecycle of async-loaded data.
 ///
 /// This type captures the four states data can be in:
@@ -51,7 +49,8 @@ use serde::{Deserialize, Serialize};
 /// - `Loading`: Data is being fetched
 /// - `Loaded(T)`: Data successfully loaded
 /// - `Failed(String)`: Loading failed with error message
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub enum DataResource<T> {
     /// No data requested yet
@@ -304,6 +303,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn test_serialize_deserialize() {
         let loaded: DataResource<i32> = DataResource::Loaded(42);
         let json = serde_json::to_string(&loaded).unwrap();
