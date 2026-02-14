@@ -78,7 +78,10 @@
 use std::marker::PhantomData;
 
 use crate::action::Action;
-use crate::store::{check_dispatch_limits, DispatchError, DispatchLimits, Middleware};
+use crate::store::{
+    debug_assert_valid_dispatch_limits, run_iterative_middleware_dispatch, DispatchError,
+    DispatchLimits, Middleware, MiddlewareDispatchDriver,
+};
 
 /// Result of dispatching an action to an effect-aware store.
 ///
@@ -288,7 +291,6 @@ where
 {
     store: EffectStore<S, A, E>,
     middleware: M,
-    dispatch_depth: usize,
     dispatch_limits: DispatchLimits,
 }
 
@@ -302,17 +304,13 @@ where
         Self {
             store: EffectStore::new(state, reducer),
             middleware,
-            dispatch_depth: 0,
             dispatch_limits: DispatchLimits::default(),
         }
     }
 
     /// Override middleware dispatch limits.
     pub fn with_dispatch_limits(mut self, limits: DispatchLimits) -> Self {
-        debug_assert!(
-            limits.max_depth >= 1 && limits.max_actions >= 1,
-            "DispatchLimits requires max_depth >= 1 and max_actions >= 1"
-        );
+        debug_assert_valid_dispatch_limits(limits);
         self.dispatch_limits = limits;
         self
     }
@@ -359,7 +357,7 @@ where
     ///
     /// The action passes through `middleware.before()` (which can cancel it),
     /// then the reducer, then `middleware.after()` (which can inject follow-up actions).
-    /// Injected actions go through the full pipeline recursively; their effects
+    /// Injected actions go through the full pipeline in depth-first order; their effects
     /// are merged into the returned result.
     ///
     /// Returns [`DispatchError`] if configured depth or action budget limits are exceeded.
@@ -370,46 +368,50 @@ where
     /// Action budget accounting includes attempted dispatches that are later cancelled by
     /// `Middleware::before`.
     pub fn try_dispatch(&mut self, action: A) -> Result<ReducerResult<E>, DispatchError> {
-        let mut processed = 0;
-        self.try_dispatch_inner(action, &mut processed)
+        let mut driver = EffectDispatchDriver {
+            store: &mut self.store,
+            middleware: &mut self.middleware,
+        };
+        run_iterative_middleware_dispatch(self.dispatch_limits, action, &mut driver)
+    }
+}
+
+struct EffectDispatchDriver<'a, S, A, E, M>
+where
+    A: Action,
+    M: Middleware<S, A>,
+{
+    store: &'a mut EffectStore<S, A, E>,
+    middleware: &'a mut M,
+}
+
+impl<S, A, E, M> MiddlewareDispatchDriver<A> for EffectDispatchDriver<'_, S, A, E, M>
+where
+    A: Action,
+    M: Middleware<S, A>,
+{
+    type Output = ReducerResult<E>;
+
+    fn before(&mut self, action: &A) -> bool {
+        self.middleware.before(action, &self.store.state)
     }
 
-    fn try_dispatch_inner(
-        &mut self,
-        action: A,
-        processed: &mut usize,
-    ) -> Result<ReducerResult<E>, DispatchError> {
-        check_dispatch_limits(
-            self.dispatch_limits,
-            self.dispatch_depth,
-            *processed,
-            action.name(),
-        )?;
-        self.dispatch_depth += 1;
-        *processed += 1;
+    fn reduce(&mut self, action: A) -> Self::Output {
+        self.store.dispatch(action)
+    }
 
-        // Use an IIFE so we can use `?` while still reliably decrementing depth below.
-        let result = (|| {
-            if !self.middleware.before(&action, &self.store.state) {
-                return Ok(ReducerResult::unchanged());
-            }
+    fn cancelled_output(&mut self) -> Self::Output {
+        ReducerResult::unchanged()
+    }
 
-            let mut result = self.store.dispatch(action.clone());
-            let injected = self
-                .middleware
-                .after(&action, result.changed, &self.store.state);
+    fn after(&mut self, action: &A, result: &Self::Output) -> Vec<A> {
+        self.middleware
+            .after(action, result.changed, &self.store.state)
+    }
 
-            for injected_action in injected {
-                let sub = self.try_dispatch_inner(injected_action, processed)?;
-                result.changed |= sub.changed;
-                result.effects.extend(sub.effects);
-            }
-
-            Ok(result)
-        })();
-
-        self.dispatch_depth -= 1;
-        result
+    fn merge_child(&mut self, parent: &mut Self::Output, child: Self::Output) {
+        parent.changed |= child.changed;
+        parent.effects.extend(child.effects);
     }
 }
 
@@ -605,5 +607,133 @@ mod tests {
             }
         );
         assert_eq!(store.state().count, 2);
+    }
+
+    struct FiniteCascadeMiddleware {
+        target: i32,
+    }
+
+    impl Middleware<TestState, TestAction> for FiniteCascadeMiddleware {
+        fn before(&mut self, _action: &TestAction, _state: &TestState) -> bool {
+            true
+        }
+
+        fn after(
+            &mut self,
+            action: &TestAction,
+            _state_changed: bool,
+            state: &TestState,
+        ) -> Vec<TestAction> {
+            if matches!(action, TestAction::Increment) && state.count < self.target {
+                vec![TestAction::Increment]
+            } else {
+                vec![]
+            }
+        }
+    }
+
+    #[test]
+    fn test_effect_try_dispatch_deep_finite_chain_succeeds() {
+        let target = 512usize;
+        let mut store = EffectStoreWithMiddleware::new(
+            TestState::default(),
+            test_reducer,
+            FiniteCascadeMiddleware {
+                target: target as i32,
+            },
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: target + 1,
+            max_actions: target + 1,
+        });
+
+        let result = store.try_dispatch(TestAction::Increment).unwrap();
+        assert!(result.changed);
+        assert!(result.effects.is_empty());
+        assert_eq!(store.state().count, target as i32);
+    }
+
+    #[derive(Clone, Debug)]
+    enum OrderingAction {
+        Root,
+        Left,
+        Right,
+        Leaf,
+    }
+
+    impl Action for OrderingAction {
+        fn name(&self) -> &'static str {
+            match self {
+                OrderingAction::Root => "Root",
+                OrderingAction::Left => "Left",
+                OrderingAction::Right => "Right",
+                OrderingAction::Leaf => "Leaf",
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum OrderingEffect {
+        Seen(&'static str),
+    }
+
+    #[derive(Default)]
+    struct OrderingState {
+        actions_seen: usize,
+    }
+
+    fn ordering_reducer(
+        state: &mut OrderingState,
+        action: OrderingAction,
+    ) -> ReducerResult<OrderingEffect> {
+        state.actions_seen += 1;
+        ReducerResult::changed_with(OrderingEffect::Seen(action.name()))
+    }
+
+    struct OrderingMiddleware;
+
+    impl Middleware<OrderingState, OrderingAction> for OrderingMiddleware {
+        fn before(&mut self, _action: &OrderingAction, _state: &OrderingState) -> bool {
+            true
+        }
+
+        fn after(
+            &mut self,
+            action: &OrderingAction,
+            _state_changed: bool,
+            _state: &OrderingState,
+        ) -> Vec<OrderingAction> {
+            match action {
+                OrderingAction::Root => vec![OrderingAction::Left, OrderingAction::Right],
+                OrderingAction::Left => vec![OrderingAction::Leaf],
+                OrderingAction::Right | OrderingAction::Leaf => vec![],
+            }
+        }
+    }
+
+    #[test]
+    fn test_effect_try_dispatch_merges_effects_in_depth_first_order() {
+        let mut store = EffectStoreWithMiddleware::new(
+            OrderingState::default(),
+            ordering_reducer,
+            OrderingMiddleware,
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: 8,
+            max_actions: 8,
+        });
+
+        let result = store.try_dispatch(OrderingAction::Root).unwrap();
+        assert!(result.changed);
+        assert_eq!(
+            result.effects,
+            vec![
+                OrderingEffect::Seen("Root"),
+                OrderingEffect::Seen("Left"),
+                OrderingEffect::Seen("Leaf"),
+                OrderingEffect::Seen("Right"),
+            ]
+        );
+        assert_eq!(store.state().actions_seen, 4);
     }
 }

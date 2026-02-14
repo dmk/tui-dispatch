@@ -97,6 +97,93 @@ pub(crate) fn check_dispatch_limits(
     Ok(())
 }
 
+#[inline]
+pub(crate) fn debug_assert_valid_dispatch_limits(limits: DispatchLimits) {
+    debug_assert!(
+        limits.max_depth >= 1 && limits.max_actions >= 1,
+        "DispatchLimits requires max_depth >= 1 and max_actions >= 1"
+    );
+}
+
+pub(crate) trait MiddlewareDispatchDriver<A: Action> {
+    type Output;
+
+    fn before(&mut self, action: &A) -> bool;
+    fn reduce(&mut self, action: A) -> Self::Output;
+    /// Called only when the root action is cancelled in `before()`.
+    ///
+    /// Cancelled non-root actions are discarded because they merge as identity
+    /// values into their parent results.
+    fn cancelled_output(&mut self) -> Self::Output;
+    fn after(&mut self, action: &A, result: &Self::Output) -> Vec<A>;
+    fn merge_child(&mut self, parent: &mut Self::Output, child: Self::Output);
+}
+
+enum DispatchFrame<A: Action, O> {
+    Pending(A),
+    Entered {
+        result: O,
+        injected: std::vec::IntoIter<A>,
+    },
+}
+
+pub(crate) fn run_iterative_middleware_dispatch<A, D>(
+    limits: DispatchLimits,
+    action: A,
+    driver: &mut D,
+) -> Result<D::Output, DispatchError>
+where
+    A: Action,
+    D: MiddlewareDispatchDriver<A>,
+{
+    let mut processed = 0usize;
+    let mut stack = vec![DispatchFrame::<A, D::Output>::Pending(action)];
+
+    while let Some(frame) = stack.pop() {
+        match frame {
+            DispatchFrame::Pending(action) => {
+                let depth = stack.len();
+                check_dispatch_limits(limits, depth, processed, action.name())?;
+                processed += 1;
+
+                if !driver.before(&action) {
+                    if !stack.is_empty() {
+                        continue;
+                    }
+                    return Ok(driver.cancelled_output());
+                }
+
+                let result = driver.reduce(action.clone());
+                let injected = driver.after(&action, &result).into_iter();
+                stack.push(DispatchFrame::Entered { result, injected });
+            }
+            DispatchFrame::Entered {
+                result,
+                mut injected,
+            } => {
+                if let Some(injected_action) = injected.next() {
+                    stack.push(DispatchFrame::Entered { result, injected });
+                    stack.push(DispatchFrame::Pending(injected_action));
+                    continue;
+                }
+
+                if let Some(DispatchFrame::Entered {
+                    result: parent_result,
+                    ..
+                }) = stack.last_mut()
+                {
+                    driver.merge_child(parent_result, result);
+                    continue;
+                }
+
+                return Ok(result);
+            }
+        }
+    }
+
+    unreachable!("dispatch stack should not drain before a root result is returned")
+}
+
 /// Compose a reducer by routing actions to focused handlers.
 ///
 /// # When to Use
@@ -367,7 +454,6 @@ impl<S, A: Action> Store<S, A> {
 pub struct StoreWithMiddleware<S, A: Action, M: Middleware<S, A>> {
     store: Store<S, A>,
     middleware: M,
-    dispatch_depth: usize,
     dispatch_limits: DispatchLimits,
 }
 
@@ -377,17 +463,13 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
         Self {
             store: Store::new(state, reducer),
             middleware,
-            dispatch_depth: 0,
             dispatch_limits: DispatchLimits::default(),
         }
     }
 
     /// Override middleware dispatch limits.
     pub fn with_dispatch_limits(mut self, limits: DispatchLimits) -> Self {
-        debug_assert!(
-            limits.max_depth >= 1 && limits.max_actions >= 1,
-            "DispatchLimits requires max_depth >= 1 and max_actions >= 1"
-        );
+        debug_assert_valid_dispatch_limits(limits);
         self.dispatch_limits = limits;
         self
     }
@@ -410,7 +492,7 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     ///
     /// The action passes through `middleware.before()` (which can cancel it),
     /// then the reducer, then `middleware.after()` (which can inject follow-up actions).
-    /// Injected actions go through the full pipeline recursively.
+    /// Injected actions go through the full pipeline in depth-first order.
     ///
     /// Returns [`DispatchError`] if configured depth or action budget limits are exceeded.
     ///
@@ -420,41 +502,11 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     /// Action budget accounting includes attempted dispatches that are later cancelled by
     /// `Middleware::before`.
     pub fn try_dispatch(&mut self, action: A) -> Result<bool, DispatchError> {
-        let mut processed = 0;
-        self.try_dispatch_inner(action, &mut processed)
-    }
-
-    fn try_dispatch_inner(
-        &mut self,
-        action: A,
-        processed: &mut usize,
-    ) -> Result<bool, DispatchError> {
-        check_dispatch_limits(
-            self.dispatch_limits,
-            self.dispatch_depth,
-            *processed,
-            action.name(),
-        )?;
-
-        self.dispatch_depth += 1;
-        *processed += 1;
-
-        // Use an IIFE so we can use `?` while still reliably decrementing depth below.
-        let result = (|| {
-            if self.middleware.before(&action, &self.store.state) {
-                let mut changed = self.store.dispatch(action.clone());
-                let injected = self.middleware.after(&action, changed, &self.store.state);
-                for injected_action in injected {
-                    changed |= self.try_dispatch_inner(injected_action, processed)?;
-                }
-                Ok(changed)
-            } else {
-                Ok(false)
-            }
-        })();
-
-        self.dispatch_depth -= 1;
-        result
+        let mut driver = StoreDispatchDriver {
+            store: &mut self.store,
+            middleware: &mut self.middleware,
+        };
+        run_iterative_middleware_dispatch(self.dispatch_limits, action, &mut driver)
     }
 
     /// Get a reference to the current state
@@ -475,6 +527,37 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     /// Get a mutable reference to the middleware
     pub fn middleware_mut(&mut self) -> &mut M {
         &mut self.middleware
+    }
+}
+
+struct StoreDispatchDriver<'a, S, A: Action, M: Middleware<S, A>> {
+    store: &'a mut Store<S, A>,
+    middleware: &'a mut M,
+}
+
+impl<S, A: Action, M: Middleware<S, A>> MiddlewareDispatchDriver<A>
+    for StoreDispatchDriver<'_, S, A, M>
+{
+    type Output = bool;
+
+    fn before(&mut self, action: &A) -> bool {
+        self.middleware.before(action, &self.store.state)
+    }
+
+    fn reduce(&mut self, action: A) -> Self::Output {
+        self.store.dispatch(action)
+    }
+
+    fn cancelled_output(&mut self) -> Self::Output {
+        false
+    }
+
+    fn after(&mut self, action: &A, result: &Self::Output) -> Vec<A> {
+        self.middleware.after(action, *result, &self.store.state)
+    }
+
+    fn merge_child(&mut self, parent: &mut Self::Output, child: Self::Output) {
+        *parent |= child;
     }
 }
 
@@ -790,6 +873,116 @@ mod tests {
             }
         );
         assert_eq!(store.state().counter, 2);
+    }
+
+    struct FiniteCascadeMiddleware {
+        target: i32,
+    }
+
+    impl Middleware<TestState, TestAction> for FiniteCascadeMiddleware {
+        fn before(&mut self, _action: &TestAction, _state: &TestState) -> bool {
+            true
+        }
+
+        fn after(
+            &mut self,
+            action: &TestAction,
+            _state_changed: bool,
+            state: &TestState,
+        ) -> Vec<TestAction> {
+            if matches!(action, TestAction::Increment) && state.counter < self.target {
+                vec![TestAction::Increment]
+            } else {
+                vec![]
+            }
+        }
+    }
+
+    #[test]
+    fn test_try_dispatch_deep_finite_chain_succeeds() {
+        let target = 512usize;
+        let mut store = StoreWithMiddleware::new(
+            TestState::default(),
+            test_reducer,
+            FiniteCascadeMiddleware {
+                target: target as i32,
+            },
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: target + 1,
+            max_actions: target + 1,
+        });
+
+        let changed = store.try_dispatch(TestAction::Increment).unwrap();
+        assert!(changed);
+        assert_eq!(store.state().counter, target as i32);
+    }
+
+    #[derive(Default)]
+    struct OrderingState {
+        order: Vec<&'static str>,
+    }
+
+    #[derive(Clone, Debug)]
+    enum OrderingAction {
+        Root,
+        Left,
+        Right,
+        Leaf,
+    }
+
+    impl Action for OrderingAction {
+        fn name(&self) -> &'static str {
+            match self {
+                OrderingAction::Root => "Root",
+                OrderingAction::Left => "Left",
+                OrderingAction::Right => "Right",
+                OrderingAction::Leaf => "Leaf",
+            }
+        }
+    }
+
+    fn ordering_reducer(state: &mut OrderingState, action: OrderingAction) -> bool {
+        state.order.push(action.name());
+        true
+    }
+
+    struct OrderingMiddleware;
+
+    impl Middleware<OrderingState, OrderingAction> for OrderingMiddleware {
+        fn before(&mut self, _action: &OrderingAction, _state: &OrderingState) -> bool {
+            true
+        }
+
+        fn after(
+            &mut self,
+            action: &OrderingAction,
+            _state_changed: bool,
+            _state: &OrderingState,
+        ) -> Vec<OrderingAction> {
+            match action {
+                OrderingAction::Root => vec![OrderingAction::Left, OrderingAction::Right],
+                OrderingAction::Left => vec![OrderingAction::Leaf],
+                OrderingAction::Right | OrderingAction::Leaf => vec![],
+            }
+        }
+    }
+
+    #[test]
+    fn test_try_dispatch_injection_order_is_depth_first() {
+        let mut store = StoreWithMiddleware::new(
+            OrderingState::default(),
+            ordering_reducer,
+            OrderingMiddleware,
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: 8,
+            max_actions: 8,
+        });
+
+        let changed = store.try_dispatch(OrderingAction::Root).unwrap();
+        assert!(changed);
+        assert_eq!(store.state().order, vec!["Root", "Left", "Leaf", "Right"]);
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
