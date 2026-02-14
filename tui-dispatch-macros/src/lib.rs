@@ -6,6 +6,7 @@ use proc_macro2::Ident;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 use syn::{parse_macro_input, DeriveInput};
+use tui_dispatch_action_name::{infer_action_category, pascal_to_snake_case};
 
 /// Container-level attributes for #[derive(Action)]
 #[derive(Debug, FromDeriveInput)]
@@ -39,55 +40,9 @@ struct ActionVariant {
     skip_category: bool,
 }
 
-/// Common action verbs that typically appear as the last part of a variant name
-// Action verbs that typically END an action name (the actual verb part)
-// Things like "Form", "Panel", "Field" are nouns, not verbs - they should NOT be here
-const ACTION_VERBS: &[&str] = &[
-    // State transitions
-    "Start", "End", "Open", "Close", "Submit", "Confirm", "Cancel", // Navigation
-    "Next", "Prev", "Up", "Down", "Left", "Right", "Enter", "Exit", "Escape",
-    // CRUD operations
-    "Add", "Remove", "Clear", "Update", "Set", "Get", "Load", "Save", "Delete", "Create",
-    // Data operations
-    "Fetch", "Change", "Resize", // Async results
-    "Error",  // Visibility
-    "Show", "Hide", "Enable", "Disable", "Toggle", // Focus
-    "Focus", "Blur", "Select", // Movement
-    "Move", "Copy", "Cycle", "Reset", "Scroll",
-];
-
-/// Split a PascalCase string into parts
-fn split_pascal_case(s: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-
-    for ch in s.chars() {
-        if ch.is_uppercase() && !current.is_empty() {
-            parts.push(current);
-            current = String::new();
-        }
-        current.push(ch);
-    }
-    if !current.is_empty() {
-        parts.push(current);
-    }
-    parts
-}
-
 /// Convert PascalCase to snake_case
 fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(ch.to_lowercase().next().unwrap());
-        } else {
-            result.push(ch);
-        }
-    }
-    result
+    pascal_to_snake_case(s)
 }
 
 /// Convert snake_case to PascalCase
@@ -105,60 +60,7 @@ fn to_pascal_case(s: &str) -> String {
 
 /// Infer category from a variant name using naming patterns
 fn infer_category(name: &str) -> Option<String> {
-    let parts = split_pascal_case(name);
-    if parts.is_empty() {
-        return None;
-    }
-
-    // Check for "Did" prefix (async results)
-    if parts[0] == "Did" {
-        return Some("async_result".to_string());
-    }
-
-    // If only one part, no category
-    if parts.len() < 2 {
-        return None;
-    }
-
-    // Find the longest prefix that ends before an action verb
-    // e.g., ["Connection", "Form", "Submit"] -> "connection_form"
-    // e.g., ["Search", "Add", "Char"] -> "search"
-    // e.g., ["Value", "Viewer", "Scroll", "Up"] -> "value_viewer"
-
-    let first_is_verb = ACTION_VERBS.contains(&parts[0].as_str());
-
-    let mut prefix_end = parts.len();
-    let mut found_verb = false;
-    for (i, part) in parts.iter().enumerate().skip(1) {
-        // "Did" marks the boundary between domain prefix and async result verb
-        // e.g., WeatherDidLoad → ["Weather", "Did", "Load"] → category "weather"
-        if part == "Did" || ACTION_VERBS.contains(&part.as_str()) {
-            prefix_end = i;
-            found_verb = true;
-            break;
-        }
-    }
-
-    // Skip if first part is an action verb - these are primary actions, not categorized
-    // e.g., "OpenConnectionForm" → "Open" is the verb, "ConnectionForm" is the object
-    // e.g., "NextItem" → "Next" is the verb, "Item" is the object
-    if first_is_verb {
-        return None;
-    }
-
-    // Skip if no verb found in the name - can't determine meaningful category
-    if !found_verb {
-        return None;
-    }
-
-    if prefix_end == 0 {
-        return None;
-    }
-
-    let prefix_parts: Vec<&str> = parts[..prefix_end].iter().map(|s| s.as_str()).collect();
-    let prefix = prefix_parts.join("");
-
-    Some(to_snake_case(&prefix))
+    infer_action_category(name)
 }
 
 /// Derive macro for the Action trait
@@ -1080,4 +982,24 @@ pub fn derive_feature_flags(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_snake_case_handles_acronyms() {
+        assert_eq!(to_snake_case("APIFetch"), "api_fetch");
+        assert_eq!(to_snake_case("HTTPResult"), "http_result");
+    }
+
+    #[test]
+    fn test_infer_category_handles_acronyms() {
+        assert_eq!(infer_category("APIFetchStart"), Some("api".to_string()));
+        assert_eq!(
+            infer_category("SearchHTTPStart"),
+            Some("search_http".to_string())
+        );
+    }
 }

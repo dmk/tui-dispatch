@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
-use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style, Stylize};
@@ -18,7 +18,7 @@ use ratatui::text::{Line, Span};
 use ratatui::Frame;
 use serde::Serialize;
 
-use super::action_logger::{ActionLog, ActionLogConfig};
+use super::action_logger::{ActionLog, ActionLogConfig, ActionLoggerConfig};
 use super::actions::{DebugAction, DebugSideEffect};
 use super::cell::inspect_cell;
 use super::config::DebugStyle;
@@ -259,10 +259,24 @@ const ACTION_LOG_HINTS: ModalHints = ModalHints {
     left: &[
         ModalHint::new("j/k", "scroll"),
         ModalHint::new("g/G", "top/bottom"),
+        ModalHint::new("/", "filter"),
     ],
     right: &[
+        ModalHint::new("n/N", "next/prev"),
         ModalHint::new("Enter", "details"),
         ModalHint::new("Bksp", "close"),
+    ],
+};
+
+// Action Log Modal hints while search input is active
+const ACTION_LOG_SEARCH_INPUT_HINTS: ModalHints = ModalHints {
+    left: &[
+        ModalHint::new("type", "query"),
+        ModalHint::new("Bksp", "edit"),
+    ],
+    right: &[
+        ModalHint::new("Enter", "done"),
+        ModalHint::new("Esc", "done"),
     ],
 };
 
@@ -511,6 +525,19 @@ impl<A: Action> DebugLayer<A> {
     /// Set the action log capacity.
     pub fn with_action_log_capacity(mut self, capacity: usize) -> Self {
         self.action_log = ActionLog::new(ActionLogConfig::with_capacity(capacity));
+        self
+    }
+
+    /// Set full action-log configuration (capacity + filter).
+    pub fn with_action_log_config(mut self, config: ActionLogConfig) -> Self {
+        self.action_log = ActionLog::new(config);
+        self
+    }
+
+    /// Set action-log filtering while keeping the current capacity.
+    pub fn with_action_log_filter(mut self, filter: ActionLoggerConfig) -> Self {
+        let capacity = self.action_log.config().capacity;
+        self.action_log = ActionLog::new(ActionLogConfig::new(capacity, filter));
         self
     }
 
@@ -1129,6 +1156,7 @@ impl<A: Action> DebugLayer<A> {
         app_area: Rect,
         title: &str,
         hints: Option<ModalHints>,
+        footer_center_items: Option<Vec<StatusBarItem<'static>>>,
         mut render_body: F,
     ) where
         F: FnMut(&mut Frame, Rect),
@@ -1148,7 +1176,12 @@ impl<A: Action> DebugLayer<A> {
 
             // Render footer bar (bottom) if hints provided
             let content_area = if let Some(hints) = hints {
-                self.render_overlay_footer(frame, content_area, hints)
+                self.render_overlay_footer(
+                    frame,
+                    content_area,
+                    hints,
+                    footer_center_items.as_deref(),
+                )
             } else {
                 content_area
             };
@@ -1237,7 +1270,13 @@ impl<A: Action> DebugLayer<A> {
 
     /// Render a modal footer status bar with hints.
     /// Returns the remaining content area (above the footer).
-    fn render_overlay_footer(&self, frame: &mut Frame, area: Rect, hints: ModalHints) -> Rect {
+    fn render_overlay_footer(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        hints: ModalHints,
+        center_items: Option<&[StatusBarItem<'static>]>,
+    ) -> Rect {
         if area.height < 2 || area.width == 0 {
             return area;
         }
@@ -1296,6 +1335,11 @@ impl<A: Action> DebugLayer<A> {
         };
 
         let left = StatusBarSection::items(&left_items).with_separator("");
+        let center = if let Some(items) = center_items {
+            StatusBarSection::items(items).with_separator("")
+        } else {
+            StatusBarSection::empty()
+        };
         let right = if right_items.is_empty() {
             StatusBarSection::empty()
         } else {
@@ -1309,7 +1353,7 @@ impl<A: Action> DebugLayer<A> {
             footer_area,
             StatusBarProps {
                 left,
-                center: StatusBarSection::empty(),
+                center,
                 right,
                 style: footer_style,
                 is_focused: false,
@@ -1482,15 +1526,87 @@ impl<A: Action> DebugLayer<A> {
             return Some(effect.into_iter().collect());
         }
 
-        // Esc also toggles off when enabled
-        if self.freeze.enabled && key.code == KeyCode::Esc {
-            let effect = self.toggle();
-            return Some(effect.into_iter().collect());
-        }
-
         // Other commands only work when enabled
         if !self.freeze.enabled {
             return None;
+        }
+
+        // Handle action-log specific search/navigation first.
+        // We intentionally do a non-borrowing presence check before taking a mutable
+        // overlay reference, so we can still call other `&mut self` helpers in this
+        // function without extending the `log` borrow across the whole match block.
+        if matches!(self.freeze.overlay, Some(DebugOverlay::ActionLog(_))) {
+            let Some(DebugOverlay::ActionLog(ref mut log)) = self.freeze.overlay else {
+                return Some(vec![]);
+            };
+
+            if log.search_input_active {
+                let is_text_input_char = !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT);
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter => {
+                        log.search_input_active = false;
+                        return Some(vec![]);
+                    }
+                    KeyCode::Backspace => {
+                        if !log.pop_search_char() {
+                            log.search_input_active = false;
+                        }
+                        return Some(vec![]);
+                    }
+                    KeyCode::Char(c) if is_text_input_char => {
+                        log.push_search_char(c);
+                        return Some(vec![]);
+                    }
+                    _ => {
+                        return Some(vec![]);
+                    }
+                }
+            }
+
+            // Backspace closes this overlay when not editing search query.
+            if key.code == KeyCode::Backspace {
+                self.handle_action(DebugAction::CloseOverlay);
+                return Some(vec![]);
+            }
+
+            if key.code == KeyCode::Char('/') {
+                log.search_input_active = true;
+                return Some(vec![]);
+            }
+
+            // Crossterm normalizes Shift+n to `Char('N')`.
+            let prev_match = key.code == KeyCode::Char('N');
+            if prev_match {
+                log.search_prev();
+                return Some(vec![]);
+            }
+
+            if key.code == KeyCode::Char('n') {
+                log.search_next();
+                return Some(vec![]);
+            }
+
+            let action = match key.code {
+                KeyCode::Char('j') | KeyCode::Down => Some(DebugAction::ActionLogScrollDown),
+                KeyCode::Char('k') | KeyCode::Up => Some(DebugAction::ActionLogScrollUp),
+                KeyCode::Char('g') => Some(DebugAction::ActionLogScrollTop),
+                KeyCode::Char('G') => Some(DebugAction::ActionLogScrollBottom),
+                KeyCode::PageDown => Some(DebugAction::ActionLogPageDown),
+                KeyCode::PageUp => Some(DebugAction::ActionLogPageUp),
+                KeyCode::Enter => Some(DebugAction::ActionLogShowDetail),
+                _ => None,
+            };
+            if let Some(action) = action {
+                self.handle_action(action);
+                return Some(vec![]);
+            }
+        }
+
+        // Esc toggles debug mode when action-log search input did not consume it.
+        if key.code == KeyCode::Esc {
+            let effect = self.toggle();
+            return Some(effect.into_iter().collect());
         }
 
         match key.code {
@@ -1526,8 +1642,9 @@ impl<A: Action> DebugLayer<A> {
             _ => {}
         }
 
-        // Handle internal debug commands (hardcoded keys)
-        // Note: Backspace is handled per-overlay below for proper back navigation
+        // Handle internal debug commands (hardcoded keys).
+        // Note: this runs after action-log search handling so text input in `/`
+        // mode can accept letters like 'A' without toggling the overlay.
         let action = match key.code {
             KeyCode::Char('a') | KeyCode::Char('A') => Some(DebugAction::ToggleActionLog),
             KeyCode::Char('y') | KeyCode::Char('Y') => Some(DebugAction::CopyFrame),
@@ -1541,29 +1658,8 @@ impl<A: Action> DebugLayer<A> {
             return Some(effect.into_iter().collect());
         }
 
-        // Handle overlay-specific navigation
+        // Handle remaining overlay-specific navigation.
         match &self.freeze.overlay {
-            Some(DebugOverlay::ActionLog(_)) => {
-                // Backspace closes this overlay
-                if key.code == KeyCode::Backspace {
-                    self.handle_action(DebugAction::CloseOverlay);
-                    return Some(vec![]);
-                }
-                let action = match key.code {
-                    KeyCode::Char('j') | KeyCode::Down => Some(DebugAction::ActionLogScrollDown),
-                    KeyCode::Char('k') | KeyCode::Up => Some(DebugAction::ActionLogScrollUp),
-                    KeyCode::Char('g') => Some(DebugAction::ActionLogScrollTop),
-                    KeyCode::Char('G') => Some(DebugAction::ActionLogScrollBottom),
-                    KeyCode::PageDown => Some(DebugAction::ActionLogPageDown),
-                    KeyCode::PageUp => Some(DebugAction::ActionLogPageUp),
-                    KeyCode::Enter => Some(DebugAction::ActionLogShowDetail),
-                    _ => None,
-                };
-                if let Some(action) = action {
-                    self.handle_action(action);
-                    return Some(vec![]);
-                }
-            }
             Some(DebugOverlay::State(_)) => {
                 // Backspace closes this overlay
                 if key.code == KeyCode::Backspace {
@@ -1967,7 +2063,8 @@ impl<A: Action> DebugLayer<A> {
             }
 
             // Render footer bar (bottom)
-            let content_area = self.render_overlay_footer(frame, content_area, STATE_TREE_HINTS);
+            let content_area =
+                self.render_overlay_footer(frame, content_area, STATE_TREE_HINTS, None);
             if content_area.height == 0 || content_area.width == 0 {
                 return;
             }
@@ -2021,6 +2118,7 @@ impl<A: Action> DebugLayer<A> {
             app_area,
             &table.title,
             Some(INSPECT_HINTS),
+            None,
             |frame, content_area| {
                 let mut table_area = content_area;
                 if let Some(ref preview) = table.cell_preview {
@@ -2169,17 +2267,32 @@ impl<A: Action> DebugLayer<A> {
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
         let entry_count = log.entries.len();
-        let title = if entry_count > 0 {
+        let filter_active = log.has_search_query();
+        let filtered_count = if filter_active {
+            log.search_match_count()
+        } else {
+            entry_count
+        };
+        let title = if log.has_search_query() {
+            format!("{} ({} / {} shown)", log.title, filtered_count, entry_count)
+        } else if entry_count > 0 {
             format!("{} ({} entries)", log.title, entry_count)
         } else {
             format!("{} (empty)", log.title)
+        };
+
+        let action_log_hints = if log.search_input_active {
+            ACTION_LOG_SEARCH_INPUT_HINTS
+        } else {
+            ACTION_LOG_HINTS
         };
 
         self.render_overlay_container(
             frame,
             app_area,
             &title,
-            Some(ACTION_LOG_HINTS),
+            Some(action_log_hints),
+            self.action_log_footer_center_items(log),
             |frame, log_area| {
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
@@ -2200,8 +2313,22 @@ impl<A: Action> DebugLayer<A> {
                     ..log_area
                 };
 
+                let selected_visible_idx = if filtered_count == 0 {
+                    0
+                } else if filter_active {
+                    let selected_match_position = log
+                        .search_matches
+                        .iter()
+                        .position(|&idx| idx == log.selected);
+                    // Defensive fallback in case selection/matches drift out of sync.
+                    selected_match_position
+                        .unwrap_or(log.search_match_index.min(filtered_count.saturating_sub(1)))
+                } else {
+                    log.selected.min(filtered_count.saturating_sub(1))
+                };
+
                 let show_scrollbar = body_area.height > 0
-                    && log.entries.len() > body_area.height as usize
+                    && filtered_count > body_area.height as usize
                     && log_area.width > 1;
                 let text_width = if show_scrollbar {
                     log_area.width.saturating_sub(1)
@@ -2228,50 +2355,63 @@ impl<A: Action> DebugLayer<A> {
                 }
 
                 let syntax_style = DebugSyntaxStyle::with_base(style.params);
-                let rows: Vec<Line> = log
-                    .entries
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, entry)| {
-                        let row_style = if idx == log.selected {
-                            style.selected
-                        } else if idx % 2 == 0 {
-                            style.row_styles.0
-                        } else {
-                            style.row_styles.1
-                        };
+                let rows: Vec<Line> = if filtered_count == 0 {
+                    vec![Line::from(vec![Span::styled(
+                        " (no matching actions) ",
+                        Style::default().fg(DebugStyle::text_secondary()),
+                    )])]
+                } else {
+                    (0..filtered_count)
+                        .map(|visible_idx| {
+                            let entry_idx = if filter_active {
+                                log.search_matches[visible_idx]
+                            } else {
+                                visible_idx
+                            };
+                            let entry = &log.entries[entry_idx];
+                            let is_selected = visible_idx == selected_visible_idx;
+                            let row_style = if is_selected {
+                                style.selected
+                            } else if visible_idx % 2 == 0 {
+                                style.row_styles.0
+                            } else {
+                                style.row_styles.1
+                            };
 
-                        let seq_text = pad_text(&entry.sequence.to_string(), seq_width);
-                        let name_text = pad_text(&entry.name, name_width);
-                        let elapsed_text = pad_text(&entry.elapsed, elapsed_width);
+                            let seq_text = pad_text(&entry.sequence.to_string(), seq_width);
+                            let name_text = pad_text(&entry.name, name_width);
+                            let elapsed_text = pad_text(&entry.elapsed, elapsed_width);
 
-                        let params_compact = entry.params.replace('\n', " ");
-                        let params_compact = params_compact
-                            .split_whitespace()
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        let params_trimmed = truncate_with_ellipsis(&params_compact, params_width);
-                        let params_text = pad_text(&params_trimmed, params_width);
-                        let mut params_spans: Vec<Span<'static>> =
-                            debug_spans(&params_text, &syntax_style)
-                                .into_iter()
-                                .map(|span| span.patch_style(row_style))
-                                .collect();
+                            let params_compact = entry.params.replace('\n', " ");
+                            let params_compact = params_compact
+                                .split_whitespace()
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            let params_trimmed =
+                                truncate_with_ellipsis(&params_compact, params_width);
+                            let params_text = pad_text(&params_trimmed, params_width);
+                            let mut params_spans: Vec<Span<'static>> =
+                                debug_spans(&params_text, &syntax_style)
+                                    .into_iter()
+                                    .map(|span| span.patch_style(row_style))
+                                    .collect();
 
-                        let mut spans = vec![
-                            Span::styled(seq_text, style.sequence).patch_style(row_style),
-                            Span::styled(" ", row_style),
-                            Span::styled(name_text, style.name).patch_style(row_style),
-                            Span::styled(" ", row_style),
-                        ];
-                        spans.append(&mut params_spans);
-                        spans.push(Span::styled(" ", row_style));
-                        spans
-                            .push(Span::styled(elapsed_text, style.elapsed).patch_style(row_style));
+                            let mut spans = vec![
+                                Span::styled(seq_text, style.sequence).patch_style(row_style),
+                                Span::styled(" ", row_style),
+                                Span::styled(name_text, style.name).patch_style(row_style),
+                                Span::styled(" ", row_style),
+                            ];
+                            spans.append(&mut params_spans);
+                            spans.push(Span::styled(" ", row_style));
+                            spans.push(
+                                Span::styled(elapsed_text, style.elapsed).patch_style(row_style),
+                            );
 
-                        Line::from(spans)
-                    })
-                    .collect();
+                            Line::from(spans)
+                        })
+                        .collect()
+                };
 
                 let scroll_style = ScrollViewStyle {
                     base: BaseStyle {
@@ -2282,7 +2422,13 @@ impl<A: Action> DebugLayer<A> {
                     },
                     scrollbar: self.component_scrollbar_style(),
                 };
-                let scroll_offset = log.scroll_offset_for(body_area.height as usize);
+                let content_height = rows.len();
+                let visible_rows = body_area.height as usize;
+                let scroll_offset = if visible_rows == 0 || selected_visible_idx < visible_rows {
+                    0
+                } else {
+                    selected_visible_idx - visible_rows + 1
+                };
                 let scroller = LinesScroller::new(&rows);
                 let mut scroll_view = ScrollView::new();
                 <ScrollView as tui_dispatch_core::Component<()>>::render(
@@ -2290,7 +2436,7 @@ impl<A: Action> DebugLayer<A> {
                     frame,
                     body_area,
                     ScrollViewProps {
-                        content_height: log.entries.len(),
+                        content_height,
                         scroll_offset,
                         is_focused: true,
                         style: scroll_style,
@@ -2301,6 +2447,41 @@ impl<A: Action> DebugLayer<A> {
                 );
             },
         );
+    }
+
+    fn action_log_footer_center_items(
+        &self,
+        log: &ActionLogOverlay,
+    ) -> Option<Vec<StatusBarItem<'static>>> {
+        use ratatui::text::Span;
+
+        let key_style = Style::default()
+            .fg(DebugStyle::bg_deep())
+            .bg(DebugStyle::text_secondary())
+            .add_modifier(Modifier::BOLD);
+        let label_style = Style::default().fg(DebugStyle::text_secondary());
+        let value_style = Style::default().fg(DebugStyle::text_primary());
+
+        let filter_value = if log.search_input_active {
+            format!("/{}_", log.search_query)
+        } else if log.search_query.is_empty() {
+            "off".to_string()
+        } else {
+            format!("/{}", log.search_query)
+        };
+
+        let matches = if log.search_query.is_empty() {
+            format!("{}", log.entries.len())
+        } else {
+            format!("{}", log.search_match_count())
+        };
+
+        Some(vec![
+            StatusBarItem::span(Span::styled(" filter ", key_style)),
+            StatusBarItem::span(Span::styled(format!(" {} ", filter_value), value_style)),
+            StatusBarItem::span(Span::styled(" matches ", key_style)),
+            StatusBarItem::span(Span::styled(format!(" {} ", matches), label_style)),
+        ])
     }
 
     fn render_action_detail_modal(
@@ -2320,6 +2501,7 @@ impl<A: Action> DebugLayer<A> {
             app_area,
             &title,
             Some(ACTION_DETAIL_HINTS),
+            None,
             |frame, detail_area| {
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
@@ -2690,5 +2872,76 @@ mod tests {
         layer.log_action(&TestAction::Bar);
 
         assert_eq!(layer.action_log().entries().count(), 2);
+    }
+
+    #[test]
+    fn test_action_log_filter_configuration() {
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12))
+            .with_action_log_filter(ActionLoggerConfig::new(Some("name:Foo"), None));
+
+        layer.log_action(&TestAction::Foo);
+        layer.log_action(&TestAction::Bar);
+
+        let names: Vec<_> = layer
+            .action_log()
+            .entries()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(names, vec!["Foo"]);
+    }
+
+    #[test]
+    fn test_action_log_search_input_does_not_trigger_global_shortcuts() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        use tui_dispatch_core::EventKind;
+
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
+        layer.toggle();
+        layer.show_action_log();
+
+        if let Some(DebugOverlay::ActionLog(log)) = layer.freeze.overlay.as_mut() {
+            log.search_input_active = true;
+        } else {
+            panic!("expected action log overlay");
+        }
+
+        let keys = [
+            KeyEvent {
+                code: KeyCode::Char('A'),
+                modifiers: KeyModifiers::SHIFT,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            KeyEvent {
+                code: KeyCode::Char('s'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            KeyEvent {
+                code: KeyCode::Char('b'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+            KeyEvent {
+                code: KeyCode::Char('i'),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+        ];
+        for key in keys {
+            let outcome = layer.handle_event(&EventKind::Key(key));
+            assert!(outcome.consumed);
+        }
+
+        match layer.freeze.overlay.as_ref() {
+            Some(DebugOverlay::ActionLog(log)) => {
+                assert!(log.search_input_active);
+                assert_eq!(log.search_query, "Asbi");
+            }
+            _ => panic!("action log overlay should remain open"),
+        }
     }
 }

@@ -60,6 +60,8 @@ Default keybindings (when debug mode is active):
 - `S` - Show/hide state overlay
 - `B` - Toggle banner position (top/bottom)
 - `A` - Show/hide action log
+- `/` - Edit action-log search query
+- `n` / `N` - Next/previous search match in action log
 - `J/K`, arrows, `PgUp/PgDn`, `g/G`, mouse wheel - Scroll tables
 - `Y` - Copy frozen frame to clipboard
 - `W` - Save state snapshot as JSON
@@ -69,6 +71,17 @@ Default keybindings (when debug mode is active):
 
 To save loadable snapshots for `--debug-state-in`, configure the layer with
 `DebugLayer::with_state_snapshots::<AppState>()`.
+
+## Action Log Search
+
+When the action log overlay is open (`A`):
+
+- Press `/` to enter search mode
+- Type a query to match action name or params
+- Press `Enter` (or `Esc`) to exit query input
+- Press `n` / `N` to jump to next/previous match
+
+The overlay title shows the active query and match count (`current/total`).
 
 ## Custom Toggle Key
 

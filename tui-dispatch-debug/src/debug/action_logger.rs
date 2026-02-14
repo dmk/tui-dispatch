@@ -27,15 +27,20 @@
 
 use std::collections::VecDeque;
 use std::time::Instant;
+use tui_dispatch_action_name::infer_action_category;
 use tui_dispatch_core::action::ActionParams;
 use tui_dispatch_core::store::Middleware;
 
-/// Configuration for action logging with glob pattern filtering.
+use crate::pattern_utils::split_patterns_csv;
+
+/// Configuration for action logging with include/exclude filtering.
 ///
 /// Patterns support:
 /// - `*` matches any sequence of characters
 /// - `?` matches any single character
 /// - Literal text matches exactly
+/// - `cat:<pattern>` / `category:<pattern>` matches inferred action category
+/// - `name:<ActionName>` matches exact action name (no wildcards)
 ///
 /// # Examples
 ///
@@ -43,6 +48,9 @@ use tui_dispatch_core::store::Middleware;
 /// - `Did*` matches DidConnect, DidScanKeys, etc.
 /// - `*Error*` matches any action containing "Error"
 /// - `Tick` matches only Tick
+/// - `cat:search` matches `SearchStart`, `SearchSubmit`, etc.
+/// - `name:WeatherDidLoad` matches only `WeatherDidLoad`
+/// - `WeatherDid*` uses normal glob name matching (without `name:` prefix)
 #[derive(Debug, Clone)]
 pub struct ActionLoggerConfig {
     /// If non-empty, only log actions matching these patterns
@@ -78,12 +86,10 @@ impl ActionLoggerConfig {
     /// assert!(!config.should_log("Tick"));
     /// ```
     pub fn new(include: Option<&str>, exclude: Option<&str>) -> Self {
-        let include_patterns = include
-            .map(|s| s.split(',').map(|p| p.trim().to_string()).collect())
-            .unwrap_or_default();
+        let include_patterns = include.map(split_patterns_csv).unwrap_or_default();
 
         let exclude_patterns = exclude
-            .map(|s| s.split(',').map(|p| p.trim().to_string()).collect())
+            .map(split_patterns_csv)
             .unwrap_or_else(|| vec!["Tick".to_string(), "Render".to_string()]);
 
         Self {
@@ -107,7 +113,7 @@ impl ActionLoggerConfig {
             let matches_include = self
                 .include_patterns
                 .iter()
-                .any(|p| glob_match(p, action_name));
+                .any(|p| filter_match(p, action_name));
             if !matches_include {
                 return false;
             }
@@ -117,9 +123,52 @@ impl ActionLoggerConfig {
         let matches_exclude = self
             .exclude_patterns
             .iter()
-            .any(|p| glob_match(p, action_name));
+            .any(|p| filter_match(p, action_name));
 
         !matches_exclude
+    }
+}
+
+fn filter_match(pattern: &str, action_name: &str) -> bool {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        return false;
+    }
+
+    if let Some(category_pattern) =
+        strip_filter_prefix(pattern, "cat:").or_else(|| strip_filter_prefix(pattern, "category:"))
+    {
+        let category_pattern = category_pattern.trim();
+        if category_pattern.is_empty() {
+            return false;
+        }
+        return infer_action_category(action_name)
+            .as_deref()
+            .is_some_and(|category| glob_match(category_pattern, category));
+    }
+
+    if let Some(action_name_pattern) = strip_filter_prefix(pattern, "name:") {
+        let action_name_pattern = action_name_pattern.trim();
+        if action_name_pattern.is_empty() {
+            return false;
+        }
+        // `name:` is intentionally exact-match only; for wildcard name matching,
+        // use a plain glob pattern without the prefix.
+        return action_name_pattern == action_name;
+    }
+
+    glob_match(pattern, action_name)
+}
+
+fn strip_filter_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    if value.len() < prefix.len() {
+        return None;
+    }
+    let (head, tail) = value.split_at(prefix.len());
+    if head.eq_ignore_ascii_case(prefix) {
+        Some(tail)
+    } else {
+        None
     }
 }
 
@@ -555,11 +604,71 @@ mod tests {
         assert!(config.should_log("SearchAddChar"));
     }
 
+    #[test]
+    fn test_action_logger_config_category_filters() {
+        let config = ActionLoggerConfig::new(
+            Some("cat:search,category:weather"),
+            Some("cat:search_query"),
+        );
+
+        assert!(config.should_log("SearchStart"));
+        assert!(config.should_log("WeatherDidLoad"));
+        assert!(!config.should_log("SearchQuerySubmit"));
+        assert!(!config.should_log("Connect"));
+    }
+
+    #[test]
+    fn test_action_logger_config_action_name_filters() {
+        let config = ActionLoggerConfig::new(
+            Some("name:Connect,name:SearchStart"),
+            Some("name:SearchStart"),
+        );
+
+        assert!(config.should_log("Connect"));
+        assert!(!config.should_log("SearchStart"));
+        assert!(!config.should_log("SearchAddChar"));
+    }
+
+    #[test]
+    fn test_action_logger_name_filter_is_case_sensitive() {
+        let lowercase = ActionLoggerConfig::new(Some("name:searchstart"), None);
+        let exact = ActionLoggerConfig::new(Some("name:SearchStart"), None);
+
+        assert!(!lowercase.should_log("SearchStart"));
+        assert!(exact.should_log("SearchStart"));
+    }
+
+    #[test]
+    fn test_action_logger_name_filter_no_action_alias() {
+        let config = ActionLoggerConfig::new(Some("action:SearchStart"), None);
+        assert!(!config.should_log("SearchStart"));
+    }
+
+    #[test]
+    fn test_action_logger_category_inference_edges() {
+        let async_result = ActionLoggerConfig::new(Some("cat:async_result"), None);
+        assert!(async_result.should_log("DidLoad"));
+        assert!(!async_result.should_log("Tick"));
+
+        let acronym = ActionLoggerConfig::new(Some("cat:api"), None);
+        assert!(acronym.should_log("APIFetchStart"));
+        assert!(!acronym.should_log("OpenConnectionForm"));
+    }
+
+    #[test]
+    fn test_action_logger_config_category_glob_and_case_insensitive_prefix() {
+        let config = ActionLoggerConfig::new(Some("CAT:search*"), None);
+        assert!(config.should_log("SearchStart"));
+        assert!(config.should_log("SearchQuerySubmit"));
+        assert!(!config.should_log("WeatherDidLoad"));
+    }
+
     // Test action for ActionLog tests
     #[derive(Clone, Debug)]
     enum TestAction {
         Tick,
         Connect,
+        SearchStart,
     }
 
     impl tui_dispatch_core::Action for TestAction {
@@ -567,6 +676,7 @@ mod tests {
             match self {
                 TestAction::Tick => "Tick",
                 TestAction::Connect => "Connect",
+                TestAction::SearchStart => "SearchStart",
             }
         }
     }
@@ -672,5 +782,21 @@ mod tests {
         // Log should still have only 1 entry (Tick was filtered)
         let log = middleware.log().unwrap();
         assert_eq!(log.len(), 1);
+    }
+
+    #[test]
+    fn test_action_log_include_category_with_exclude_name_can_filter_all() {
+        let config = ActionLogConfig::new(
+            10,
+            ActionLoggerConfig::new(Some("cat:search"), Some("name:SearchStart")),
+        );
+        let mut log = ActionLog::new(config);
+
+        log.log(&TestAction::SearchStart);
+        log.log(&TestAction::Connect);
+
+        // SearchStart is included by category but excluded by exact name.
+        // Connect doesn't match include category, so nothing is logged.
+        assert!(log.is_empty());
     }
 }

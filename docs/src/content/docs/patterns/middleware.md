@@ -157,11 +157,29 @@ let config = ActionLoggerConfig::new(
 let middleware = ActionLoggerMiddleware::new(config);
 ```
 
+You can combine filter types:
+
+```rust
+let config = ActionLoggerConfig::new(
+    Some("cat:search,name:SearchSubmit"), // Include search category + one exact action
+    Some("name:SearchCancel"),            // Exclude one action explicitly
+);
+```
+
 Pattern syntax:
 - `*` matches zero or more characters
 - `?` matches exactly one character
 - `Search*` matches `SearchStart`, `SearchClear`, `SearchSubmit`
 - `*DidLoad` matches `UserDidLoad`, `WeatherDidLoad`
+- `cat:search` matches actions in inferred `search` category
+- `cat:search_*` supports category globs
+- `name:WeatherDidLoad` matches one exact action name (no wildcards)
+
+Notes:
+- `name:` is exact-match only and case-sensitive. Use plain glob patterns (for example `WeatherDid*`) for wildcard name matching.
+- `cat:` uses inferred action categories, which are strongest with NounVerb naming (`SearchStart`, `WeatherDidLoad`). VerbNoun names (`OpenFile`) typically do not infer categories.
+- Inferred category values are lowercase (for example `search_query`), so category filter patterns should also be lowercase.
+- Single-word action names (for example `Tick`) usually have no inferred category, so `cat:tick` will not match them. Use name/glob filters instead.
 
 ### Accessing the Action Log
 

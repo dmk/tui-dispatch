@@ -6,6 +6,7 @@
 
 pub mod cli;
 pub mod debug;
+mod pattern_utils;
 pub mod replay;
 pub mod session;
 pub mod snapshot;

@@ -43,6 +43,10 @@ Available flags:
 | `--debug-actions-out <PATH>` | Save dispatched actions to JSON |
 | `--debug-actions-include <PATTERNS>` | Include patterns (comma-separated globs) |
 | `--debug-actions-exclude <PATTERNS>` | Exclude patterns (comma-separated globs) |
+| `--debug-actions-include-categories <CATS>` | Include categories (comma-separated) |
+| `--debug-actions-exclude-categories <CATS>` | Exclude categories (comma-separated) |
+| `--debug-actions-include-names <NAMES>` | Include exact action names (comma-separated) |
+| `--debug-actions-exclude-names <NAMES>` | Exclude exact action names (comma-separated) |
 | `--debug-state-schema-out <PATH>` | Save state JSON schema |
 | `--debug-actions-schema-out <PATH>` | Save actions JSON schema |
 | `--debug-replay-timeout <SECS>` | Timeout for async awaits (default: 30) |
@@ -107,7 +111,12 @@ let mut store = StoreWithMiddleware::new(state, reducer, middleware);
 session.save_actions(recorder.as_ref())?;
 ```
 
-The recorder respects `--debug-actions-include` and `--debug-actions-exclude` patterns.
+The recorder respects include/exclude filtering from:
+- `--debug-actions-include` / `--debug-actions-exclude` for glob patterns
+- `--debug-actions-include-categories` / `--debug-actions-exclude-categories` for inferred categories
+- `--debug-actions-include-names` / `--debug-actions-exclude-names` for exact action names
+
+Use the `--debug-actions-include` / `--debug-actions-exclude` glob flags when you want wildcard name matching (`Search*`), and use the `...-names` flags for exact matches only.
 
 ## Replay Items
 

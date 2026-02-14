@@ -1,0 +1,10 @@
+[package]
+name = "tui-dispatch-action-name"
+description = "Shared action-name parsing helpers for tui-dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]

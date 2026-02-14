@@ -25,6 +25,8 @@
 //! // - Toggle key (e.g., F12): Toggle debug mode
 //! // - S: Show/hide state overlay
 //! // - B: Toggle debug banner position
+//! // - /: Edit action-log search query
+//! // - n/N: Next/previous action-log search match
 //! // - J/K, arrows, PgUp/PgDn, g/G: Scroll overlays
 //! // - Y: Copy frozen frame to clipboard
 //! // - W: Save state snapshot as JSON
@@ -88,6 +90,8 @@
 //!
 //! // Log only Search* and Connect* actions
 //! let config = ActionLoggerConfig::new(Some("Search*,Connect*"), None);
+//! // Prefix filters: cat:<category>, name:<ExactActionName>
+//! let config = ActionLoggerConfig::new(Some("cat:search,name:SearchSubmit"), None);
 //!
 //! // Log everything except Tick and Render (default excludes)
 //! let config = ActionLoggerConfig::default();
