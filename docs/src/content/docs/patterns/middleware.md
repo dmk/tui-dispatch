@@ -40,7 +40,7 @@ action → middleware.before(&state) →  false? → cancelled
                                                      full pipeline (recursive)
 ```
 
-A recursion depth guard (`MAX_DISPATCH_DEPTH = 16`) prevents infinite injection loops.
+Middleware dispatch is protected by configurable `DispatchLimits` (defaults: `max_depth = 16`, `max_actions = 10_000`) to prevent runaway loops. Both limits should be at least `1`. The action budget counts attempted dispatches, including actions cancelled by `before()`.
 
 ## Using StoreWithMiddleware
 
@@ -50,11 +50,29 @@ Wrap your store with middleware using `StoreWithMiddleware`:
 use tui_dispatch::prelude::*;
 
 let middleware = LoggingMiddleware::new();
-let mut store = StoreWithMiddleware::new(AppState::default(), reducer, middleware);
+let mut store = StoreWithMiddleware::new(AppState::default(), reducer, middleware)
+    .with_dispatch_limits(DispatchLimits {
+        max_depth: 64,
+        max_actions: 10_000,
+    });
 
-// Dispatch works the same way
-let changed = store.dispatch(Action::Increment);
+// Non-panicking path with typed errors
+match store.try_dispatch(Action::Increment) {
+    Ok(changed) => {
+        if changed {
+            // render
+        }
+    }
+    Err(err) => {
+        // log / telemetry / fallback
+        eprintln!("dispatch failed: {err}");
+    }
+}
 ```
+
+`dispatch(...)` remains available for compatibility and wraps `try_dispatch(...)`; it panics if dispatch limits are exceeded.
+
+`try_dispatch(...)` is not transactional: if an injected chain overflows, earlier actions may already have mutated state.
 
 ## Built-in Middleware
 

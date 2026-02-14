@@ -78,7 +78,7 @@
 use std::marker::PhantomData;
 
 use crate::action::Action;
-use crate::store::Middleware;
+use crate::store::{check_dispatch_limits, DispatchError, DispatchLimits, Middleware};
 
 /// Result of dispatching an action to an effect-aware store.
 ///
@@ -289,6 +289,7 @@ where
     store: EffectStore<S, A, E>,
     middleware: M,
     dispatch_depth: usize,
+    dispatch_limits: DispatchLimits,
 }
 
 impl<S, A, E, M> EffectStoreWithMiddleware<S, A, E, M>
@@ -302,7 +303,23 @@ where
             store: EffectStore::new(state, reducer),
             middleware,
             dispatch_depth: 0,
+            dispatch_limits: DispatchLimits::default(),
         }
+    }
+
+    /// Override middleware dispatch limits.
+    pub fn with_dispatch_limits(mut self, limits: DispatchLimits) -> Self {
+        debug_assert!(
+            limits.max_depth >= 1 && limits.max_actions >= 1,
+            "DispatchLimits requires max_depth >= 1 and max_actions >= 1"
+        );
+        self.dispatch_limits = limits;
+        self
+    }
+
+    /// Current middleware dispatch limits.
+    pub fn dispatch_limits(&self) -> DispatchLimits {
+        self.dispatch_limits
     }
 
     /// Get a reference to the current state.
@@ -331,34 +348,65 @@ where
 
     /// Dispatch an action through middleware and store.
     ///
+    /// This wraps [`Self::try_dispatch`] and panics if dispatch limits are exceeded.
+    /// Use `try_dispatch` to handle overflow as a typed error.
+    pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
+        self.try_dispatch(action)
+            .unwrap_or_else(|error| panic!("middleware dispatch failed: {error}"))
+    }
+
+    /// Dispatch an action through middleware and store.
+    ///
     /// The action passes through `middleware.before()` (which can cancel it),
     /// then the reducer, then `middleware.after()` (which can inject follow-up actions).
     /// Injected actions go through the full pipeline recursively; their effects
     /// are merged into the returned result.
-    pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
-        use crate::store::MAX_DISPATCH_DEPTH;
+    ///
+    /// Returns [`DispatchError`] if configured depth or action budget limits are exceeded.
+    ///
+    /// This operation is not transactional: if overflow happens in an injected chain,
+    /// earlier actions in the chain may have already mutated state.
+    ///
+    /// Action budget accounting includes attempted dispatches that are later cancelled by
+    /// `Middleware::before`.
+    pub fn try_dispatch(&mut self, action: A) -> Result<ReducerResult<E>, DispatchError> {
+        let mut processed = 0;
+        self.try_dispatch_inner(action, &mut processed)
+    }
 
+    fn try_dispatch_inner(
+        &mut self,
+        action: A,
+        processed: &mut usize,
+    ) -> Result<ReducerResult<E>, DispatchError> {
+        check_dispatch_limits(
+            self.dispatch_limits,
+            self.dispatch_depth,
+            *processed,
+            action.name(),
+        )?;
         self.dispatch_depth += 1;
-        assert!(
-            self.dispatch_depth <= MAX_DISPATCH_DEPTH,
-            "middleware dispatch depth exceeded {MAX_DISPATCH_DEPTH} — likely infinite injection loop"
-        );
+        *processed += 1;
 
-        if !self.middleware.before(&action, &self.store.state) {
-            self.dispatch_depth -= 1;
-            return ReducerResult::unchanged();
-        }
+        // Use an IIFE so we can use `?` while still reliably decrementing depth below.
+        let result = (|| {
+            if !self.middleware.before(&action, &self.store.state) {
+                return Ok(ReducerResult::unchanged());
+            }
 
-        let mut result = self.store.dispatch(action.clone());
-        let injected = self
-            .middleware
-            .after(&action, result.changed, &self.store.state);
+            let mut result = self.store.dispatch(action.clone());
+            let injected = self
+                .middleware
+                .after(&action, result.changed, &self.store.state);
 
-        for a in injected {
-            let sub = self.dispatch(a);
-            result.changed |= sub.changed;
-            result.effects.extend(sub.effects);
-        }
+            for injected_action in injected {
+                let sub = self.try_dispatch_inner(injected_action, processed)?;
+                result.changed |= sub.changed;
+                result.effects.extend(sub.effects);
+            }
+
+            Ok(result)
+        })();
 
         self.dispatch_depth -= 1;
         result
@@ -493,5 +541,69 @@ mod tests {
 
         let r = ReducerResult::effect(TestEffect::Save);
         assert!(r.has_effects());
+    }
+
+    struct SelfInjectingMiddleware;
+
+    impl Middleware<TestState, TestAction> for SelfInjectingMiddleware {
+        fn before(&mut self, _action: &TestAction, _state: &TestState) -> bool {
+            true
+        }
+
+        fn after(
+            &mut self,
+            action: &TestAction,
+            _state_changed: bool,
+            _state: &TestState,
+        ) -> Vec<TestAction> {
+            vec![action.clone()]
+        }
+    }
+
+    #[test]
+    fn test_effect_try_dispatch_depth_exceeded() {
+        let mut store = EffectStoreWithMiddleware::new(
+            TestState::default(),
+            test_reducer,
+            SelfInjectingMiddleware,
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: 2,
+            max_actions: 100,
+        });
+
+        let err = store.try_dispatch(TestAction::Increment).unwrap_err();
+        assert_eq!(
+            err,
+            DispatchError::DepthExceeded {
+                max_depth: 2,
+                action: "Increment",
+            }
+        );
+        assert_eq!(store.state().count, 2);
+    }
+
+    #[test]
+    fn test_effect_try_dispatch_action_budget_exceeded() {
+        let mut store = EffectStoreWithMiddleware::new(
+            TestState::default(),
+            test_reducer,
+            SelfInjectingMiddleware,
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: 32,
+            max_actions: 2,
+        });
+
+        let err = store.try_dispatch(TestAction::Increment).unwrap_err();
+        assert_eq!(
+            err,
+            DispatchError::ActionBudgetExceeded {
+                max_actions: 2,
+                processed: 2,
+                action: "Increment",
+            }
+        );
+        assert_eq!(store.state().count, 2);
     }
 }

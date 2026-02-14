@@ -135,7 +135,8 @@ pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, 
 #[cfg(feature = "tracing")]
 pub use store::LoggingMiddleware;
 pub use store::{
-    ComposedMiddleware, Middleware, NoopMiddleware, Reducer, Store, StoreWithMiddleware,
+    ComposedMiddleware, DispatchError, DispatchLimits, Middleware, NoopMiddleware, Reducer, Store,
+    StoreWithMiddleware,
 };
 
 // Runtime exports
@@ -199,7 +200,8 @@ pub mod prelude {
     #[cfg(feature = "tracing")]
     pub use crate::store::LoggingMiddleware;
     pub use crate::store::{
-        ComposedMiddleware, Middleware, NoopMiddleware, Reducer, Store, StoreWithMiddleware,
+        ComposedMiddleware, DispatchError, DispatchLimits, Middleware, NoopMiddleware, Reducer,
+        Store, StoreWithMiddleware,
     };
 
     // Runtime helpers
