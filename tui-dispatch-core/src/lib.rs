@@ -141,8 +141,8 @@ pub use store::{
 
 // Runtime exports
 pub use runtime::{
-    DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike, PollerConfig,
-    RenderContext,
+    DispatchErrorPolicy, DispatchRuntime, DispatchStore, EffectContext, EffectRuntime,
+    EffectStoreLike, PollerConfig, RenderContext,
 };
 
 // Effect exports
@@ -206,8 +206,8 @@ pub mod prelude {
 
     // Runtime helpers
     pub use crate::runtime::{
-        DispatchRuntime, DispatchStore, EffectContext, EffectRuntime, EffectStoreLike,
-        PollerConfig, RenderContext,
+        DispatchErrorPolicy, DispatchRuntime, DispatchStore, EffectContext, EffectRuntime,
+        EffectStoreLike, PollerConfig, RenderContext,
     };
     #[cfg(feature = "subscriptions")]
     pub use crate::subscriptions::{SubKey, SubPauseHandle, Subscriptions};

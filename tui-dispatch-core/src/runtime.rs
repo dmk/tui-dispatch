@@ -18,7 +18,7 @@ use crate::bus::{
 use crate::effect::{EffectStore, EffectStoreWithMiddleware, ReducerResult};
 use crate::event::{ComponentId, EventContext, EventKind};
 use crate::keybindings::Keybindings;
-use crate::store::{Middleware, Reducer, Store, StoreWithMiddleware};
+use crate::store::{DispatchError, Middleware, Reducer, Store, StoreWithMiddleware};
 use crate::{Action, BindingContext};
 
 #[cfg(feature = "subscriptions")]
@@ -55,6 +55,35 @@ impl RenderContext {
     /// Whether the app should treat input focus as active.
     pub fn is_focused(self) -> bool {
         !self.debug_enabled
+    }
+}
+
+/// Policy applied by runtimes when `try_dispatch` returns a [`DispatchError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchErrorPolicy {
+    /// Keep running without forcing a render.
+    Continue,
+    /// Keep running and force a render pass.
+    ///
+    /// The runtime does not persist or log the error automatically;
+    /// capture visibility in your error handler closure if needed.
+    Render,
+    /// Stop the runtime loop gracefully.
+    Stop,
+}
+
+fn apply_dispatch_error_policy(
+    handler: &mut dyn FnMut(&DispatchError) -> DispatchErrorPolicy,
+    error: DispatchError,
+    should_render: &mut bool,
+) -> bool {
+    match handler(&error) {
+        DispatchErrorPolicy::Continue => false,
+        DispatchErrorPolicy::Render => {
+            *should_render = true;
+            false
+        }
+        DispatchErrorPolicy::Stop => true,
     }
 }
 
@@ -125,6 +154,12 @@ macro_rules! draw_frame {
 pub trait DispatchStore<S, A: Action> {
     /// Dispatch an action and return whether the state changed.
     fn dispatch(&mut self, action: A) -> bool;
+    /// Dispatch an action and return whether the state changed.
+    ///
+    /// Default behavior wraps [`Self::dispatch`] in `Ok(...)`.
+    fn try_dispatch(&mut self, action: A) -> Result<bool, DispatchError> {
+        Ok(self.dispatch(action))
+    }
     /// Get the current state.
     fn state(&self) -> &S;
 }
@@ -144,6 +179,10 @@ impl<S, A: Action, M: Middleware<S, A>> DispatchStore<S, A> for StoreWithMiddlew
         StoreWithMiddleware::dispatch(self, action)
     }
 
+    fn try_dispatch(&mut self, action: A) -> Result<bool, DispatchError> {
+        StoreWithMiddleware::try_dispatch(self, action)
+    }
+
     fn state(&self) -> &S {
         StoreWithMiddleware::state(self)
     }
@@ -153,6 +192,12 @@ impl<S, A: Action, M: Middleware<S, A>> DispatchStore<S, A> for StoreWithMiddlew
 pub trait EffectStoreLike<S, A: Action, E> {
     /// Dispatch an action and return state changes plus effects.
     fn dispatch(&mut self, action: A) -> ReducerResult<E>;
+    /// Dispatch an action and return state changes plus effects.
+    ///
+    /// Default behavior wraps [`Self::dispatch`] in `Ok(...)`.
+    fn try_dispatch(&mut self, action: A) -> Result<ReducerResult<E>, DispatchError> {
+        Ok(self.dispatch(action))
+    }
     /// Get the current state.
     fn state(&self) -> &S;
 }
@@ -174,6 +219,10 @@ impl<S, A: Action, E, M: Middleware<S, A>> EffectStoreLike<S, A, E>
         EffectStoreWithMiddleware::dispatch(self, action)
     }
 
+    fn try_dispatch(&mut self, action: A) -> Result<ReducerResult<E>, DispatchError> {
+        EffectStoreWithMiddleware::try_dispatch(self, action)
+    }
+
     fn state(&self) -> &S {
         EffectStoreWithMiddleware::state(self)
     }
@@ -187,6 +236,7 @@ pub struct DispatchRuntime<S, A: Action, St: DispatchStore<S, A> = Store<S, A>> 
     poller_config: PollerConfig,
     #[cfg(feature = "debug")]
     debug: Option<Box<dyn DebugAdapter<S, A>>>,
+    dispatch_error_handler: Box<dyn FnMut(&DispatchError) -> DispatchErrorPolicy>,
     should_render: bool,
     _state: std::marker::PhantomData<S>,
 }
@@ -209,6 +259,7 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
             poller_config: PollerConfig::default(),
             #[cfg(feature = "debug")]
             debug: None,
+            dispatch_error_handler: Box::new(|_| DispatchErrorPolicy::Stop),
             should_render: true,
             _state: std::marker::PhantomData,
         }
@@ -227,6 +278,19 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
     /// Configure event polling behavior.
     pub fn with_event_poller(mut self, config: PollerConfig) -> Self {
         self.poller_config = config;
+        self
+    }
+
+    /// Configure handling for recoverable dispatch errors.
+    ///
+    /// The handler receives each [`DispatchError`] and selects a
+    /// [`DispatchErrorPolicy`]. Runtimes do not log or store errors by default;
+    /// do that inside this closure when needed.
+    pub fn with_dispatch_error_handler<F>(mut self, handler: F) -> Self
+    where
+        F: FnMut(&DispatchError) -> DispatchErrorPolicy + 'static,
+    {
+        self.dispatch_error_handler = Box::new(handler);
         self
     }
 
@@ -287,6 +351,20 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
         }
     }
 
+    fn dispatch_action(&mut self, action: A) -> bool {
+        match self.store.try_dispatch(action) {
+            Ok(changed) => {
+                self.should_render = changed;
+                false
+            }
+            Err(error) => apply_dispatch_error_policy(
+                self.dispatch_error_handler.as_mut(),
+                error,
+                &mut self.should_render,
+            ),
+        }
+    }
+
     fn spawn_poller(&self) -> (mpsc::UnboundedReceiver<RawEvent>, CancellationToken) {
         let (event_tx, event_rx) = mpsc::unbounded_channel::<RawEvent>();
         let cancel_token = CancellationToken::new();
@@ -337,7 +415,9 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
                         break;
                     }
                     self.debug_log_action(&action);
-                    self.should_render = self.store.dispatch(action);
+                    if self.dispatch_action(action) {
+                        break;
+                    }
                 }
 
                 else => { break; }
@@ -394,7 +474,9 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
                         break;
                     }
                     self.debug_log_action(&action);
-                    self.should_render = self.store.dispatch(action);
+                    if self.dispatch_action(action) {
+                        break;
+                    }
                 }
 
                 else => { break; }
@@ -447,6 +529,7 @@ pub struct EffectRuntime<S, A: Action, E, St: EffectStoreLike<S, A, E> = EffectS
     poller_config: PollerConfig,
     #[cfg(feature = "debug")]
     debug: Option<Box<dyn DebugAdapter<S, A>>>,
+    dispatch_error_handler: Box<dyn FnMut(&DispatchError) -> DispatchErrorPolicy>,
     should_render: bool,
     #[cfg(feature = "tasks")]
     tasks: TaskManager<A>,
@@ -483,6 +566,7 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
             poller_config: PollerConfig::default(),
             #[cfg(feature = "debug")]
             debug: None,
+            dispatch_error_handler: Box::new(|_| DispatchErrorPolicy::Stop),
             should_render: true,
             #[cfg(feature = "tasks")]
             tasks,
@@ -515,6 +599,19 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
     /// Configure event polling behavior.
     pub fn with_event_poller(mut self, config: PollerConfig) -> Self {
         self.poller_config = config;
+        self
+    }
+
+    /// Configure handling for recoverable dispatch errors.
+    ///
+    /// The handler receives each [`DispatchError`] and selects a
+    /// [`DispatchErrorPolicy`]. Runtimes do not log or store errors by default;
+    /// do that inside this closure when needed.
+    pub fn with_dispatch_error_handler<F>(mut self, handler: F) -> Self
+    where
+        F: FnMut(&DispatchError) -> DispatchErrorPolicy + 'static,
+    {
+        self.dispatch_error_handler = Box::new(handler);
         self
     }
 
@@ -656,16 +753,25 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
         &mut self,
         action: A,
         handle_effect: &mut impl FnMut(E, &mut EffectContext<A>),
-    ) {
+    ) -> bool {
         self.broadcast_action(&action);
-        let result = self.store.dispatch(action);
-        if result.has_effects() {
-            let mut ctx = self.effect_context();
-            for effect in result.effects {
-                handle_effect(effect, &mut ctx);
+        match self.store.try_dispatch(action) {
+            Ok(result) => {
+                if result.has_effects() {
+                    let mut ctx = self.effect_context();
+                    for effect in result.effects {
+                        handle_effect(effect, &mut ctx);
+                    }
+                }
+                self.should_render = result.changed;
+                false
             }
+            Err(error) => apply_dispatch_error_policy(
+                self.dispatch_error_handler.as_mut(),
+                error,
+                &mut self.should_render,
+            ),
         }
-        self.should_render = result.changed;
     }
 
     /// Run the event/action loop until quit.
@@ -708,7 +814,9 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                         break;
                     }
                     self.debug_log_action(&action);
-                    self.dispatch_and_handle_effects(action, &mut handle_effect);
+                    if self.dispatch_and_handle_effects(action, &mut handle_effect) {
+                        break;
+                    }
                 }
 
                 else => { break; }
@@ -767,7 +875,9 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
                         break;
                     }
                     self.debug_log_action(&action);
-                    self.dispatch_and_handle_effects(action, &mut handle_effect);
+                    if self.dispatch_and_handle_effects(action, &mut handle_effect) {
+                        break;
+                    }
                 }
 
                 else => { break; }
@@ -776,5 +886,246 @@ impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A,
 
         self.cleanup(cancel_token);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::DispatchLimits;
+    use std::collections::VecDeque;
+
+    #[derive(Clone, Debug)]
+    enum TestAction {
+        Increment,
+    }
+
+    impl Action for TestAction {
+        fn name(&self) -> &'static str {
+            match self {
+                TestAction::Increment => "Increment",
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct TestState {
+        count: usize,
+    }
+
+    fn reducer(state: &mut TestState, _action: TestAction) -> bool {
+        state.count += 1;
+        true
+    }
+
+    fn effect_reducer(state: &mut TestState, _action: TestAction) -> ReducerResult<()> {
+        state.count += 1;
+        ReducerResult::changed()
+    }
+
+    struct LoopMiddleware;
+
+    impl Middleware<TestState, TestAction> for LoopMiddleware {
+        fn before(&mut self, _action: &TestAction, _state: &TestState) -> bool {
+            true
+        }
+
+        fn after(
+            &mut self,
+            _action: &TestAction,
+            _state_changed: bool,
+            _state: &TestState,
+        ) -> Vec<TestAction> {
+            vec![TestAction::Increment]
+        }
+    }
+
+    struct MockDispatchStore {
+        state: TestState,
+        queued_results: VecDeque<Result<bool, DispatchError>>,
+    }
+
+    impl MockDispatchStore {
+        fn from_results(results: impl IntoIterator<Item = Result<bool, DispatchError>>) -> Self {
+            Self {
+                state: TestState::default(),
+                queued_results: results.into_iter().collect(),
+            }
+        }
+    }
+
+    impl DispatchStore<TestState, TestAction> for MockDispatchStore {
+        fn dispatch(&mut self, _action: TestAction) -> bool {
+            true
+        }
+
+        fn try_dispatch(&mut self, _action: TestAction) -> Result<bool, DispatchError> {
+            self.queued_results
+                .pop_front()
+                .expect("test configured with at least one dispatch result")
+        }
+
+        fn state(&self) -> &TestState {
+            &self.state
+        }
+    }
+
+    struct MockEffectStore {
+        state: TestState,
+        queued_results: VecDeque<Result<ReducerResult<()>, DispatchError>>,
+    }
+
+    impl MockEffectStore {
+        fn from_results(
+            results: impl IntoIterator<Item = Result<ReducerResult<()>, DispatchError>>,
+        ) -> Self {
+            Self {
+                state: TestState::default(),
+                queued_results: results.into_iter().collect(),
+            }
+        }
+    }
+
+    impl EffectStoreLike<TestState, TestAction, ()> for MockEffectStore {
+        fn dispatch(&mut self, _action: TestAction) -> ReducerResult<()> {
+            ReducerResult::changed()
+        }
+
+        fn try_dispatch(
+            &mut self,
+            _action: TestAction,
+        ) -> Result<ReducerResult<()>, DispatchError> {
+            self.queued_results
+                .pop_front()
+                .expect("test configured with at least one dispatch result")
+        }
+
+        fn state(&self) -> &TestState {
+            &self.state
+        }
+    }
+
+    fn test_error() -> DispatchError {
+        DispatchError::DepthExceeded {
+            max_depth: 1,
+            action: "Increment",
+        }
+    }
+
+    #[test]
+    fn dispatch_runtime_continue_policy_keeps_running_without_render() {
+        let store = MockDispatchStore::from_results([Err(test_error())]);
+        let mut runtime = DispatchRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Continue);
+        runtime.should_render = false;
+
+        let should_stop = runtime.dispatch_action(TestAction::Increment);
+
+        assert!(!should_stop);
+        assert!(!runtime.should_render);
+    }
+
+    #[test]
+    fn dispatch_runtime_render_policy_forces_render() {
+        let store = MockDispatchStore::from_results([Err(test_error())]);
+        let mut runtime = DispatchRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Render);
+        runtime.should_render = false;
+
+        let should_stop = runtime.dispatch_action(TestAction::Increment);
+
+        assert!(!should_stop);
+        assert!(runtime.should_render);
+    }
+
+    #[test]
+    fn dispatch_runtime_stop_policy_breaks_loop() {
+        let store = MockDispatchStore::from_results([Err(test_error())]);
+        let mut runtime = DispatchRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+        runtime.should_render = false;
+
+        let should_stop = runtime.dispatch_action(TestAction::Increment);
+
+        assert!(should_stop);
+        assert!(!runtime.should_render);
+    }
+
+    #[test]
+    fn effect_runtime_continue_policy_keeps_running_without_render() {
+        let store = MockEffectStore::from_results([Err(test_error())]);
+        let mut runtime = EffectRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Continue);
+        runtime.should_render = false;
+
+        let should_stop =
+            runtime.dispatch_and_handle_effects(TestAction::Increment, &mut |_effect, _ctx| {});
+
+        assert!(!should_stop);
+        assert!(!runtime.should_render);
+    }
+
+    #[test]
+    fn effect_runtime_render_policy_forces_render() {
+        let store = MockEffectStore::from_results([Err(test_error())]);
+        let mut runtime = EffectRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Render);
+        runtime.should_render = false;
+
+        let should_stop =
+            runtime.dispatch_and_handle_effects(TestAction::Increment, &mut |_effect, _ctx| {});
+
+        assert!(!should_stop);
+        assert!(runtime.should_render);
+    }
+
+    #[test]
+    fn effect_runtime_stop_policy_breaks_loop() {
+        let store = MockEffectStore::from_results([Err(test_error())]);
+        let mut runtime = EffectRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+        runtime.should_render = false;
+
+        let should_stop =
+            runtime.dispatch_and_handle_effects(TestAction::Increment, &mut |_effect, _ctx| {});
+
+        assert!(should_stop);
+        assert!(!runtime.should_render);
+    }
+
+    #[test]
+    fn dispatch_runtime_uses_try_dispatch_for_middleware_overflow() {
+        let store = StoreWithMiddleware::new(TestState::default(), reducer, LoopMiddleware)
+            .with_dispatch_limits(DispatchLimits {
+                max_depth: 1,
+                max_actions: 100,
+            });
+        let mut runtime = DispatchRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+        runtime.should_render = false;
+
+        let should_stop = runtime.dispatch_action(TestAction::Increment);
+
+        assert!(should_stop);
+        assert_eq!(runtime.state().count, 1);
+    }
+
+    #[test]
+    fn effect_runtime_uses_try_dispatch_for_middleware_overflow() {
+        let store =
+            EffectStoreWithMiddleware::new(TestState::default(), effect_reducer, LoopMiddleware)
+                .with_dispatch_limits(DispatchLimits {
+                    max_depth: 1,
+                    max_actions: 100,
+                });
+        let mut runtime = EffectRuntime::from_store(store)
+            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+        runtime.should_render = false;
+
+        let should_stop =
+            runtime.dispatch_and_handle_effects(TestAction::Increment, &mut |_effect, _ctx| {});
+
+        assert!(should_stop);
+        assert_eq!(runtime.state().count, 1);
     }
 }
