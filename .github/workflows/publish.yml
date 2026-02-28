@@ -42,6 +42,14 @@ jobs:
             exit 1
           fi
 
+      - name: Publish tui-dispatch-shared
+        run: cargo publish -p tui-dispatch-shared
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
       - name: Publish tui-dispatch-macros
         run: cargo publish -p tui-dispatch-macros
         env:
@@ -100,6 +108,7 @@ jobs:
           [tui-dispatch-core](https://crates.io/crates/tui-dispatch-core/$TAG_VERSION) ·
           [tui-dispatch-macros](https://crates.io/crates/tui-dispatch-macros/$TAG_VERSION) ·
           [tui-dispatch-components](https://crates.io/crates/tui-dispatch-components/$TAG_VERSION) ·
-          [tui-dispatch-debug](https://crates.io/crates/tui-dispatch-debug/$TAG_VERSION)
+          [tui-dispatch-debug](https://crates.io/crates/tui-dispatch-debug/$TAG_VERSION) ·
+          [tui-dispatch-shared](https://crates.io/crates/tui-dispatch-shared/$TAG_VERSION)
           EOF
           )"

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.1] - 2026-02-28
+
+Safer middleware dispatch, runtime error policies, debug action filtering, and wasm support.
+
+### Added
+
+- `DispatchLimits` with configurable `max_depth` and `max_actions` budget for middleware dispatch
+- `try_dispatch()` on all store types — returns `Result<_, DispatchError>` instead of panicking on limit violations
+- `DispatchErrorPolicy` for runtime error handling (`Panic`, `Log`, `LogAndRender`, `Ignore`) via `with_dispatch_error_handler()`
+- Debug action log filtering by category/name patterns (`--actions-include-categories`, `--actions-exclude-categories`, `--actions-include-names`, `--actions-exclude-names`) with `/` search and `n`/`N` navigation
+- Optional `wasm32` target support using `tinycrossterm` and reduced `tokio` feature set
+- `tui-dispatch-shared` crate for shared action name parsing (PascalCase splitting, verb detection, category inference)
+
+### Changed
+
+- Middleware dispatch engine is now iterative instead of recursive, with explicit limit checking
+- `tui-dispatch-action-name` renamed to `tui-dispatch-shared`
+- Debug crate is now feature-gated (`debug` feature, on by default) with stub types when disabled
+
 ## [0.6.0] - 2026-02-08
 
 Breaking middleware API changes, new EventBus customization, feature-gated dependencies, and docs/examples cleanup.
