@@ -96,6 +96,9 @@
 //! The `Did*` naming convention clearly identifies result actions. With `#[action(infer_categories)]`,
 //! these are automatically grouped (e.g., `DataFetch` and `DataDidLoad` both get category `"data"`).
 
+#[cfg(target_arch = "wasm32")]
+extern crate tinycrossterm as crossterm;
+
 pub mod action;
 pub mod bus;
 pub mod component;

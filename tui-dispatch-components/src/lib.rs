@@ -48,6 +48,9 @@
 //! });
 //! ```
 
+#[cfg(target_arch = "wasm32")]
+extern crate tinycrossterm as crossterm;
+
 mod modal;
 mod scroll_view;
 mod select_list;

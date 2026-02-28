@@ -87,7 +87,59 @@ pub use tui_dispatch_core::reducer_compose;
 pub use tui_dispatch_core::*;
 
 // Debug utilities
+#[cfg(feature = "debug")]
 pub use tui_dispatch_debug::debug;
+#[cfg(not(feature = "debug"))]
+pub mod debug {
+    use std::fmt::Debug;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct DebugEntry {
+        pub key: String,
+        pub value: String,
+    }
+
+    impl DebugEntry {
+        pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+            Self {
+                key: key.into(),
+                value: value.into(),
+            }
+        }
+    }
+
+    #[derive(Clone, Debug, Default)]
+    pub struct DebugSection {
+        pub title: String,
+        pub entries: Vec<DebugEntry>,
+    }
+
+    impl DebugSection {
+        pub fn new(title: impl Into<String>) -> Self {
+            Self {
+                title: title.into(),
+                entries: Vec::new(),
+            }
+        }
+
+        pub fn entry(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+            self.entries.push(DebugEntry::new(key, value));
+            self
+        }
+    }
+
+    pub trait DebugState {
+        fn debug_sections(&self) -> Vec<DebugSection>;
+    }
+
+    pub fn debug_string<T: Debug>(value: &T) -> String {
+        format!("{value:?}")
+    }
+
+    pub fn debug_string_pretty<T: Debug>(value: &T) -> String {
+        format!("{value:#?}")
+    }
+}
 
 // Re-export derive macros
 pub use tui_dispatch_macros::{Action, BindingContext, ComponentId, DebugState, FeatureFlags};
@@ -138,9 +190,11 @@ pub mod prelude {
     pub use tui_dispatch_core::{SubKey, SubPauseHandle, Subscriptions};
 
     // Debug
-    pub use tui_dispatch_debug::debug::{
+    #[cfg(feature = "debug")]
+    pub use crate::debug::{
         ActionLoggerConfig, ActionLoggerMiddleware, DebugFreeze, DebugOverlay, DebugTableBuilder,
     };
+    pub use crate::debug::{DebugSection, DebugState};
 
     // Derive macros
     pub use tui_dispatch_macros::{Action, BindingContext, ComponentId, DebugState, FeatureFlags};
