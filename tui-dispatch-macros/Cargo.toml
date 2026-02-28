@@ -15,4 +15,4 @@ syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 darling.workspace = true
-tui-dispatch-action-name.workspace = true
+tui-dispatch-shared.workspace = true

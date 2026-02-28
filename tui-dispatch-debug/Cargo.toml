@@ -15,7 +15,7 @@ json-schema = ["schemars"]
 
 [dependencies]
 tui-dispatch-core = { workspace = true, features = ["debug"] }
-tui-dispatch-action-name.workspace = true
+tui-dispatch-shared.workspace = true
 tui-dispatch-components.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true

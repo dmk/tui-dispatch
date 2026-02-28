@@ -27,7 +27,7 @@
 
 use std::collections::VecDeque;
 use std::time::Instant;
-use tui_dispatch_action_name::infer_action_category;
+use tui_dispatch_shared::infer_action_category;
 use tui_dispatch_core::action::ActionParams;
 use tui_dispatch_core::store::Middleware;
 

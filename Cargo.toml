@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "tui-dispatch",
-    "tui-dispatch-action-name",
+    "tui-dispatch-shared",
     "tui-dispatch-core",
     "tui-dispatch-macros",
     "tui-dispatch-components",
@@ -24,7 +24,7 @@ categories = ["command-line-interface", "development-tools"]
 
 [workspace.dependencies]
 tui-dispatch = { version = "0.6.0", path = "tui-dispatch" }
-tui-dispatch-action-name = { version = "0.6.0", path = "tui-dispatch-action-name" }
+tui-dispatch-shared = { version = "0.6.0", path = "tui-dispatch-shared" }
 tui-dispatch-core = { version = "0.6.0", path = "tui-dispatch-core" }
 tui-dispatch-macros = { version = "0.6.0", path = "tui-dispatch-macros" }
 tui-dispatch-components = { version = "0.6.0", path = "tui-dispatch-components" }

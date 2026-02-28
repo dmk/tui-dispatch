@@ -6,7 +6,7 @@ use proc_macro2::Ident;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 use syn::{parse_macro_input, DeriveInput};
-use tui_dispatch_action_name::{infer_action_category, pascal_to_snake_case};
+use tui_dispatch_shared::{infer_action_category, pascal_to_snake_case};
 
 /// Container-level attributes for #[derive(Action)]
 #[derive(Debug, FromDeriveInput)]
