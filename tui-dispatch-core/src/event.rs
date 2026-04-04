@@ -266,6 +266,11 @@ impl<C: ComponentId> EventContext<C> {
     pub fn set_component_area(&mut self, component: C, area: Rect) {
         self.component_areas.insert(component, area);
     }
+
+    /// Remove the area for a component
+    pub fn remove_component_area(&mut self, component: C) {
+        self.component_areas.remove(&component);
+    }
 }
 
 /// An event with its context

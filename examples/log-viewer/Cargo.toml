@@ -1,0 +1,15 @@
+[package]
+name = "log-viewer-example"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "log-viewer"
+path = "src/main.rs"
+
+[dependencies]
+tui-dispatch = { path = "../../tui-dispatch" }
+tui-dispatch-components = { path = "../../tui-dispatch-components" }
+ratatui = "0.29"
+crossterm = "0.28"
+serde_json = { workspace = true }

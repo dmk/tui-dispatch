@@ -1,5 +1,7 @@
 //! Scrollable selection list component
 
+use std::marker::PhantomData;
+
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
@@ -8,9 +10,10 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use tui_dispatch_core::{Component, EventKind};
+use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
 use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
+use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
 /// Unified styling for SelectList
 #[derive(Debug, Clone)]
@@ -97,6 +100,24 @@ pub struct SelectListProps<'a, T, A> {
     pub render_item: &'a dyn Fn(&T) -> Line<'static>,
 }
 
+/// Render-only props for SelectList
+pub struct SelectListRenderProps<'a, T> {
+    /// Items to render
+    pub items: &'a [T],
+    /// Total count (may differ from items.len() for virtual lists)
+    pub count: usize,
+    /// Currently selected index
+    pub selected: usize,
+    /// Whether this component has focus
+    pub is_focused: bool,
+    /// Unified styling
+    pub style: SelectListStyle,
+    /// Behavior configuration
+    pub behavior: SelectListBehavior,
+    /// Render a single item into a Line
+    pub render_item: &'a dyn Fn(&T) -> Line<'static>,
+}
+
 impl<'a, T, A> SelectListProps<'a, T, A> {
     /// Create props with sensible defaults
     ///
@@ -124,16 +145,35 @@ impl<'a, T, A> SelectListProps<'a, T, A> {
 ///
 /// Handles j/k/up/down for navigation and enter for selection.
 /// Generic over item type `T` - provide a `render_item` callback to convert to Lines.
-#[derive(Default)]
-pub struct SelectList {
+pub struct SelectList<Item = Line<'static>> {
     /// Scroll offset for viewport
     scroll_offset: usize,
+    _marker: PhantomData<fn() -> Item>,
 }
 
-impl SelectList {
+impl<Item> Default for SelectList<Item> {
+    fn default() -> Self {
+        Self {
+            scroll_offset: 0,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<Item> SelectList<Item> {
     /// Create a new SelectList
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Render the widget without requiring selection callbacks.
+    pub fn render_widget(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        props: SelectListRenderProps<'_, Item>,
+    ) {
+        self.render_with(frame, area, props);
     }
 
     /// Ensure the selected index is visible within the viewport
@@ -148,76 +188,68 @@ impl SelectList {
             self.scroll_offset = selected.saturating_sub(viewport_height - 1);
         }
     }
-}
 
-impl<A> Component<A> for SelectList {
-    type Props<'a> = SelectListProps<'a, Line<'static>, A>;
+    fn next_index(&self, selected: usize, len: usize, wrap_navigation: bool) -> usize {
+        if wrap_navigation && selected == len.saturating_sub(1) {
+            0
+        } else {
+            (selected + 1).min(len.saturating_sub(1))
+        }
+    }
 
-    fn handle_event(
+    fn prev_index(&self, selected: usize, len: usize, wrap_navigation: bool) -> usize {
+        if wrap_navigation && selected == 0 {
+            len.saturating_sub(1)
+        } else {
+            selected.saturating_sub(1)
+        }
+    }
+
+    fn select_action<A>(
+        &self,
+        selected: usize,
+        next: usize,
+        on_select: fn(usize) -> A,
+    ) -> Option<A> {
+        (next != selected).then(|| on_select(next))
+    }
+
+    fn handle_navigation<A>(
         &mut self,
-        event: &EventKind,
-        props: Self::Props<'_>,
-    ) -> impl IntoIterator<Item = A> {
+        command: NavigationCommand,
+        props: SelectListProps<'_, Item, A>,
+    ) -> Option<A> {
         if !props.is_focused || props.count == 0 {
             return None;
         }
 
         let len = props.count;
 
-        match event {
-            EventKind::Key(key) => match key.code {
-                // Navigate down
-                KeyCode::Char('j') | KeyCode::Down => {
-                    let new_idx = if props.behavior.wrap_navigation && props.selected == len - 1 {
-                        0
-                    } else {
-                        (props.selected + 1).min(len.saturating_sub(1))
-                    };
-                    if new_idx != props.selected {
-                        Some((props.on_select)(new_idx))
-                    } else {
-                        None
-                    }
-                }
-                // Navigate up
-                KeyCode::Char('k') | KeyCode::Up => {
-                    let new_idx = if props.behavior.wrap_navigation && props.selected == 0 {
-                        len.saturating_sub(1)
-                    } else {
-                        props.selected.saturating_sub(1)
-                    };
-                    if new_idx != props.selected {
-                        Some((props.on_select)(new_idx))
-                    } else {
-                        None
-                    }
-                }
-                // Jump to top
-                KeyCode::Char('g') | KeyCode::Home => {
-                    if props.selected != 0 {
-                        Some((props.on_select)(0))
-                    } else {
-                        None
-                    }
-                }
-                // Jump to bottom
-                KeyCode::Char('G') | KeyCode::End => {
-                    let last = len.saturating_sub(1);
-                    if props.selected != last {
-                        Some((props.on_select)(last))
-                    } else {
-                        None
-                    }
-                }
-                // Select current (re-emit for confirmation actions)
-                KeyCode::Enter => Some((props.on_select)(props.selected)),
-                _ => None,
-            },
-            _ => None,
+        match command {
+            NavigationCommand::Next => self.select_action(
+                props.selected,
+                self.next_index(props.selected, len, props.behavior.wrap_navigation),
+                props.on_select,
+            ),
+            NavigationCommand::Prev => self.select_action(
+                props.selected,
+                self.prev_index(props.selected, len, props.behavior.wrap_navigation),
+                props.on_select,
+            ),
+            NavigationCommand::First => self.select_action(props.selected, 0, props.on_select),
+            NavigationCommand::Last => {
+                self.select_action(props.selected, len.saturating_sub(1), props.on_select)
+            }
+            NavigationCommand::Select => Some((props.on_select)(props.selected)),
         }
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+    fn render_with(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        props: SelectListRenderProps<'_, Item>,
+    ) {
         let style = &props.style;
 
         // Fill background if specified
@@ -350,6 +382,123 @@ impl<A> Component<A> for SelectList {
                 .viewport_content_length(viewport_height.max(1));
             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum NavigationCommand {
+    Next,
+    Prev,
+    First,
+    Last,
+    Select,
+}
+
+impl<Item, A> Component<A> for SelectList<Item> {
+    type Props<'a>
+        = SelectListProps<'a, Item, A>
+    where
+        Item: 'a;
+
+    fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: Self::Props<'_>,
+    ) -> impl IntoIterator<Item = A> {
+        match event {
+            EventKind::Key(key) => match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.handle_navigation(NavigationCommand::Next, props)
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.handle_navigation(NavigationCommand::Prev, props)
+                }
+                KeyCode::Char('g') | KeyCode::Home => {
+                    self.handle_navigation(NavigationCommand::First, props)
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    self.handle_navigation(NavigationCommand::Last, props)
+                }
+                KeyCode::Enter => self.handle_navigation(NavigationCommand::Select, props),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        self.render_with(
+            frame,
+            area,
+            SelectListRenderProps {
+                items: props.items,
+                count: props.count,
+                selected: props.selected,
+                is_focused: props.is_focused,
+                style: props.style,
+                behavior: props.behavior,
+                render_item: props.render_item,
+            },
+        );
+    }
+}
+
+impl<Item> ComponentDebugState for SelectList<Item> {
+    fn debug_state(&self) -> Vec<ComponentDebugEntry> {
+        vec![ComponentDebugEntry::new(
+            "scroll_offset",
+            self.scroll_offset.to_string(),
+        )]
+    }
+}
+
+impl<Item, A, Ctx> InteractiveComponent<A, Ctx> for SelectList<Item> {
+    type Props<'a>
+        = SelectListProps<'a, Item, A>
+    where
+        Item: 'a;
+
+    fn update(
+        &mut self,
+        input: ComponentInput<'_, Ctx>,
+        props: Self::Props<'_>,
+    ) -> HandlerResponse<A> {
+        let action = match input {
+            ComponentInput::Command { name, .. } => match name {
+                "next" | "down" => self.handle_navigation(NavigationCommand::Next, props),
+                "prev" | "up" => self.handle_navigation(NavigationCommand::Prev, props),
+                "first" | "home" => self.handle_navigation(NavigationCommand::First, props),
+                "last" | "end" => self.handle_navigation(NavigationCommand::Last, props),
+                "select" | "confirm" => self.handle_navigation(NavigationCommand::Select, props),
+                _ => None,
+            },
+            ComponentInput::Key(key) => match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.handle_navigation(NavigationCommand::Next, props)
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.handle_navigation(NavigationCommand::Prev, props)
+                }
+                KeyCode::Char('g') | KeyCode::Home => {
+                    self.handle_navigation(NavigationCommand::First, props)
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    self.handle_navigation(NavigationCommand::Last, props)
+                }
+                KeyCode::Enter => self.handle_navigation(NavigationCommand::Select, props),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        match action {
+            Some(action) => HandlerResponse::action(action),
+            None => HandlerResponse::ignored(),
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        <Self as Component<A>>::render(self, frame, area, props);
     }
 }
 
@@ -570,7 +719,7 @@ mod tests {
                 on_select: |_| (),
                 render_item: &render_item,
             };
-            list.render(frame, frame.area(), props);
+            <SelectList as Component<()>>::render(&mut list, frame, frame.area(), props);
         });
 
         assert!(output.contains("Item 0"));
@@ -598,7 +747,7 @@ mod tests {
                 on_select: |_| (),
                 render_item: &render_item,
             };
-            list.render(frame, frame.area(), props);
+            <SelectList as Component<()>>::render(&mut list, frame, frame.area(), props);
         });
 
         // Should render items without markers

@@ -7,9 +7,10 @@ use ratatui::{
     widgets::{Block, Paragraph},
     Frame,
 };
-use tui_dispatch_core::{Component, EventKind};
+use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
 use crate::style::{BaseStyle, ComponentStyle, Padding};
+use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
 /// Unified styling for TextInput
 #[derive(Debug, Clone)]
@@ -76,6 +77,18 @@ pub struct TextInputProps<'a, A> {
     pub on_cursor_move: Option<fn(usize) -> A>,
 }
 
+/// Render-only props for TextInput
+pub struct TextInputRenderProps<'a> {
+    /// Current input value
+    pub value: &'a str,
+    /// Placeholder text when empty
+    pub placeholder: &'a str,
+    /// Whether this component has focus
+    pub is_focused: bool,
+    /// Unified styling
+    pub style: TextInputStyle,
+}
+
 /// A single-line text input with cursor
 ///
 /// Handles typing, backspace, delete, and cursor movement.
@@ -91,6 +104,23 @@ impl TextInput {
     /// Create a new TextInput
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Render the widget without requiring update callbacks.
+    pub fn render_widget(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        props: TextInputRenderProps<'_>,
+    ) {
+        self.render_with(
+            frame,
+            area,
+            props.value,
+            props.placeholder,
+            props.is_focused,
+            props.style,
+        );
     }
 
     /// Clamp cursor to valid range for the given value
@@ -354,181 +384,175 @@ impl TextInput {
 
         Some(new_value)
     }
-}
 
-impl<A> Component<A> for TextInput {
-    type Props<'a> = TextInputProps<'a, A>;
-
-    fn handle_event(
+    fn handle_key<A>(
         &mut self,
-        event: &EventKind,
-        props: Self::Props<'_>,
-    ) -> impl IntoIterator<Item = A> {
-        if !props.is_focused {
-            return None;
-        }
-
+        key: crossterm::event::KeyEvent,
+        props: TextInputProps<'_, A>,
+    ) -> (Option<A>, bool) {
         // Ensure cursor is valid for current value
         self.clamp_cursor(props.value);
+        let cursor_before = self.cursor;
 
-        match event {
-            EventKind::Key(key) => {
-                let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                let alt = key.modifiers.contains(KeyModifiers::ALT);
-                let mut did_move = false;
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let mut did_move = false;
 
-                let action = match (key.code, ctrl, alt) {
-                    // ============================================================
-                    // Ctrl+key shortcuts (readline/emacs style)
-                    // ============================================================
+        let action = match (key.code, ctrl, alt) {
+            // ============================================================
+            // Ctrl+key shortcuts (readline/emacs style)
+            // ============================================================
 
-                    // Movement
-                    (KeyCode::Char('a'), true, false) => {
-                        self.cursor = 0;
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Char('e'), true, false) => {
-                        self.cursor = props.value.len();
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Char('b'), true, false) => {
-                        self.move_cursor_left(props.value);
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Char('f'), true, false) => {
-                        self.move_cursor_right(props.value);
-                        did_move = true;
-                        None
-                    }
-
-                    // Word movement (Ctrl+Arrow - Mac friendly)
-                    (KeyCode::Left, true, false) => {
-                        self.move_word_backward(props.value);
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Right, true, false) => {
-                        self.move_word_forward(props.value);
-                        did_move = true;
-                        None
-                    }
-
-                    // Deletion
-                    (KeyCode::Char('u'), true, false) => {
-                        self.cursor = 0;
-                        Some((props.on_change)(String::new()))
-                    }
-                    (KeyCode::Char('k'), true, false) => {
-                        self.kill_line(props.value).map(|v| (props.on_change)(v))
-                    }
-                    (KeyCode::Char('w'), true, false) => self
-                        .kill_word_backward(props.value)
-                        .map(|v| (props.on_change)(v)),
-                    (KeyCode::Char('d'), true, false) => self
-                        .delete_char_at(props.value)
-                        .map(|v| (props.on_change)(v)),
-                    (KeyCode::Char('h'), true, false) => self
-                        .delete_char_before(props.value)
-                        .map(|v| (props.on_change)(v)),
-
-                    // Transpose
-                    (KeyCode::Char('t'), true, false) => self
-                        .transpose_chars(props.value)
-                        .map(|v| (props.on_change)(v)),
-
-                    // ============================================================
-                    // Alt+key shortcuts (when terminal sends escape sequences)
-                    // ============================================================
-
-                    // Word movement
-                    (KeyCode::Char('b'), false, true) => {
-                        self.move_word_backward(props.value);
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Char('f'), false, true) => {
-                        self.move_word_forward(props.value);
-                        did_move = true;
-                        None
-                    }
-
-                    // Word deletion
-                    (KeyCode::Char('d'), false, true) => self
-                        .kill_word_forward(props.value)
-                        .map(|v| (props.on_change)(v)),
-                    (KeyCode::Backspace, false, true) => self
-                        .kill_word_backward(props.value)
-                        .map(|v| (props.on_change)(v)),
-
-                    // ============================================================
-                    // Basic keys
-                    // ============================================================
-
-                    // Backspace (no modifiers - Alt+Backspace handled above)
-                    (KeyCode::Backspace, false, false) => self
-                        .delete_char_before(props.value)
-                        .map(|v| (props.on_change)(v)),
-
-                    // Delete
-                    (KeyCode::Delete, _, _) => self
-                        .delete_char_at(props.value)
-                        .map(|v| (props.on_change)(v)),
-
-                    // Cursor movement (no Ctrl - Ctrl+Arrow handled above)
-                    (KeyCode::Left, false, _) => {
-                        self.move_cursor_left(props.value);
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Right, false, _) => {
-                        self.move_cursor_right(props.value);
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::Home, _, _) => {
-                        self.cursor = 0;
-                        did_move = true;
-                        None
-                    }
-                    (KeyCode::End, _, _) => {
-                        self.cursor = props.value.len();
-                        did_move = true;
-                        None
-                    }
-
-                    // Submit
-                    (KeyCode::Enter, _, _) => Some((props.on_submit)(props.value.to_string())),
-
-                    // ============================================================
-                    // Character input - MUST be last to catch all printable chars
-                    // ============================================================
-                    // Any character not handled above gets inserted (space, etc.)
-                    (KeyCode::Char(c), _, _) => {
-                        let new_value = self.insert_char(props.value, c);
-                        Some((props.on_change)(new_value))
-                    }
-
-                    _ => None,
-                };
-
-                if action.is_none() && did_move {
-                    props.on_cursor_move.map(|callback| callback(self.cursor))
-                } else {
-                    action
-                }
+            // Movement
+            (KeyCode::Char('a'), true, false) => {
+                self.cursor = 0;
+                did_move = true;
+                None
             }
+            (KeyCode::Char('e'), true, false) => {
+                self.cursor = props.value.len();
+                did_move = true;
+                None
+            }
+            (KeyCode::Char('b'), true, false) => {
+                self.move_cursor_left(props.value);
+                did_move = true;
+                None
+            }
+            (KeyCode::Char('f'), true, false) => {
+                self.move_cursor_right(props.value);
+                did_move = true;
+                None
+            }
+
+            // Word movement (Ctrl+Arrow - Mac friendly)
+            (KeyCode::Left, true, false) => {
+                self.move_word_backward(props.value);
+                did_move = true;
+                None
+            }
+            (KeyCode::Right, true, false) => {
+                self.move_word_forward(props.value);
+                did_move = true;
+                None
+            }
+
+            // Deletion
+            (KeyCode::Char('u'), true, false) => {
+                self.cursor = 0;
+                Some((props.on_change)(String::new()))
+            }
+            (KeyCode::Char('k'), true, false) => self.kill_line(props.value).map(props.on_change),
+            (KeyCode::Char('w'), true, false) => {
+                self.kill_word_backward(props.value).map(props.on_change)
+            }
+            (KeyCode::Char('d'), true, false) => {
+                self.delete_char_at(props.value).map(props.on_change)
+            }
+            (KeyCode::Char('h'), true, false) => {
+                self.delete_char_before(props.value).map(props.on_change)
+            }
+
+            // Transpose
+            (KeyCode::Char('t'), true, false) => {
+                self.transpose_chars(props.value).map(props.on_change)
+            }
+
+            // ============================================================
+            // Alt+key shortcuts (when terminal sends escape sequences)
+            // ============================================================
+
+            // Word movement
+            (KeyCode::Char('b'), false, true) => {
+                self.move_word_backward(props.value);
+                did_move = true;
+                None
+            }
+            (KeyCode::Char('f'), false, true) => {
+                self.move_word_forward(props.value);
+                did_move = true;
+                None
+            }
+
+            // Word deletion
+            (KeyCode::Char('d'), false, true) => {
+                self.kill_word_forward(props.value).map(props.on_change)
+            }
+            (KeyCode::Backspace, false, true) => {
+                self.kill_word_backward(props.value).map(props.on_change)
+            }
+
+            // ============================================================
+            // Basic keys
+            // ============================================================
+
+            // Backspace (no modifiers - Alt+Backspace handled above)
+            (KeyCode::Backspace, false, false) => {
+                self.delete_char_before(props.value).map(props.on_change)
+            }
+
+            // Delete
+            (KeyCode::Delete, _, _) => self.delete_char_at(props.value).map(props.on_change),
+
+            // Cursor movement (no Ctrl - Ctrl+Arrow handled above)
+            (KeyCode::Left, false, _) => {
+                self.move_cursor_left(props.value);
+                did_move = true;
+                None
+            }
+            (KeyCode::Right, false, _) => {
+                self.move_cursor_right(props.value);
+                did_move = true;
+                None
+            }
+            (KeyCode::Home, _, _) => {
+                self.cursor = 0;
+                did_move = true;
+                None
+            }
+            (KeyCode::End, _, _) => {
+                self.cursor = props.value.len();
+                did_move = true;
+                None
+            }
+
+            // Submit
+            (KeyCode::Enter, _, _) => Some((props.on_submit)(props.value.to_string())),
+
+            // ============================================================
+            // Character input - MUST be last to catch all printable chars
+            // ============================================================
+            // Any character not handled above gets inserted (space, etc.)
+            (KeyCode::Char(c), _, _) => {
+                let new_value = self.insert_char(props.value, c);
+                Some((props.on_change)(new_value))
+            }
+
             _ => None,
-        }
+        };
+
+        let action = if action.is_none() && did_move {
+            props.on_cursor_move.map(|callback| callback(self.cursor))
+        } else {
+            action
+        };
+
+        (action, self.cursor != cursor_before)
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
-        let style = &props.style;
+    fn render_with(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        value: &str,
+        placeholder: &str,
+        is_focused: bool,
+        style: TextInputStyle,
+    ) {
+        let style = &style;
 
         // Ensure cursor is valid
-        self.clamp_cursor(props.value);
+        self.clamp_cursor(value);
 
         // Fill background if color provided
         if let Some(bg) = style.base.bg {
@@ -549,14 +573,10 @@ impl<A> Component<A> for TextInput {
         };
 
         // Determine display text
-        let display_text = if props.value.is_empty() {
-            props.placeholder
-        } else {
-            props.value
-        };
+        let display_text = if value.is_empty() { placeholder } else { value };
 
         // Build text style
-        let mut text_style = if props.value.is_empty() {
+        let mut text_style = if value.is_empty() {
             style
                 .placeholder_style
                 .unwrap_or_else(|| Style::default().fg(Color::DarkGray))
@@ -579,14 +599,14 @@ impl<A> Component<A> for TextInput {
             paragraph = paragraph.block(
                 Block::default()
                     .borders(border.borders)
-                    .border_style(border.style_for_focus(props.is_focused)),
+                    .border_style(border.style_for_focus(is_focused)),
             );
         }
 
         frame.render_widget(paragraph, content_area);
 
         // Show cursor if focused
-        if props.is_focused {
+        if is_focused {
             // Calculate cursor screen position (account for border and padding)
             let border_offset = if style.base.border.is_some() { 1 } else { 0 };
             let cursor_x = content_area.x + border_offset + self.cursor as u16;
@@ -605,6 +625,78 @@ impl<A> Component<A> for TextInput {
                 frame.set_cursor_position((cursor_x, cursor_y));
             }
         }
+    }
+}
+
+impl<A> Component<A> for TextInput {
+    type Props<'a> = TextInputProps<'a, A>;
+
+    fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: Self::Props<'_>,
+    ) -> impl IntoIterator<Item = A> {
+        if !props.is_focused {
+            return None;
+        }
+
+        match event {
+            EventKind::Key(key) => self.handle_key(*key, props).0,
+            _ => None,
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        self.render_with(
+            frame,
+            area,
+            props.value,
+            props.placeholder,
+            props.is_focused,
+            props.style,
+        );
+    }
+}
+
+impl ComponentDebugState for TextInput {
+    fn debug_state(&self) -> Vec<ComponentDebugEntry> {
+        vec![ComponentDebugEntry::new("cursor", self.cursor.to_string())]
+    }
+}
+
+impl<A, Ctx> InteractiveComponent<A, Ctx> for TextInput {
+    type Props<'a> = TextInputProps<'a, A>;
+
+    fn update(
+        &mut self,
+        input: ComponentInput<'_, Ctx>,
+        props: Self::Props<'_>,
+    ) -> HandlerResponse<A> {
+        if !props.is_focused {
+            return HandlerResponse::ignored();
+        }
+
+        match input {
+            ComponentInput::Key(key) => {
+                let (action, local_changed) = self.handle_key(key, props);
+                let mut response = match action {
+                    Some(action) => HandlerResponse::action(action),
+                    None if local_changed => HandlerResponse::ignored().with_consumed(true),
+                    None => HandlerResponse::ignored(),
+                };
+
+                if local_changed {
+                    response = response.with_render();
+                }
+
+                response
+            }
+            _ => HandlerResponse::ignored(),
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        <Self as Component<A>>::render(self, frame, area, props);
     }
 }
 
@@ -795,7 +887,7 @@ mod tests {
                 on_submit: |_| (),
                 on_cursor_move: None,
             };
-            input.render(frame, frame.area(), props);
+            <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
         });
 
         assert!(output.contains("hello"));
@@ -816,7 +908,7 @@ mod tests {
                 on_submit: |_| (),
                 on_cursor_move: None,
             };
-            input.render(frame, frame.area(), props);
+            <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
         });
 
         assert!(output.contains("Type here..."));
@@ -846,7 +938,7 @@ mod tests {
                 on_submit: |_| (),
                 on_cursor_move: None,
             };
-            input.render(frame, frame.area(), props);
+            <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
         });
 
         assert!(output.contains("test"));

@@ -67,4 +67,12 @@ live in the runtime and are accessed via `EffectContext`.
 
 ### Layer 2: Components
 
-The `tui-dispatch-components` crate provides reusable UI components that follow the patterns above. They're optional - you can write your own components using just Layer 0.
+The `tui-dispatch-components` crate provides reusable UI building blocks. This layer is still optional.
+
+Think of Layer 2 as three progressively richer tools:
+
+- **View components** via `Component<A>` for minimal props-driven reusable views
+- **Interactive widgets** via `InteractiveComponent<A, Ctx>` when local UI state needs routed input and `needs_render`
+- **Component host** via `ComponentHost<S, A, Id, Ctx>` when you want long-lived mounted widgets and optional EventBus binding
+
+You can stop at any layer. Many apps never need more than render functions or a few plain view components.

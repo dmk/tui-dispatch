@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 use tui_dispatch_components::{
-    ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewStyle, VisibleRange,
+    ScrollView, ScrollViewBehavior, ScrollViewRenderProps, ScrollViewStyle, VisibleRange,
 };
 
 use super::Component;
@@ -177,11 +177,10 @@ impl Component<Action> for ContentView {
         };
 
         let mut scroll_view = ScrollView::new();
-        <ScrollView as Component<Action>>::render(
-            &mut scroll_view,
+        scroll_view.render_widget(
             frame,
             content_area,
-            ScrollViewProps {
+            ScrollViewRenderProps {
                 content_height: rendered_lines.len(),
                 scroll_offset: state.scroll_offset,
                 is_focused: true,
@@ -191,7 +190,6 @@ impl Component<Action> for ContentView {
                     scroll_step: 1,
                     page_step: 0,
                 },
-                on_scroll: |_| Action::NavScroll(0), // No-op for render-only
                 render_content: &mut render_content,
             },
         );

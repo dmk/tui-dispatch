@@ -30,12 +30,16 @@ Internal component state (cursor position, scroll offsets) lives in `&mut self`,
 
 Options:
 
-- Return an app action that causes the reducer to return `true` / `ReducerResult::changed()` (common, simple).
-- In your EventBus handler, return `HandlerResponse::ignored().with_render().with_consumed(true)` when the component handled the event but emitted no actions.
+- If you're using plain `Component<A>`, either return an app action that causes the reducer to render, or arrange for your wrapper code to trigger a render.
+- If you're using `InteractiveComponent`, return `HandlerResponse::ignored().with_render().with_consumed(true)` when the widget handled the event but emitted no app actions.
 
-If you're writing reusable components, consider an explicit "Render" action.
+If local-state-only renders become a recurring need, that is usually a sign you should be using the interactive-widget layer rather than plain `Component<A>`.
 
-For more on routing, see [Event Bus](/tui-dispatch/patterns/event-bus/).
+For more on the layering, see:
+
+- [Components Overview](/tui-dispatch/components/)
+- [Interactive Widgets](/tui-dispatch/components/interactive/)
+- [Event Bus](/tui-dispatch/patterns/event-bus/)
 
 ## What's the difference between Effects and TaskManager?
 
@@ -105,4 +109,5 @@ See [Tutorial: Fetching Data from an API](/tui-dispatch/tutorials/async-fetch/).
 - [Quick Start](/tui-dispatch/getting-started/quick-start/) - Quick start guide
 - [Async Patterns](/tui-dispatch/patterns/async/) - Tasks, subscriptions, effects
 - [Debug Layer](/tui-dispatch/debugging/debug-layer/) - State inspection and action logging
-- [Building Custom Components](/tui-dispatch/components/custom/) - Component trait guide
+- [Components Overview](/tui-dispatch/components/) - Layer 2 UI model
+- [View Components](/tui-dispatch/components/custom/) - Minimal `Component<A>` guide

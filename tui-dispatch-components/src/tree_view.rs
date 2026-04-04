@@ -12,9 +12,10 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use tui_dispatch_core::{Component, EventKind};
+use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
 use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
+use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
 /// Tree node data structure
 #[derive(Debug, Clone)]
@@ -195,6 +196,32 @@ where
     pub render_node: &'a dyn Fn(TreeNodeRender<'_, Id, T>) -> Line<'static>,
 }
 
+/// Render-only props for TreeView
+pub struct TreeViewRenderProps<'a, Id, T>
+where
+    Id: Clone + Eq + Hash + 'static,
+{
+    /// Nodes to render
+    pub nodes: &'a [TreeNode<Id, T>],
+    /// Currently selected node id
+    pub selected_id: Option<&'a Id>,
+    /// Expanded node ids
+    pub expanded_ids: &'a HashSet<Id>,
+    /// Whether this component has focus
+    pub is_focused: bool,
+    /// Unified styling
+    pub style: TreeViewStyle,
+    /// Behavior configuration
+    pub behavior: TreeViewBehavior,
+    /// Optional width override for column sizing
+    #[allow(clippy::type_complexity)]
+    pub measure_node: Option<&'a dyn Fn(&TreeNode<Id, T>) -> usize>,
+    /// Padding to add to the widest tree column
+    pub column_padding: usize,
+    /// Render a node into a Line
+    pub render_node: &'a dyn Fn(TreeNodeRender<'_, Id, T>) -> Line<'static>,
+}
+
 #[derive(Clone)]
 struct FlatNode<'a, Id, T> {
     node: &'a TreeNode<Id, T>,
@@ -207,12 +234,12 @@ struct FlatNode<'a, Id, T> {
 }
 
 /// Tree view component with selection and expand/collapse
-pub struct TreeView<Id> {
+pub struct TreeView<Id, Node = String> {
     scroll_offset: usize,
-    _marker: PhantomData<Id>,
+    _marker: PhantomData<fn() -> (Id, Node)>,
 }
 
-impl<Id> Default for TreeView<Id> {
+impl<Id, Node> Default for TreeView<Id, Node> {
     fn default() -> Self {
         Self {
             scroll_offset: 0,
@@ -221,10 +248,22 @@ impl<Id> Default for TreeView<Id> {
     }
 }
 
-impl<Id> TreeView<Id> {
+impl<Id, Node> TreeView<Id, Node> {
     /// Create a new TreeView
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Render the widget without requiring selection callbacks.
+    pub fn render_widget(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        props: TreeViewRenderProps<'_, Id, Node>,
+    ) where
+        Id: Clone + Eq + Hash + 'static,
+    {
+        self.render_with(frame, area, props);
     }
 
     fn ensure_visible(&mut self, selected: usize, viewport_height: usize) {
@@ -240,7 +279,7 @@ impl<Id> TreeView<Id> {
     }
 }
 
-impl<Id> TreeView<Id> {
+impl<Id, Node> TreeView<Id, Node> {
     fn flatten_visible<'a, T>(
         nodes: &'a [TreeNode<Id, T>],
         expanded: &HashSet<Id>,
@@ -379,154 +418,15 @@ impl<Id> TreeView<Id> {
     fn available_width(width: usize, prefix_len: usize, marker_len: usize) -> usize {
         width.saturating_sub(prefix_len).saturating_sub(marker_len)
     }
-}
 
-impl<Id, A> Component<A> for TreeView<Id>
-where
-    Id: Clone + Eq + Hash + 'static,
-{
-    type Props<'a> = TreeViewProps<'a, Id, String, A>;
-
-    fn handle_event(
+    fn render_with(
         &mut self,
-        event: &EventKind,
-        props: Self::Props<'_>,
-    ) -> impl IntoIterator<Item = A> {
-        if !props.is_focused {
-            return None;
-        }
-
-        let visible = Self::flatten_visible(props.nodes, props.expanded_ids);
-        if visible.is_empty() {
-            return None;
-        }
-
-        let selected_idx = props
-            .selected_id
-            .and_then(|id| visible.iter().position(|n| &n.node.id == id));
-        let has_selection = selected_idx.is_some();
-        let current_idx = selected_idx.unwrap_or(0);
-        let last_idx = visible.len().saturating_sub(1);
-
-        let move_selection = |idx: usize| Some((props.on_select)(&visible[idx].node.id));
-        let toggle_node =
-            |idx: usize, expand: bool| Some((props.on_toggle)(&visible[idx].node.id, expand));
-
-        match event {
-            EventKind::Key(key) => match key.code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    if !has_selection {
-                        return move_selection(0);
-                    }
-                    let next = if props.behavior.wrap_navigation && current_idx == last_idx {
-                        0
-                    } else {
-                        (current_idx + 1).min(last_idx)
-                    };
-                    if next != current_idx {
-                        move_selection(next)
-                    } else {
-                        None
-                    }
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if !has_selection {
-                        return move_selection(last_idx);
-                    }
-                    let next = if props.behavior.wrap_navigation && current_idx == 0 {
-                        last_idx
-                    } else {
-                        current_idx.saturating_sub(1)
-                    };
-                    if next != current_idx {
-                        move_selection(next)
-                    } else {
-                        None
-                    }
-                }
-                KeyCode::Char('g') | KeyCode::Home => {
-                    if current_idx != 0 || !has_selection {
-                        move_selection(0)
-                    } else {
-                        None
-                    }
-                }
-                KeyCode::Char('G') | KeyCode::End => {
-                    if current_idx != last_idx || !has_selection {
-                        move_selection(last_idx)
-                    } else {
-                        None
-                    }
-                }
-                KeyCode::Left => {
-                    let current = &visible[current_idx];
-                    if current.has_children && current.is_expanded {
-                        toggle_node(current_idx, false)
-                    } else if let Some(parent_idx) = current.parent_index {
-                        move_selection(parent_idx)
-                    } else {
-                        None
-                    }
-                }
-                KeyCode::Right => {
-                    let current = &visible[current_idx];
-                    if current.has_children && !current.is_expanded {
-                        toggle_node(current_idx, true)
-                    } else if current.has_children && current.is_expanded {
-                        let child_idx = current_idx + 1;
-                        if child_idx < visible.len()
-                            && visible[child_idx].parent_index == Some(current_idx)
-                        {
-                            move_selection(child_idx)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }
-                KeyCode::Enter => {
-                    let current = &visible[current_idx];
-                    if props.behavior.enter_toggles && current.has_children {
-                        toggle_node(current_idx, !current.is_expanded)
-                    } else {
-                        move_selection(current_idx)
-                    }
-                }
-                KeyCode::Char(' ') => {
-                    let current = &visible[current_idx];
-                    if props.behavior.space_toggles && current.has_children {
-                        toggle_node(current_idx, !current.is_expanded)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            },
-            EventKind::Scroll { delta, .. } => {
-                if *delta == 0 {
-                    None
-                } else if *delta > 0 {
-                    if !has_selection {
-                        move_selection(last_idx)
-                    } else if current_idx > 0 {
-                        move_selection(current_idx - 1)
-                    } else {
-                        None
-                    }
-                } else if !has_selection {
-                    move_selection(0)
-                } else if current_idx < last_idx {
-                    move_selection(current_idx + 1)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        frame: &mut Frame,
+        area: Rect,
+        props: TreeViewRenderProps<'_, Id, Node>,
+    ) where
+        Id: Clone + Eq + Hash + 'static,
+    {
         let style = &props.style;
 
         if let Some(bg) = style.base.bg {
@@ -719,6 +619,347 @@ where
                 .viewport_content_length(viewport_height.max(1));
             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
         }
+    }
+}
+
+impl<Id, Node, A> Component<A> for TreeView<Id, Node>
+where
+    Id: Clone + Eq + Hash + 'static,
+{
+    type Props<'a>
+        = TreeViewProps<'a, Id, Node, A>
+    where
+        Node: 'a;
+
+    fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: Self::Props<'_>,
+    ) -> impl IntoIterator<Item = A> {
+        if !props.is_focused {
+            return None;
+        }
+
+        let visible = Self::flatten_visible(props.nodes, props.expanded_ids);
+        if visible.is_empty() {
+            return None;
+        }
+
+        let selected_idx = props
+            .selected_id
+            .and_then(|id| visible.iter().position(|n| &n.node.id == id));
+        let has_selection = selected_idx.is_some();
+        let current_idx = selected_idx.unwrap_or(0);
+        let last_idx = visible.len().saturating_sub(1);
+
+        let move_selection = |idx: usize| Some((props.on_select)(&visible[idx].node.id));
+        let toggle_node =
+            |idx: usize, expand: bool| Some((props.on_toggle)(&visible[idx].node.id, expand));
+
+        match event {
+            EventKind::Key(key) => match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if !has_selection {
+                        return move_selection(0);
+                    }
+                    let next = if props.behavior.wrap_navigation && current_idx == last_idx {
+                        0
+                    } else {
+                        (current_idx + 1).min(last_idx)
+                    };
+                    if next != current_idx {
+                        move_selection(next)
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if !has_selection {
+                        return move_selection(last_idx);
+                    }
+                    let next = if props.behavior.wrap_navigation && current_idx == 0 {
+                        last_idx
+                    } else {
+                        current_idx.saturating_sub(1)
+                    };
+                    if next != current_idx {
+                        move_selection(next)
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('g') | KeyCode::Home => {
+                    if current_idx != 0 || !has_selection {
+                        move_selection(0)
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    if current_idx != last_idx || !has_selection {
+                        move_selection(last_idx)
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Left => {
+                    let current = &visible[current_idx];
+                    if current.has_children && current.is_expanded {
+                        toggle_node(current_idx, false)
+                    } else if let Some(parent_idx) = current.parent_index {
+                        move_selection(parent_idx)
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Right => {
+                    let current = &visible[current_idx];
+                    if current.has_children && !current.is_expanded {
+                        toggle_node(current_idx, true)
+                    } else if current.has_children && current.is_expanded {
+                        let child_idx = current_idx + 1;
+                        if child_idx < visible.len()
+                            && visible[child_idx].parent_index == Some(current_idx)
+                        {
+                            move_selection(child_idx)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Enter => {
+                    let current = &visible[current_idx];
+                    if props.behavior.enter_toggles && current.has_children {
+                        toggle_node(current_idx, !current.is_expanded)
+                    } else {
+                        move_selection(current_idx)
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    let current = &visible[current_idx];
+                    if props.behavior.space_toggles && current.has_children {
+                        toggle_node(current_idx, !current.is_expanded)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            EventKind::Scroll { delta, .. } => {
+                if *delta == 0 {
+                    None
+                } else if *delta > 0 {
+                    if !has_selection {
+                        move_selection(last_idx)
+                    } else if current_idx > 0 {
+                        move_selection(current_idx - 1)
+                    } else {
+                        None
+                    }
+                } else if !has_selection {
+                    move_selection(0)
+                } else if current_idx < last_idx {
+                    move_selection(current_idx + 1)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        self.render_with(
+            frame,
+            area,
+            TreeViewRenderProps {
+                nodes: props.nodes,
+                selected_id: props.selected_id,
+                expanded_ids: props.expanded_ids,
+                is_focused: props.is_focused,
+                style: props.style,
+                behavior: props.behavior,
+                measure_node: props.measure_node,
+                column_padding: props.column_padding,
+                render_node: props.render_node,
+            },
+        );
+    }
+}
+
+impl<Id, Node> ComponentDebugState for TreeView<Id, Node> {
+    fn debug_state(&self) -> Vec<ComponentDebugEntry> {
+        vec![ComponentDebugEntry::new(
+            "scroll_offset",
+            self.scroll_offset.to_string(),
+        )]
+    }
+}
+
+impl<Id, Node, A, Ctx> InteractiveComponent<A, Ctx> for TreeView<Id, Node>
+where
+    Id: Clone + Eq + Hash + 'static,
+{
+    type Props<'a>
+        = TreeViewProps<'a, Id, Node, A>
+    where
+        Node: 'a;
+
+    fn update(
+        &mut self,
+        input: ComponentInput<'_, Ctx>,
+        props: Self::Props<'_>,
+    ) -> HandlerResponse<A> {
+        let action = match input {
+            ComponentInput::Command { name, .. } => {
+                if !props.is_focused {
+                    None
+                } else {
+                    let visible = Self::flatten_visible(props.nodes, props.expanded_ids);
+                    if visible.is_empty() {
+                        None
+                    } else {
+                        let selected_idx = props
+                            .selected_id
+                            .and_then(|id| visible.iter().position(|node| &node.node.id == id));
+                        let has_selection = selected_idx.is_some();
+                        let current_idx = selected_idx.unwrap_or(0);
+                        let last_idx = visible.len().saturating_sub(1);
+
+                        let move_selection =
+                            |idx: usize| Some((props.on_select)(&visible[idx].node.id));
+                        let toggle_node = |idx: usize, expand: bool| {
+                            Some((props.on_toggle)(&visible[idx].node.id, expand))
+                        };
+
+                        match name {
+                            "next" | "down" => {
+                                if !has_selection {
+                                    move_selection(0)
+                                } else {
+                                    let next = if props.behavior.wrap_navigation
+                                        && current_idx == last_idx
+                                    {
+                                        0
+                                    } else {
+                                        (current_idx + 1).min(last_idx)
+                                    };
+                                    (next != current_idx)
+                                        .then(|| (props.on_select)(&visible[next].node.id))
+                                }
+                            }
+                            "prev" | "up" => {
+                                if !has_selection {
+                                    move_selection(last_idx)
+                                } else {
+                                    let next = if props.behavior.wrap_navigation && current_idx == 0
+                                    {
+                                        last_idx
+                                    } else {
+                                        current_idx.saturating_sub(1)
+                                    };
+                                    (next != current_idx)
+                                        .then(|| (props.on_select)(&visible[next].node.id))
+                                }
+                            }
+                            "first" | "home" => {
+                                if current_idx != 0 || !has_selection {
+                                    move_selection(0)
+                                } else {
+                                    None
+                                }
+                            }
+                            "last" | "end" => {
+                                if current_idx != last_idx || !has_selection {
+                                    move_selection(last_idx)
+                                } else {
+                                    None
+                                }
+                            }
+                            "left" => {
+                                let current = &visible[current_idx];
+                                if current.has_children && current.is_expanded {
+                                    toggle_node(current_idx, false)
+                                } else if let Some(parent_idx) = current.parent_index {
+                                    move_selection(parent_idx)
+                                } else {
+                                    None
+                                }
+                            }
+                            "right" => {
+                                let current = &visible[current_idx];
+                                if current.has_children && !current.is_expanded {
+                                    toggle_node(current_idx, true)
+                                } else if current.has_children && current.is_expanded {
+                                    let child_idx = current_idx + 1;
+                                    if child_idx < visible.len()
+                                        && visible[child_idx].parent_index == Some(current_idx)
+                                    {
+                                        move_selection(child_idx)
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
+                            "toggle" => {
+                                let current = &visible[current_idx];
+                                if current.has_children {
+                                    toggle_node(current_idx, !current.is_expanded)
+                                } else {
+                                    None
+                                }
+                            }
+                            "select" => move_selection(current_idx),
+                            "confirm" => {
+                                let current = &visible[current_idx];
+                                if props.behavior.enter_toggles && current.has_children {
+                                    toggle_node(current_idx, !current.is_expanded)
+                                } else {
+                                    move_selection(current_idx)
+                                }
+                            }
+                            _ => None,
+                        }
+                    }
+                }
+            }
+            ComponentInput::Key(key) => {
+                <Self as Component<A>>::handle_event(self, &EventKind::Key(key), props)
+                    .into_iter()
+                    .next()
+            }
+            ComponentInput::Scroll {
+                column,
+                row,
+                delta,
+                modifiers,
+            } => <Self as Component<A>>::handle_event(
+                self,
+                &EventKind::Scroll {
+                    column,
+                    row,
+                    delta,
+                    modifiers,
+                },
+                props,
+            )
+            .into_iter()
+            .next(),
+            _ => None,
+        };
+
+        match action {
+            Some(action) => HandlerResponse::action(action),
+            None => HandlerResponse::ignored(),
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        <Self as Component<A>>::render(self, frame, area, props);
     }
 }
 

@@ -8,6 +8,7 @@ members = [
     "tui-dispatch-components",
     "tui-dispatch-debug",
     "examples/counter",
+    "examples/log-viewer",
     "examples/md-preview",
     "examples/github-lookup",
     "examples/minesweeper",

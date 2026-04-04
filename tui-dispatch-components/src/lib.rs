@@ -51,6 +51,7 @@
 #[cfg(target_arch = "wasm32")]
 extern crate tinycrossterm as crossterm;
 
+mod host;
 mod modal;
 mod scroll_view;
 mod select_list;
@@ -59,12 +60,19 @@ pub mod style;
 mod text_input;
 mod tree_view;
 
+pub use host::{
+    ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentInput, HostLifecycleError,
+    InteractiveComponent, Mounted, MountedComponentInfo, PropsFactory,
+};
 pub use modal::{centered_rect, Modal, ModalBehavior, ModalProps, ModalStyle};
 pub use ratatui::text::Line;
 pub use scroll_view::{
-    LinesScroller, ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewStyle, VisibleRange,
+    LinesScroller, ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewRenderProps,
+    ScrollViewStyle, VisibleRange,
 };
-pub use select_list::{SelectList, SelectListBehavior, SelectListProps, SelectListStyle};
+pub use select_list::{
+    SelectList, SelectListBehavior, SelectListProps, SelectListRenderProps, SelectListStyle,
+};
 pub use status_bar::{
     StatusBar, StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle,
 };
@@ -72,10 +80,10 @@ pub use style::{
     highlight_substring, BaseStyle, BorderStyle, Color, ComponentStyle, Modifier, Padding,
     ScrollbarStyle, SelectionStyle, Style,
 };
-pub use text_input::{TextInput, TextInputProps, TextInputStyle};
+pub use text_input::{TextInput, TextInputProps, TextInputRenderProps, TextInputStyle};
 pub use tree_view::{
     TreeBranchMode, TreeBranchStyle, TreeNode, TreeNodeRender, TreeView, TreeViewBehavior,
-    TreeViewProps, TreeViewStyle,
+    TreeViewProps, TreeViewRenderProps, TreeViewStyle,
 };
 
 /// Prelude for convenient imports
@@ -83,11 +91,17 @@ pub mod prelude {
     pub use crate::{
         centered_rect, BaseStyle, BorderStyle, ComponentStyle, LinesScroller, Modal, ModalBehavior,
         ModalProps, ModalStyle, Padding, ScrollView, ScrollViewBehavior, ScrollViewProps,
-        ScrollViewStyle, ScrollbarStyle, SelectList, SelectListBehavior, SelectListProps,
-        SelectListStyle, SelectionStyle, StatusBar, StatusBarHint, StatusBarItem, StatusBarProps,
-        StatusBarSection, StatusBarStyle, TextInput, TextInputProps, TextInputStyle,
-        TreeBranchMode, TreeBranchStyle, TreeNode, TreeNodeRender, TreeView, TreeViewBehavior,
-        TreeViewProps, TreeViewStyle, VisibleRange,
+        ScrollViewRenderProps, ScrollViewStyle, ScrollbarStyle, SelectList, SelectListBehavior,
+        SelectListProps, SelectListRenderProps, SelectListStyle, SelectionStyle, StatusBar,
+        StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle, TextInput,
+        TextInputProps, TextInputRenderProps, TextInputStyle, TreeBranchMode, TreeBranchStyle,
+        TreeNode, TreeNodeRender, TreeView, TreeViewBehavior, TreeViewProps, TreeViewRenderProps,
+        TreeViewStyle, VisibleRange,
+    };
+
+    pub use crate::{
+        ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentInput,
+        HostLifecycleError, InteractiveComponent, Mounted, MountedComponentInfo, PropsFactory,
     };
 
     pub use ratatui::style::{Color, Modifier, Style};

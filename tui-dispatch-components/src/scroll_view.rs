@@ -13,9 +13,10 @@ use ratatui::{
     widgets::{Block, Paragraph, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
-use tui_dispatch_core::{Component, EventKind};
+use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
 use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle};
+use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
 /// Information about the visible range for content rendering
 #[derive(Debug, Clone, Copy)]
@@ -116,6 +117,22 @@ pub struct ScrollViewProps<'a, A> {
     pub render_content: &'a mut dyn FnMut(&mut Frame, Rect, VisibleRange),
 }
 
+/// Render-only props for ScrollView
+pub struct ScrollViewRenderProps<'a> {
+    /// Total height of the content in lines
+    pub content_height: usize,
+    /// Current scroll offset (topmost visible line index)
+    pub scroll_offset: usize,
+    /// Whether this component has focus
+    pub is_focused: bool,
+    /// Unified styling
+    pub style: ScrollViewStyle,
+    /// Behavior configuration
+    pub behavior: ScrollViewBehavior,
+    /// Callback to render visible content
+    pub render_content: &'a mut dyn FnMut(&mut Frame, Rect, VisibleRange),
+}
+
 /// A scrollable viewport container
 ///
 /// Handles scroll behavior (keyboard, mouse wheel) and renders scrollbar.
@@ -131,6 +148,16 @@ impl ScrollView {
     /// Create a new ScrollView
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Render the widget without requiring scroll callbacks.
+    pub fn render_widget(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        props: ScrollViewRenderProps<'_>,
+    ) {
+        self.render_with(frame, area, props);
     }
 
     fn viewport_height_value(&self) -> usize {
@@ -162,60 +189,8 @@ impl ScrollView {
             current.saturating_sub((-delta) as usize)
         }
     }
-}
 
-impl<A> Component<A> for ScrollView {
-    type Props<'a> = ScrollViewProps<'a, A>;
-
-    fn handle_event(
-        &mut self,
-        event: &EventKind,
-        props: Self::Props<'_>,
-    ) -> impl IntoIterator<Item = A> {
-        if !props.is_focused || props.content_height == 0 {
-            return None;
-        }
-
-        let max_offset = self.max_offset(props.content_height);
-        let scroll_step = props.behavior.scroll_step.max(1) as isize;
-        let page_size = self.page_size(&props.behavior) as isize;
-
-        let next_offset = match event {
-            EventKind::Key(key) => match key.code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    Some(self.apply_delta(props.scroll_offset, scroll_step, max_offset))
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    Some(self.apply_delta(props.scroll_offset, -scroll_step, max_offset))
-                }
-                KeyCode::PageDown => {
-                    Some(self.apply_delta(props.scroll_offset, page_size, max_offset))
-                }
-                KeyCode::PageUp => {
-                    Some(self.apply_delta(props.scroll_offset, -page_size, max_offset))
-                }
-                KeyCode::Char('g') | KeyCode::Home => Some(0),
-                KeyCode::Char('G') | KeyCode::End => Some(max_offset),
-                _ => None,
-            },
-            EventKind::Scroll { delta, .. } => {
-                if *delta == 0 {
-                    None
-                } else {
-                    let scaled_delta = delta.saturating_mul(scroll_step);
-                    Some(self.apply_delta(props.scroll_offset, scaled_delta, max_offset))
-                }
-            }
-            _ => None,
-        };
-
-        match next_offset {
-            Some(offset) if offset != props.scroll_offset => Some((props.on_scroll)(offset)),
-            _ => None,
-        }
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+    fn render_with(&mut self, frame: &mut Frame, area: Rect, props: ScrollViewRenderProps<'_>) {
         let style = &props.style;
 
         // Fill background
@@ -298,6 +273,160 @@ impl<A> Component<A> for ScrollView {
                 .viewport_content_length(self.viewport_height_value());
             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
         }
+    }
+}
+
+impl<A> Component<A> for ScrollView {
+    type Props<'a> = ScrollViewProps<'a, A>;
+
+    fn handle_event(
+        &mut self,
+        event: &EventKind,
+        props: Self::Props<'_>,
+    ) -> impl IntoIterator<Item = A> {
+        if !props.is_focused || props.content_height == 0 {
+            return None;
+        }
+
+        let max_offset = self.max_offset(props.content_height);
+        let scroll_step = props.behavior.scroll_step.max(1) as isize;
+        let page_size = self.page_size(&props.behavior) as isize;
+
+        let next_offset = match event {
+            EventKind::Key(key) => match key.code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    Some(self.apply_delta(props.scroll_offset, scroll_step, max_offset))
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    Some(self.apply_delta(props.scroll_offset, -scroll_step, max_offset))
+                }
+                KeyCode::PageDown => {
+                    Some(self.apply_delta(props.scroll_offset, page_size, max_offset))
+                }
+                KeyCode::PageUp => {
+                    Some(self.apply_delta(props.scroll_offset, -page_size, max_offset))
+                }
+                KeyCode::Char('g') | KeyCode::Home => Some(0),
+                KeyCode::Char('G') | KeyCode::End => Some(max_offset),
+                _ => None,
+            },
+            EventKind::Scroll { delta, .. } => {
+                if *delta == 0 {
+                    None
+                } else {
+                    let scaled_delta = delta.saturating_mul(scroll_step);
+                    Some(self.apply_delta(props.scroll_offset, scaled_delta, max_offset))
+                }
+            }
+            _ => None,
+        };
+
+        match next_offset {
+            Some(offset) if offset != props.scroll_offset => Some((props.on_scroll)(offset)),
+            _ => None,
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        self.render_with(
+            frame,
+            area,
+            ScrollViewRenderProps {
+                content_height: props.content_height,
+                scroll_offset: props.scroll_offset,
+                is_focused: props.is_focused,
+                style: props.style,
+                behavior: props.behavior,
+                render_content: props.render_content,
+            },
+        );
+    }
+}
+
+impl ComponentDebugState for ScrollView {
+    fn debug_state(&self) -> Vec<ComponentDebugEntry> {
+        vec![ComponentDebugEntry::new(
+            "viewport_height",
+            self.viewport_height.to_string(),
+        )]
+    }
+}
+
+impl<A, Ctx> InteractiveComponent<A, Ctx> for ScrollView {
+    type Props<'a> = ScrollViewProps<'a, A>;
+
+    fn update(
+        &mut self,
+        input: ComponentInput<'_, Ctx>,
+        props: Self::Props<'_>,
+    ) -> HandlerResponse<A> {
+        let action = match input {
+            ComponentInput::Command { name, .. } => {
+                if !props.is_focused || props.content_height == 0 {
+                    None
+                } else {
+                    let max_offset = self.max_offset(props.content_height);
+                    let scroll_step = props.behavior.scroll_step.max(1) as isize;
+                    let page_size = self.page_size(&props.behavior) as isize;
+                    let next_offset = match name {
+                        "next" | "down" => {
+                            Some(self.apply_delta(props.scroll_offset, scroll_step, max_offset))
+                        }
+                        "prev" | "up" => {
+                            Some(self.apply_delta(props.scroll_offset, -scroll_step, max_offset))
+                        }
+                        "page_down" => {
+                            Some(self.apply_delta(props.scroll_offset, page_size, max_offset))
+                        }
+                        "page_up" => {
+                            Some(self.apply_delta(props.scroll_offset, -page_size, max_offset))
+                        }
+                        "first" | "home" => Some(0),
+                        "last" | "end" => Some(max_offset),
+                        _ => None,
+                    };
+
+                    match next_offset {
+                        Some(offset) if offset != props.scroll_offset => {
+                            Some((props.on_scroll)(offset))
+                        }
+                        _ => None,
+                    }
+                }
+            }
+            ComponentInput::Key(key) => {
+                <Self as Component<A>>::handle_event(self, &EventKind::Key(key), props)
+                    .into_iter()
+                    .next()
+            }
+            ComponentInput::Scroll {
+                column,
+                row,
+                delta,
+                modifiers,
+            } => <Self as Component<A>>::handle_event(
+                self,
+                &EventKind::Scroll {
+                    column,
+                    row,
+                    delta,
+                    modifiers,
+                },
+                props,
+            )
+            .into_iter()
+            .next(),
+            _ => None,
+        };
+
+        match action {
+            Some(action) => HandlerResponse::action(action),
+            None => HandlerResponse::ignored(),
+        }
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
+        <Self as Component<A>>::render(self, frame, area, props);
     }
 }
 
@@ -392,7 +521,8 @@ mod tests {
 
         // Render once to set viewport height
         harness.render_to_string_plain(|frame| {
-            view.render(
+            <ScrollView as Component<TestAction>>::render(
+                &mut view,
                 frame,
                 frame.area(),
                 ScrollViewProps {
@@ -435,7 +565,8 @@ mod tests {
         let mut harness = RenderHarness::new(20, 4);
 
         harness.render_to_string_plain(|frame| {
-            view.render(
+            <ScrollView as Component<TestAction>>::render(
+                &mut view,
                 frame,
                 frame.area(),
                 ScrollViewProps {
@@ -479,7 +610,8 @@ mod tests {
         let mut harness = RenderHarness::new(20, 3);
 
         harness.render_to_string_plain(|frame| {
-            view.render(
+            <ScrollView as Component<TestAction>>::render(
+                &mut view,
                 frame,
                 frame.area(),
                 ScrollViewProps {
@@ -527,7 +659,8 @@ mod tests {
         let mut harness = RenderHarness::new(20, 3);
 
         let output = harness.render_to_string_plain(|frame| {
-            view.render(
+            <ScrollView as Component<TestAction>>::render(
+                &mut view,
                 frame,
                 frame.area(),
                 ScrollViewProps {

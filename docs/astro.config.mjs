@@ -36,8 +36,11 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'Pre-built Components', slug: 'components/prebuilt' },
-            { label: 'Building Custom', slug: 'components/custom' },
+            { label: 'Overview', slug: 'components' },
+            { label: 'View Components', slug: 'components/custom' },
+            { label: 'Interactive Widgets', slug: 'components/interactive' },
+            { label: 'Component Host', slug: 'components/host' },
+            { label: 'Pre-built Widgets', slug: 'components/prebuilt' },
           ],
         },
         {

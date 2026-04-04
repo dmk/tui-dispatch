@@ -166,7 +166,7 @@ subs.stream("events", event_stream.map(Action::Event));
 ```
 
 ### Component
-For reusable UI widgets. A struct that handles events and renders UI via the `Component<A>` trait.
+The minimal reusable UI contract. A struct that renders from props and can emit actions from raw `EventKind`.
 
 ```rust
 impl Component<AppAction> for Counter {
@@ -184,6 +184,26 @@ impl Component<AppAction> for Counter {
     }
 }
 ```
+
+This is the simplest Layer 2 tool. For the full decision guide, see [Components Overview](/tui-dispatch/components/).
+
+### InteractiveComponent
+For reusable widgets with local UI state that need routed input and explicit render hints.
+
+Interactive widgets receive `ComponentInput` and return `HandlerResponse<A>`, so they can express:
+
+- semantic commands like `next`, `prev`, `select`
+- raw key input for text entry
+- `needs_render` when local widget state changes without app-state changes
+
+See [Interactive Widgets](/tui-dispatch/components/interactive/).
+
+### ComponentHost
+For long-lived mounted widget instances and one-time props wiring.
+
+`ComponentHost` owns interactive widget instances and can optionally bind them into `EventBus`, which keeps widget-local runtime state out of app state while still preserving store-centric architecture.
+
+See [Component Host](/tui-dispatch/components/host/).
 
 ### RenderContext
 Context passed to render functions, providing access to debug state.

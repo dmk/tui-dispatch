@@ -61,7 +61,9 @@ use crate::event::EventKind;
 /// ```
 pub trait Component<A> {
     /// Data required to render the component (read-only)
-    type Props<'a>;
+    type Props<'a>
+    where
+        Self: 'a;
 
     /// Handle an event and return actions to dispatch
     ///
