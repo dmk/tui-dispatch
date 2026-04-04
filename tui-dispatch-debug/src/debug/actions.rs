@@ -14,6 +14,8 @@ pub enum DebugAction {
     ToggleState,
     /// Toggle action log overlay
     ToggleActionLog,
+    /// Toggle components overlay
+    ToggleComponents,
     /// Toggle mouse capture mode for cell inspection
     ToggleMouseCapture,
     /// Inspect cell at position (from mouse click)
@@ -46,6 +48,7 @@ impl DebugAction {
     pub const CMD_COPY_FRAME: &'static str = "debug.copy";
     pub const CMD_TOGGLE_STATE: &'static str = "debug.state";
     pub const CMD_TOGGLE_ACTION_LOG: &'static str = "debug.action_log";
+    pub const CMD_TOGGLE_COMPONENTS: &'static str = "debug.components";
     pub const CMD_TOGGLE_MOUSE: &'static str = "debug.mouse";
     pub const CMD_CLOSE_OVERLAY: &'static str = "debug.close";
 
@@ -56,6 +59,7 @@ impl DebugAction {
             Self::CMD_COPY_FRAME => Some(Self::CopyFrame),
             Self::CMD_TOGGLE_STATE => Some(Self::ToggleState),
             Self::CMD_TOGGLE_ACTION_LOG => Some(Self::ToggleActionLog),
+            Self::CMD_TOGGLE_COMPONENTS => Some(Self::ToggleComponents),
             Self::CMD_TOGGLE_MOUSE => Some(Self::ToggleMouseCapture),
             Self::CMD_CLOSE_OVERLAY => Some(Self::CloseOverlay),
             _ => None,
@@ -69,6 +73,7 @@ impl DebugAction {
             Self::CopyFrame => Some(Self::CMD_COPY_FRAME),
             Self::ToggleState => Some(Self::CMD_TOGGLE_STATE),
             Self::ToggleActionLog => Some(Self::CMD_TOGGLE_ACTION_LOG),
+            Self::ToggleComponents => Some(Self::CMD_TOGGLE_COMPONENTS),
             Self::ToggleMouseCapture => Some(Self::CMD_TOGGLE_MOUSE),
             Self::CloseOverlay => Some(Self::CMD_CLOSE_OVERLAY),
             // These don't have command strings (triggered programmatically)
@@ -126,6 +131,10 @@ mod tests {
             DebugAction::from_command("debug.action_log"),
             Some(DebugAction::ToggleActionLog)
         );
+        assert_eq!(
+            DebugAction::from_command("debug.components"),
+            Some(DebugAction::ToggleComponents)
+        );
         assert_eq!(DebugAction::from_command("unknown"), None);
     }
 
@@ -136,6 +145,7 @@ mod tests {
             DebugAction::CopyFrame,
             DebugAction::ToggleState,
             DebugAction::ToggleActionLog,
+            DebugAction::ToggleComponents,
             DebugAction::ToggleMouseCapture,
             DebugAction::CloseOverlay,
         ];

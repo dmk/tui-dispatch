@@ -295,6 +295,15 @@ const ACTION_DETAIL_HINTS: ModalHints = ModalHints {
     right: &[ModalHint::new("Bksp", "back")],
 };
 
+// Components Modal hints
+const COMPONENTS_HINTS: ModalHints = ModalHints {
+    left: &[
+        ModalHint::new("j/k", "scroll"),
+        ModalHint::new("Enter", "expand"),
+    ],
+    right: &[ModalHint::new("Bksp", "close")],
+};
+
 // Inspect Modal hints
 const INSPECT_HINTS: ModalHints = ModalHints {
     left: &[ModalHint::new("j/k", "scroll")],
@@ -396,6 +405,8 @@ pub struct DebugLayer<A> {
     action_log: ActionLog,
     /// Cached state snapshot for the state overlay
     state_snapshot: Option<DebugTableOverlay>,
+    /// Component snapshotter callback (returns component debug info)
+    component_snapshotter: Option<Box<dyn Fn() -> Vec<super::table::ComponentSnapshot>>>,
     /// Optional serializer for saving state snapshots
     state_snapshotter: Option<StateSnapshotter>,
     /// Tree view component for state overlay
@@ -431,6 +442,10 @@ impl<A> std::fmt::Debug for DebugLayer<A> {
             .field("has_snapshot", &self.freeze.snapshot.is_some())
             .field("has_state_snapshot", &self.state_snapshot.is_some())
             .field("has_state_snapshotter", &self.state_snapshotter.is_some())
+            .field(
+                "has_component_snapshotter",
+                &self.component_snapshotter.is_some(),
+            )
             .field("state_tree_nodes", &self.state_tree_nodes.len())
             .field("state_tree_selected", &self.state_tree_selected)
             .field("banner_position", &self.banner_position)
@@ -460,6 +475,7 @@ impl<A: Action> DebugLayer<A> {
             active: true,
             action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
             state_snapshot: None,
+            component_snapshotter: None,
             state_snapshotter: None,
             state_tree_view: TreeView::new(),
             state_tree_nodes: Vec::new(),
@@ -571,6 +587,40 @@ impl<A: Action> DebugLayer<A> {
         S: DebugState + Serialize + 'static,
     {
         self.with_state_snapshotter::<S, _>(|state, path| crate::save_json(path, state))
+    }
+
+    /// Connect a component host for the components debug tab.
+    ///
+    /// The provided closure is called when opening the components overlay
+    /// to snapshot the current mounted component state.
+    pub fn with_component_snapshotter<F>(mut self, snapshotter: F) -> Self
+    where
+        F: Fn() -> Vec<super::table::ComponentSnapshot> + 'static,
+    {
+        self.component_snapshotter = Some(Box::new(snapshotter));
+        self
+    }
+
+    /// Connect a `ComponentHost` directly for the components debug tab.
+    ///
+    /// This is a convenience wrapper around [`with_component_snapshotter`](Self::with_component_snapshotter).
+    pub fn with_component_host<S, A2, Id, Ctx>(
+        self,
+        host: &tui_dispatch_components::ComponentHost<S, A2, Id, Ctx>,
+    ) -> Self
+    where
+        S: 'static,
+        A2: 'static,
+        Id: tui_dispatch_core::ComponentId + 'static,
+        Ctx: tui_dispatch_core::BindingContext + 'static,
+    {
+        let host = host.clone();
+        self.with_component_snapshotter(move || {
+            host.mounted_components()
+                .iter()
+                .map(super::table::ComponentSnapshot::from_mounted_info)
+                .collect()
+        })
     }
 
     /// Check if the debug layer is active.
@@ -918,6 +968,18 @@ impl<A: Action> DebugLayer<A> {
     pub fn show_action_log(&mut self) {
         let overlay = ActionLogOverlay::from_log(&self.action_log, "Action Log");
         self.freeze.set_overlay(DebugOverlay::ActionLog(overlay));
+    }
+
+    /// Show the components overlay (snapshots all mounted components).
+    pub fn show_components(&mut self) {
+        use super::table::{ComponentSnapshot, ComponentsOverlay};
+        let components: Vec<ComponentSnapshot> = self
+            .component_snapshotter
+            .as_ref()
+            .map(|f| f())
+            .unwrap_or_default();
+        let overlay = ComponentsOverlay::new("Components", components);
+        self.freeze.set_overlay(DebugOverlay::Components(overlay));
     }
 
     /// Queue an action to be processed when debug mode is disabled.
@@ -1647,6 +1709,7 @@ impl<A: Action> DebugLayer<A> {
         // mode can accept letters like 'A' without toggling the overlay.
         let action = match key.code {
             KeyCode::Char('a') | KeyCode::Char('A') => Some(DebugAction::ToggleActionLog),
+            KeyCode::Char('c') | KeyCode::Char('C') => Some(DebugAction::ToggleComponents),
             KeyCode::Char('y') | KeyCode::Char('Y') => Some(DebugAction::CopyFrame),
             KeyCode::Char('i') | KeyCode::Char('I') => Some(DebugAction::ToggleMouseCapture),
             KeyCode::Char('q') | KeyCode::Char('Q') => Some(DebugAction::CloseOverlay),
@@ -1703,6 +1766,25 @@ impl<A: Action> DebugLayer<A> {
                 if self.handle_detail_scroll_key(key.code, params_lines.len()) {
                     return Some(vec![]);
                 }
+            }
+            Some(DebugOverlay::Components(_)) => {
+                if key.code == KeyCode::Backspace {
+                    self.handle_action(DebugAction::CloseOverlay);
+                    return Some(vec![]);
+                }
+                if let Some(DebugOverlay::Components(ref mut overlay)) = self.freeze.overlay {
+                    match key.code {
+                        KeyCode::Char('j') | KeyCode::Down => overlay.scroll_down(),
+                        KeyCode::Char('k') | KeyCode::Up => overlay.scroll_up(),
+                        KeyCode::Char('g') | KeyCode::Home => overlay.scroll_to_top(),
+                        KeyCode::Char('G') | KeyCode::End => overlay.scroll_to_bottom(),
+                        KeyCode::PageUp => overlay.page_up(10),
+                        KeyCode::PageDown => overlay.page_down(10),
+                        KeyCode::Enter | KeyCode::Char(' ') => overlay.toggle_expanded(),
+                        _ => {}
+                    }
+                }
+                return Some(vec![]);
             }
             _ => {}
         }
@@ -1808,6 +1890,14 @@ impl<A: Action> DebugLayer<A> {
                     self.freeze.clear_overlay();
                 } else {
                     self.show_action_log();
+                }
+                None
+            }
+            DebugAction::ToggleComponents => {
+                if matches!(self.freeze.overlay, Some(DebugOverlay::Components(_))) {
+                    self.freeze.clear_overlay();
+                } else {
+                    self.show_components();
                 }
                 None
             }
@@ -1939,6 +2029,17 @@ impl<A: Action> DebugLayer<A> {
                 DebugOverlay::ActionDetail(detail) => {
                     self.render_action_detail_modal(frame, app_area, detail);
                 }
+                DebugOverlay::Components(components) => {
+                    // Highlight the selected component's render area on the
+                    // dimmed background, drawn before the modal so it sits
+                    // underneath.
+                    if let Some(comp) = components.components.get(components.selected) {
+                        if let Some(area) = comp.last_area {
+                            highlight_rect(frame.buffer_mut(), area, app_area);
+                        }
+                    }
+                    self.render_components_modal(frame, app_area, &components.clone());
+                }
             }
         }
 
@@ -1979,6 +2080,7 @@ impl<A: Action> DebugLayer<A> {
 
         push_item(&mut left_items, &toggle_key_str, "resume", keys.toggle);
         push_item(&mut left_items, "a", "actions", keys.actions);
+        push_item(&mut left_items, "c", "components", keys.components);
         push_item(&mut left_items, "s", "state", keys.state);
         push_item(
             &mut left_items,
@@ -2607,6 +2709,270 @@ impl<A: Action> DebugLayer<A> {
         );
     }
 
+    fn render_components_modal(
+        &self,
+        frame: &mut Frame,
+        app_area: Rect,
+        overlay: &super::table::ComponentsOverlay,
+    ) {
+        let count = overlay.components.len();
+        let title = if count > 0 {
+            format!("{} ({} mounted)", overlay.title, count)
+        } else {
+            format!("{} (none)", overlay.title)
+        };
+
+        let selected = overlay.selected;
+        let expanded = &overlay.expanded;
+        let scrollbar_style = self.component_scrollbar_style();
+
+        self.render_overlay_container(
+            frame,
+            app_area,
+            &title,
+            Some(COMPONENTS_HINTS),
+            None,
+            |frame, body_area| {
+                use ratatui::text::{Line, Span};
+                use ratatui::widgets::Paragraph;
+
+                let header_style = Style::default()
+                    .fg(DebugStyle::accent())
+                    .bg(DebugStyle::overlay_bg_dark())
+                    .add_modifier(Modifier::BOLD);
+                let type_style = Style::default()
+                    .fg(DebugStyle::neon_cyan())
+                    .add_modifier(Modifier::BOLD);
+                let id_style = Style::default().fg(DebugStyle::neon_green());
+                let area_style = Style::default().fg(DebugStyle::text_secondary());
+                let key_style = Style::default()
+                    .fg(DebugStyle::neon_amber())
+                    .add_modifier(Modifier::BOLD);
+                let value_style = Style::default().fg(DebugStyle::text_primary());
+                let selected_style = Style::default()
+                    .bg(DebugStyle::bg_highlight())
+                    .add_modifier(Modifier::BOLD);
+                let alt_row_0 = Style::default().bg(DebugStyle::overlay_bg());
+                let alt_row_1 = Style::default().bg(DebugStyle::overlay_bg_alt());
+
+                // Column layout: indicator (2) + Component (type_w) + sp + ID (id_w) + sp + Area (area_w)
+                let spacing = 1usize;
+                let indicator_w = 2usize;
+                let show_scrollbar = body_area.height > 0
+                    && count > body_area.height.saturating_sub(1) as usize
+                    && body_area.width > 1;
+                let text_width = if show_scrollbar {
+                    body_area.width.saturating_sub(1)
+                } else {
+                    body_area.width
+                } as usize;
+
+                // Compute column widths from data
+                let max_type = overlay
+                    .components
+                    .iter()
+                    .map(|c| c.type_name.chars().count())
+                    .max()
+                    .unwrap_or(9)
+                    .max(9);
+                let max_id = overlay
+                    .components
+                    .iter()
+                    .map(|c| {
+                        c.bound_id
+                            .as_ref()
+                            .map(|id| id.chars().count() + 2) // "→ " prefix
+                            .unwrap_or(1)
+                    })
+                    .max()
+                    .unwrap_or(2)
+                    .max(2);
+                let fixed = indicator_w + spacing * 2;
+                let remaining = text_width.saturating_sub(fixed);
+                let type_w = max_type.min(remaining / 3).max(9);
+                let id_w = max_id.min(remaining / 3).max(2);
+                let area_w = remaining.saturating_sub(type_w + id_w).max(4);
+
+                // Render header
+                let header_area = Rect {
+                    height: 1,
+                    ..body_area
+                };
+                let rows_area = Rect {
+                    y: body_area.y.saturating_add(1),
+                    height: body_area.height.saturating_sub(1),
+                    ..body_area
+                };
+
+                let header_line = Line::from(vec![
+                    Span::styled(pad_text("", indicator_w), header_style),
+                    Span::styled(pad_text("Component", type_w), header_style),
+                    Span::styled(pad_text(" ", spacing), header_style),
+                    Span::styled(pad_text("ID", id_w), header_style),
+                    Span::styled(pad_text(" ", spacing), header_style),
+                    Span::styled(pad_text("Area", area_w), header_style),
+                ]);
+                frame.render_widget(Paragraph::new(header_line), header_area);
+
+                if rows_area.height == 0 {
+                    return;
+                }
+
+                if count == 0 {
+                    let empty_text = pad_text(" No components mounted", text_width);
+                    let empty_lines = vec![Line::from(Span::styled(
+                        empty_text,
+                        Style::default()
+                            .fg(DebugStyle::text_secondary())
+                            .bg(DebugStyle::overlay_bg()),
+                    ))];
+                    let scroller = LinesScroller::new(&empty_lines);
+                    let mut scroll_view = ScrollView::new();
+                    <ScrollView as tui_dispatch_core::Component<()>>::render(
+                        &mut scroll_view,
+                        frame,
+                        rows_area,
+                        ScrollViewProps {
+                            content_height: 1,
+                            scroll_offset: 0,
+                            is_focused: true,
+                            style: ScrollViewStyle {
+                                base: BaseStyle {
+                                    border: None,
+                                    padding: Padding::default(),
+                                    bg: None,
+                                    fg: None,
+                                },
+                                scrollbar: scrollbar_style.clone(),
+                            },
+                            behavior: ScrollViewBehavior::default(),
+                            on_scroll: |_| (),
+                            render_content: &mut scroller.renderer(),
+                        },
+                    );
+                    return;
+                }
+
+                // Max key width for expanded debug entries
+                let max_debug_key = overlay
+                    .components
+                    .iter()
+                    .flat_map(|c| c.debug_entries.iter().map(|(k, _)| k.chars().count()))
+                    .max()
+                    .unwrap_or(0);
+                let debug_indent = 6usize;
+                let debug_key_w =
+                    (max_debug_key + 2).min(text_width.saturating_sub(debug_indent + 4));
+
+                let mut lines: Vec<Line<'static>> = Vec::new();
+                let mut selected_line_idx: usize = 0;
+
+                for (i, comp) in overlay.components.iter().enumerate() {
+                    let is_selected = i == selected;
+                    let is_expanded = expanded.contains(&i);
+                    let row_style = if is_selected {
+                        selected_style
+                    } else if i % 2 == 0 {
+                        alt_row_0
+                    } else {
+                        alt_row_1
+                    };
+
+                    if is_selected {
+                        selected_line_idx = lines.len();
+                    }
+
+                    let indicator = if comp.debug_entries.is_empty() {
+                        "  "
+                    } else if is_expanded {
+                        "▼ "
+                    } else {
+                        "▶ "
+                    };
+
+                    let type_text = pad_text(&comp.type_name, type_w);
+                    let id_text = if let Some(ref id) = comp.bound_id {
+                        pad_text(&format!("→ {id}"), id_w)
+                    } else {
+                        pad_text("-", id_w)
+                    };
+                    let area_text = if let Some(a) = comp.last_area {
+                        pad_text(
+                            &format!("{}×{} @ ({},{})", a.width, a.height, a.x, a.y),
+                            area_w,
+                        )
+                    } else {
+                        pad_text("-", area_w)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(indicator.to_string(), area_style).patch_style(row_style),
+                        Span::styled(type_text, type_style).patch_style(row_style),
+                        Span::styled(pad_text(" ", spacing), row_style),
+                        Span::styled(id_text, id_style).patch_style(row_style),
+                        Span::styled(pad_text(" ", spacing), row_style),
+                        Span::styled(area_text, area_style).patch_style(row_style),
+                    ]));
+
+                    if is_expanded {
+                        if comp.debug_entries.is_empty() {
+                            let empty_text = pad_text("      (no debug state)", text_width);
+                            lines.push(Line::from(Span::styled(empty_text, row_style)));
+                        } else {
+                            for (k, v) in &comp.debug_entries {
+                                let key_text = pad_text(k, debug_key_w);
+                                let val_width =
+                                    text_width.saturating_sub(debug_indent + debug_key_w);
+                                let val_text =
+                                    pad_text(&truncate_with_ellipsis(v, val_width), val_width);
+                                lines.push(Line::from(vec![
+                                    Span::styled(pad_text("", debug_indent), row_style),
+                                    Span::styled(key_text, key_style).patch_style(row_style),
+                                    Span::styled(val_text, value_style).patch_style(row_style),
+                                ]));
+                            }
+                        }
+                    }
+                }
+
+                let content_height = lines.len();
+                let visible_height = rows_area.height as usize;
+                let scroll_offset = if visible_height == 0 || selected_line_idx < visible_height {
+                    0
+                } else {
+                    selected_line_idx - visible_height + 1
+                };
+
+                let scroll_style = ScrollViewStyle {
+                    base: BaseStyle {
+                        border: None,
+                        padding: Padding::default(),
+                        bg: None,
+                        fg: None,
+                    },
+                    scrollbar: scrollbar_style.clone(),
+                };
+
+                let scroller = LinesScroller::new(&lines);
+                let mut scroll_view = ScrollView::new();
+                <ScrollView as tui_dispatch_core::Component<()>>::render(
+                    &mut scroll_view,
+                    frame,
+                    rows_area,
+                    ScrollViewProps {
+                        content_height,
+                        scroll_offset,
+                        is_focused: true,
+                        style: scroll_style,
+                        behavior: ScrollViewBehavior::default(),
+                        on_scroll: |_| (),
+                        render_content: &mut scroller.renderer(),
+                    },
+                );
+            },
+        );
+    }
+
     fn detail_params_lines(
         &self,
         detail: &super::table::ActionDetailOverlay,
@@ -2685,6 +3051,83 @@ impl DebugStateSnapshot {
         Self {
             title: title.to_string(),
             sections,
+        }
+    }
+}
+
+/// Draw a highlighted border around `target` on the dimmed buffer.
+///
+/// Uses Unicode box-drawing characters for the border and clips to `clip`
+/// so we never write outside the visible app area.
+fn highlight_rect(buf: &mut Buffer, target: Rect, clip: Rect) {
+    use ratatui::style::Color;
+
+    // Intersect target with the clip region
+    let x0 = target.x.max(clip.x);
+    let y0 = target.y.max(clip.y);
+    let x1 = (target.x.saturating_add(target.width)).min(clip.x.saturating_add(clip.width));
+    let y1 = (target.y.saturating_add(target.height)).min(clip.y.saturating_add(clip.height));
+
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+
+    let border_fg = Color::Rgb(0, 255, 255); // neon cyan
+    let border_style = Style::default().fg(border_fg);
+
+    let left = x0;
+    let right = x1.saturating_sub(1);
+    let top = y0;
+    let bottom = y1.saturating_sub(1);
+
+    // Corners
+    if left <= right && top <= bottom {
+        let tl = &mut buf[(left, top)];
+        tl.set_symbol("┌");
+        tl.set_style(border_style);
+
+        if right > left {
+            let tr = &mut buf[(right, top)];
+            tr.set_symbol("┐");
+            tr.set_style(border_style);
+        }
+
+        if bottom > top {
+            let bl = &mut buf[(left, bottom)];
+            bl.set_symbol("└");
+            bl.set_style(border_style);
+
+            if right > left {
+                let br = &mut buf[(right, bottom)];
+                br.set_symbol("┘");
+                br.set_style(border_style);
+            }
+        }
+    }
+
+    // Top and bottom edges
+    for x in (left + 1)..right {
+        let cell = &mut buf[(x, top)];
+        cell.set_symbol("─");
+        cell.set_style(border_style);
+
+        if bottom > top {
+            let cell = &mut buf[(x, bottom)];
+            cell.set_symbol("─");
+            cell.set_style(border_style);
+        }
+    }
+
+    // Left and right edges
+    for y in (top + 1)..bottom {
+        let cell = &mut buf[(left, y)];
+        cell.set_symbol("│");
+        cell.set_style(border_style);
+
+        if right > left {
+            let cell = &mut buf[(right, y)];
+            cell.set_symbol("│");
+            cell.set_style(border_style);
         }
     }
 }

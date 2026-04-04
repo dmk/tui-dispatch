@@ -17,6 +17,7 @@ use crate::{Action, AppBindingContext, RouteId};
 
 pub fn render_app(
     frame: &mut Frame,
+    area: Rect,
     state: &AppState,
     host: &ComponentHost<AppState, Action, RouteId, AppBindingContext>,
     mounted: MountedViews,
@@ -27,7 +28,7 @@ pub fn render_app(
         Constraint::Min(12),
         Constraint::Length(1),
     ])
-    .areas(frame.area());
+    .areas(area);
 
     render_header(frame, header_area, state);
 

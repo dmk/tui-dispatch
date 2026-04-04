@@ -4,6 +4,8 @@
 //! with sections and key-value entries. Also includes action log overlay
 //! for displaying recent actions.
 
+use ratatui::layout::Rect;
+
 use super::action_logger::ActionLog;
 use super::cell::CellPreview;
 
@@ -62,6 +64,8 @@ pub enum DebugOverlay {
     ActionLog(ActionLogOverlay),
     /// Action detail overlay - shows full details of a single action
     ActionDetail(ActionDetailOverlay),
+    /// Components overlay - shows mounted component debug info
+    Components(ComponentsOverlay),
 }
 
 /// Overlay for displaying detailed action information
@@ -77,12 +81,130 @@ pub struct ActionDetailOverlay {
     pub elapsed: String,
 }
 
+/// A non-generic snapshot of a single mounted component's debug info.
+#[derive(Debug, Clone)]
+pub struct ComponentSnapshot {
+    /// Internal mount handle id
+    pub raw_id: u32,
+    /// Short type name (last segment of the full path)
+    pub type_name: String,
+    /// Full qualified type name
+    pub type_name_full: String,
+    /// The component ID name it's bound to, if any
+    pub bound_id: Option<String>,
+    /// Last rendered area, if any
+    pub last_area: Option<Rect>,
+    /// Debug state key-value pairs
+    pub debug_entries: Vec<(String, String)>,
+}
+
+impl ComponentSnapshot {
+    /// Create from a `MountedComponentInfo` where `Id: ComponentId`.
+    pub fn from_mounted_info<Id: tui_dispatch_core::ComponentId>(
+        info: &tui_dispatch_components::MountedComponentInfo<Id>,
+    ) -> Self {
+        let type_name_full = info.type_name.to_string();
+        let type_name = type_name_full
+            .rsplit("::")
+            .next()
+            .unwrap_or(&type_name_full)
+            .to_string();
+        Self {
+            raw_id: info.raw,
+            type_name,
+            type_name_full,
+            bound_id: info.bound_id.map(|id| id.name().to_string()),
+            last_area: info.last_area,
+            debug_entries: info
+                .debug_state
+                .iter()
+                .map(|e| (e.key.clone(), e.value.clone()))
+                .collect(),
+        }
+    }
+}
+
+/// Overlay for displaying mounted components
+#[derive(Debug, Clone)]
+pub struct ComponentsOverlay {
+    /// Title for the overlay
+    pub title: String,
+    /// Snapshots of all mounted components
+    pub components: Vec<ComponentSnapshot>,
+    /// Currently selected component index
+    pub selected: usize,
+    /// Set of expanded component indices (show debug entries)
+    pub expanded: std::collections::HashSet<usize>,
+}
+
+impl ComponentsOverlay {
+    /// Create from a vec of snapshots.
+    pub fn new(title: impl Into<String>, components: Vec<ComponentSnapshot>) -> Self {
+        Self {
+            title: title.into(),
+            components,
+            selected: 0,
+            expanded: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Scroll up (select previous component)
+    pub fn scroll_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// Scroll down (select next component)
+    pub fn scroll_down(&mut self) {
+        if !self.components.is_empty() {
+            self.selected = (self.selected + 1).min(self.components.len() - 1);
+        }
+    }
+
+    /// Jump to the top
+    pub fn scroll_to_top(&mut self) {
+        self.selected = 0;
+    }
+
+    /// Jump to the bottom
+    pub fn scroll_to_bottom(&mut self) {
+        if !self.components.is_empty() {
+            self.selected = self.components.len() - 1;
+        }
+    }
+
+    /// Page up
+    pub fn page_up(&mut self, page_size: usize) {
+        self.selected = self.selected.saturating_sub(page_size);
+    }
+
+    /// Page down
+    pub fn page_down(&mut self, page_size: usize) {
+        if !self.components.is_empty() {
+            self.selected = (self.selected + page_size).min(self.components.len() - 1);
+        }
+    }
+
+    /// Toggle expansion of the currently selected component.
+    pub fn toggle_expanded(&mut self) {
+        if !self.expanded.remove(&self.selected) {
+            self.expanded.insert(self.selected);
+        }
+    }
+
+    /// Whether the given index is expanded.
+    pub fn is_expanded(&self, index: usize) -> bool {
+        self.expanded.contains(&index)
+    }
+}
+
 impl DebugOverlay {
     /// Get the underlying table from the overlay (for Table/State/Inspect)
     pub fn table(&self) -> Option<&DebugTableOverlay> {
         match self {
             DebugOverlay::Inspect(table) | DebugOverlay::State(table) => Some(table),
-            DebugOverlay::ActionLog(_) | DebugOverlay::ActionDetail(_) => None,
+            DebugOverlay::ActionLog(_)
+            | DebugOverlay::ActionDetail(_)
+            | DebugOverlay::Components(_) => None,
         }
     }
 
@@ -102,6 +224,22 @@ impl DebugOverlay {
         }
     }
 
+    /// Get the components overlay
+    pub fn components(&self) -> Option<&ComponentsOverlay> {
+        match self {
+            DebugOverlay::Components(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Get the components overlay mutably
+    pub fn components_mut(&mut self) -> Option<&mut ComponentsOverlay> {
+        match self {
+            DebugOverlay::Components(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Get the overlay kind as a string
     pub fn kind(&self) -> &'static str {
         match self {
@@ -109,6 +247,7 @@ impl DebugOverlay {
             DebugOverlay::State(_) => "state",
             DebugOverlay::ActionLog(_) => "action_log",
             DebugOverlay::ActionDetail(_) => "action_detail",
+            DebugOverlay::Components(_) => "components",
         }
     }
 }

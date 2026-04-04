@@ -95,6 +95,8 @@ pub struct KeyStyles {
     pub mouse: Style,
     /// Style for actions key (A)
     pub actions: Style,
+    /// Style for components key (C)
+    pub components: Style,
 }
 
 impl Default for KeyStyles {
@@ -111,6 +113,7 @@ impl Default for KeyStyles {
             copy: key_base(NEON_AMBER),
             mouse: key_base(ELECTRIC_BLUE),
             actions: key_base(KINDA_GREEN),
+            components: key_base(NEON_PURPLE),
         }
     }
 }
@@ -352,6 +355,11 @@ pub fn default_debug_keybindings_with_toggle(
         SimpleDebugContext::Debug,
         "debug.action_log",
         vec!["a".into(), "A".into()],
+    );
+    kb.add(
+        SimpleDebugContext::Debug,
+        "debug.components",
+        vec!["c".into(), "C".into()],
     );
     kb
 }

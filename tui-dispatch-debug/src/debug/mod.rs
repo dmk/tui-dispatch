@@ -152,8 +152,8 @@ pub use cell::{
 };
 pub use format::{debug_string, debug_string_compact, debug_string_pretty};
 pub use table::{
-    ActionLogDisplayEntry, ActionLogOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay,
-    DebugTableRow,
+    ActionLogDisplayEntry, ActionLogOverlay, ComponentSnapshot, ComponentsOverlay, DebugOverlay,
+    DebugTableBuilder, DebugTableOverlay, DebugTableRow,
 };
 pub use widgets::{
     buffer_to_text, dim_buffer, paint_snapshot, ActionLogStyle, ActionLogWidget, BannerItem,

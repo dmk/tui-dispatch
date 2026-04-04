@@ -2,6 +2,7 @@ use std::io;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
@@ -20,10 +21,25 @@ use tui_dispatch::prelude::{process_raw_event, EventBus, RawEvent, Store};
 use tui_dispatch_components::{
     ComponentHost, SelectList, SelectListBehavior, SelectListProps, SelectListStyle, StatusBar,
 };
+use tui_dispatch_debug::debug::DebugLayer;
+use tui_dispatch_debug::DebugCliArgs;
+
+/// Log viewer — structured log viewer for the terminal
+#[derive(Parser, Debug)]
+#[command(name = "log-viewer")]
+struct Args {
+    /// Log file to view (omit to read from stdin)
+    file: Option<String>,
+
+    #[command(flatten)]
+    debug: DebugCliArgs,
+}
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mode = match resolve_input_mode(&args)? {
+    let args = Args::parse();
+
+    let positional: Vec<String> = args.file.into_iter().collect();
+    let mode = match resolve_input_mode(&positional)? {
         Some(mode) => mode,
         None => {
             eprintln!(
@@ -42,7 +58,7 @@ fn main() -> io::Result<()> {
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
-    let result = run_app(&mut terminal, mode);
+    let result = run_app(&mut terminal, mode, &args.debug);
 
     disable_raw_mode()?;
     execute!(
@@ -58,6 +74,7 @@ fn main() -> io::Result<()> {
 fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     mode: InputMode,
+    debug_args: &DebugCliArgs,
 ) -> io::Result<()> {
     let host = ComponentHost::<AppState, Action, RouteId, AppBindingContext>::new();
     let mounted = MountedViews {
@@ -79,12 +96,18 @@ fn run_app<B: ratatui::backend::Backend>(
     let _reader = spawn_ingest(mode.clone(), tx)?;
     let mut store = Store::new(AppState::new(mode.source_label()), reducer);
     let mut status_bar = StatusBar::new();
+    let mut debug = DebugLayer::<Action>::simple()
+        .with_component_host(&host)
+        .with_action_log_filter(debug_args.action_filter())
+        .active(debug_args.enabled);
 
     loop {
         drain_ingest(&mut store, &rx);
 
         terminal.draw(|frame| {
-            render_app(frame, store.state(), &host, mounted, &mut status_bar);
+            debug.render_state(frame, store.state(), |f, app_area| {
+                render_app(f, app_area, store.state(), &host, mounted, &mut status_bar);
+            });
         })?;
         host.sync_areas(&mut bus);
 
@@ -95,10 +118,22 @@ fn run_app<B: ratatui::backend::Backend>(
         let Some(raw) = read_terminal_event()? else {
             continue;
         };
-        let outcome = bus.handle_event(&process_raw_event(raw), store.state(), &bindings);
+        let event_kind = process_raw_event(raw);
+
+        // Debug layer intercepts first when active
+        let dbg = debug.handle_event_with_state(&event_kind, store.state());
+        if dbg.consumed {
+            for action in dbg.queued_actions {
+                store.dispatch(action);
+            }
+            continue;
+        }
+
+        let outcome = bus.handle_event(&event_kind, store.state(), &bindings);
 
         let mut keep_running = true;
         for action in outcome.actions {
+            debug.log_action(&action);
             keep_running = store.dispatch(action);
             if !keep_running {
                 break;

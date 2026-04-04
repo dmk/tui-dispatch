@@ -60,6 +60,7 @@ Default keybindings (when debug mode is active):
 - `S` - Show/hide state overlay
 - `B` - Toggle banner position (top/bottom)
 - `A` - Show/hide action log
+- `C` - Show/hide components overlay
 - `/` - Edit action-log search query
 - `n` / `N` - Next/previous search match in action log
 - `J/K`, arrows, `PgUp/PgDn`, `g/G`, mouse wheel - Scroll tables
@@ -192,6 +193,12 @@ debug.render_state(frame, &app_state, |f, area| {
 // Or trigger it manually:
 debug.show_state_overlay(&app_state);
 ```
+
+## Components Overlay
+
+Press `C` to open the components overlay. It lists all mounted components with their type name, bound ID, and render area. Use `Enter` to expand a component and see its debug state entries.
+
+The selected component's render area is highlighted on the underlying UI with a cyan border, making it easy to see where each component is drawn.
 
 ## Cell Inspection
 

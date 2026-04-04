@@ -410,6 +410,32 @@ impl EventRoutingState<RouteId, AppBindingContext> for AppState {
     }
 }
 
+impl tui_dispatch_debug::debug::DebugState for AppState {
+    fn debug_sections(&self) -> Vec<tui_dispatch_debug::debug::DebugSection> {
+        use tui_dispatch_debug::debug::DebugSection;
+        vec![
+            DebugSection::new("Buffer")
+                .entry("entries", self.entries.len().to_string())
+                .entry("visible", self.visible_indices.len().to_string())
+                .entry("dropped", self.dropped_lines.to_string())
+                .entry("capacity", self.buffer_cap.to_string()),
+            DebugSection::new("Filters")
+                .entry("active_levels", format!("{:?}", self.active_levels))
+                .entry("active_tags", format!("{:?}", self.active_tags)),
+            DebugSection::new("UI")
+                .entry("focus", format!("{:?}", self.focus))
+                .entry("follow_mode", self.follow_mode.to_string())
+                .entry(
+                    "selected",
+                    self.selected_visible
+                        .map(|i| i.to_string())
+                        .unwrap_or_else(|| "none".into()),
+                )
+                .entry("details_open", self.details_open().to_string()),
+        ]
+    }
+}
+
 fn toggle_filter(active: &mut BTreeSet<String>, value: &str) {
     if !active.remove(value) {
         active.insert(value.to_string());
