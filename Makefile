@@ -1,7 +1,7 @@
 # tui-dispatch Makefile
 # Convenience targets for build, test, lint, and development
 
-.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc docs-serve tag
+.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc docs-wasm docs-serve tag
 
 # Default target
 all: build
@@ -43,8 +43,15 @@ verify: fmt-check check clippy test doc
 doc:
 	cargo doc --no-deps -p tui-dispatch -p tui-dispatch-core -p tui-dispatch-macros
 
+# Build example WASM binaries for docs live previews
+docs-wasm:
+	cargo build -p counter-example -p minesweeper-example --target wasm32-wasip1 --release
+	@mkdir -p docs/public/wasm
+	cp target/wasm32-wasip1/release/counter.wasm docs/public/wasm/preview-counter.wasm
+	cp target/wasm32-wasip1/release/minesweeper.wasm docs/public/wasm/preview-minesweeper.wasm
+
 # Serve Astro/Starlight documentation locally
-docs-serve:
+docs-serve: docs-wasm
 	npm --prefix docs run dev
 
 # Create and push a release tag (runs full verification first)
@@ -94,7 +101,8 @@ help:
 	@echo "  make lint        - Run fmt-check, check, and clippy"
 	@echo "  make verify      - Run all checks (CI)"
 	@echo "  make doc         - Build docs (library crates only)"
-	@echo "  make docs-serve  - Serve Astro docs locally"
+	@echo "  make docs-wasm   - Build example WASM binaries for live previews"
+	@echo "  make docs-serve  - Build WASM + serve Astro docs locally"
 	@echo "  make tag         - Create release tag (runs verify first)"
 	@echo "  make clean       - Remove build artifacts"
 	@echo "  make help        - Show this help"

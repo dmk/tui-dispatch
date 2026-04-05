@@ -3,13 +3,18 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
+    "build:preview-wasm": "bash ./scripts/build-preview-wasm.sh",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview"
   },
   "dependencies": {
+    "@astrojs/react": "^4.0.0",
     "@astrojs/starlight": "^0.32.0",
+    "@dkkoval/tui-preview": "file:./vendor/dkkoval-tui-preview-0.2.0.tgz",
     "astro": "^5.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "sharp": "^0.33.0"
   }
 }

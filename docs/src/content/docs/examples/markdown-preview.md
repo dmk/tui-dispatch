@@ -19,11 +19,13 @@ cargo run -p md-preview-example --bin mdpreview -- path/to/file.md
 
 ### Debug Layer Setup
 
-The debug layer is set up with sensible defaults (F12 toggle key), wired into
+The debug layer is set up with a custom Shift+D toggle key, wired into
 the runtime helper:
 
 ```rust
-let debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
+let debug: DebugLayer<Action> =
+    DebugLayer::simple_with_toggle_key(crossterm::event::KeyCode::Char('D'))
+        .active(debug_enabled);
 let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
 
 runtime
@@ -36,7 +38,7 @@ runtime
     .await?;
 ```
 
-Press **F12** to enter debug mode. The debug layer freezes the frame and provides inspection tools:
+Press **Shift+D** to enter debug mode. The debug layer freezes the frame and provides inspection tools:
 
 | Key | Action |
 |-----|--------|
@@ -147,7 +149,7 @@ Search matches are highlighted in the document with the current match emphasized
 | `n` | Next match |
 | `N` | Previous match |
 | `r` | Reload file |
-| `F12` | Enter debug mode |
+| `Shift+D` | Enter debug mode |
 | `q` | Quit |
 
 ### Search Mode

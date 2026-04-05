@@ -5,7 +5,9 @@ use crate::state::{AppState, GameState};
 pub fn reducer(state: &mut AppState, action: Action) -> bool {
     match action {
         Action::Reveal(x, y) => {
-            let cell = &mut state.grid[y][x];
+            let Some(cell) = state.grid.get_mut(y).and_then(|row| row.get_mut(x)) else {
+                return false;
+            };
             cell.revealed = true;
 
             if cell.mine {
@@ -19,10 +21,12 @@ pub fn reducer(state: &mut AppState, action: Action) -> bool {
             true
         }
         Action::ToggleFlag(x, y) => {
-            let cell = &mut state.grid[y][x];
+            let Some(cell) = state.grid.get_mut(y).and_then(|row| row.get_mut(x)) else {
+                return false;
+            };
             if cell.flagged {
                 cell.flagged = false;
-                state.flags_placed -= 1;
+                state.flags_placed = state.flags_placed.saturating_sub(1);
             } else {
                 cell.flagged = true;
                 state.flags_placed += 1;

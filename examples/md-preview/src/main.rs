@@ -15,7 +15,7 @@
 //! ```bash
 //! mdpreview README.md --debug
 //! ```
-//! When enabled, press F12 to toggle debug overlay:
+//! When enabled, press Shift+D to toggle debug overlay:
 //! - S: Show state overlay (AST stats)
 //! - Y: Copy frame to clipboard (OSC52)
 //! - I: Mouse capture for cell inspection
@@ -62,7 +62,7 @@ struct Args {
     #[arg(long, value_delimiter = ',')]
     disable: Vec<String>,
 
-    /// Enable debug mode (F12 to toggle overlay, state inspection)
+    /// Enable debug mode (Shift+D to toggle overlay, state inspection)
     #[arg(long)]
     debug: bool,
 }
@@ -179,7 +179,8 @@ async fn run_app<B: ratatui::backend::Backend>(
     let keybindings = default_keybindings();
 
     // Debug layer - only active when --debug flag passed
-    let debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
+    let debug: DebugLayer<Action> =
+        DebugLayer::simple_with_toggle_key(KeyCode::Char('D')).active(debug_enabled);
 
     let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
 

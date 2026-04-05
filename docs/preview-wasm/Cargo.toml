@@ -1,0 +1,27 @@
+[package]
+name = "tui-dispatch-docs-preview"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "preview-counter"
+path = "src/counter.rs"
+
+[[bin]]
+name = "preview-minesweeper"
+path = "src/minesweeper.rs"
+
+[dependencies]
+# Use the local WASM-capable crossterm replacement for browser previews.
+tinycrossterm = { path = "../../../tinycrossterm" }
+ratatui = { version = "0.29", default-features = false }
+tui-dispatch = { path = "./tui-dispatch-shim" }
+tui-dispatch-core = { path = "../../tui-dispatch-core" }
+tui-dispatch-macros = { path = "../../tui-dispatch-macros" }
+
+[patch.crates-io]
+crossterm = { path = "./crossterm-shim" }
+
+# Opt this crate out of the parent workspace so it can build independently.
+[workspace]

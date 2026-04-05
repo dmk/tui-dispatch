@@ -11,9 +11,7 @@ use crate::state::{AppState, GameState};
 /// Characters per cell width.
 const CELL_W: u16 = 3;
 
-pub fn render(frame: &mut Frame, state: &AppState) {
-    let area = frame.area();
-
+pub fn render_in(frame: &mut Frame, area: Rect, state: &AppState) {
     let [board_area, info_area, help_area] = Layout::vertical([
         Constraint::Min(1),
         Constraint::Length(1),
@@ -178,12 +176,14 @@ fn draw_help(frame: &mut Frame, state: &AppState, area: Rect) {
             StatusBarHint::new("space", "reveal"),
             StatusBarHint::new("f", "flag"),
             StatusBarHint::new("1/2/3", "difficulty"),
+            StatusBarHint::new("D", "debug"),
             StatusBarHint::new("n", "new"),
             StatusBarHint::new("q", "quit"),
         ]
     } else {
         &[
             StatusBarHint::new("1/2/3", "difficulty"),
+            StatusBarHint::new("D", "debug"),
             StatusBarHint::new("n", "new game"),
             StatusBarHint::new("q", "quit"),
         ]

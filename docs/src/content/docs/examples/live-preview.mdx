@@ -1,0 +1,38 @@
+---
+title: Live Preview
+description: Interactive previews of tui-dispatch examples running in the browser via WASM.
+---
+
+import { ExamplePreview } from '../../../components/ExamplePreview';
+
+Live previews of the real workspace examples (`examples/counter` and
+`examples/minesweeper`), compiled to WASM and rendered in-browser.
+
+To regenerate the preview binaries:
+
+```bash
+make docs-wasm
+```
+
+## Counter
+
+The simplest example: state, actions, reducer, store. No async, no extensions.
+
+<ExamplePreview client:only="react" name="counter" height={400} />
+
+```bash
+cargo run -p counter-example
+```
+
+## Minesweeper
+
+Middleware patterns — cancel (prevent actions on flagged cells) and inject (flood-fill reveal).
+
+Controls: `Space` reveal, `f` flag, `h/j/k/l` or arrows to move,
+`1/2/3` difficulty, `n` new game, `q` quit.
+
+<ExamplePreview client:only="react" name="minesweeper" height={260} />
+
+```bash
+cargo run -p minesweeper-example -- --debug
+```

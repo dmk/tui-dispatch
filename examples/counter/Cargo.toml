@@ -7,7 +7,12 @@ edition = "2021"
 name = "counter"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tui-dispatch = { path = "../../tui-dispatch" }
 ratatui = "0.29"
 crossterm = "0.28"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tui-dispatch = { path = "../../tui-dispatch", default-features = false }
+ratatui = { version = "0.29", default-features = false }
+tinycrossterm = { path = "../../../tinycrossterm" }

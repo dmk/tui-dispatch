@@ -33,7 +33,7 @@ A GitHub user lookup TUI. Good next step after Counter.
 A markdown file viewer with debug overlay and feature flags.
 
 **Demonstrates:**
-- Debug layer with F12 toggle
+- Debug layer with Shift+D toggle
 - State inspection overlay
 - Feature flags (line numbers, wrap, stats)
 - Search with navigation
@@ -67,7 +67,7 @@ cargo run -p md-preview-example --bin mdpreview
 cargo run -p md-preview-example --bin mdpreview -- path/to/file.md --debug
 
 # Minesweeper
-cargo run -p minesweeper-example
+cargo run -p minesweeper-example -- --debug
 ```
 
 ## More Examples

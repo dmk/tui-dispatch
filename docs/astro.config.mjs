@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
@@ -55,6 +56,7 @@ export default defineConfig({
             { label: 'Counter', slug: 'examples/counter' },
             { label: 'GitHub Lookup', slug: 'examples/github-lookup' },
             { label: 'Markdown Preview', slug: 'examples/markdown-preview' },
+            { label: 'Live Preview', slug: 'examples/live-preview' },
           ],
         },
         {
@@ -77,5 +79,14 @@ export default defineConfig({
         },
       ],
     }),
+    react(),
   ],
+  vite: {
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+    },
+    optimizeDeps: {
+      exclude: ['@dkkoval/tui-preview'],
+    },
+  },
 });

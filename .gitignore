@@ -37,3 +37,8 @@ __pycache__/
 # - Astro: docs/dist/
 docs/book/
 docs/dist/
+
+# Nested build artifacts
+**/target/
+*.wasm
+*.d

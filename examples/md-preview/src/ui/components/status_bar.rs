@@ -126,7 +126,7 @@ impl Component<Action> for StatusBar {
                 StatusBarHint::new("j/k", "scroll"),
                 StatusBarHint::new("/", "search"),
                 StatusBarHint::new("n/N", "next/prev"),
-                StatusBarHint::new("F12", "debug"),
+                StatusBarHint::new("D", "debug"),
                 StatusBarHint::new("q", "quit"),
             ];
             let right = StatusBarSection::hints(&hints);
