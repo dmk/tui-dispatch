@@ -27,7 +27,21 @@ const OVERLAY_BG_DARK: Color = Color::Rgb(28, 28, 40);
 const TEXT_PRIMARY: Color = Color::Rgb(240, 240, 245);
 const TEXT_SECONDARY: Color = Color::Rgb(150, 150, 160);
 
-/// Style configuration for debug UI
+/// Style configuration for debug UI.
+///
+/// Includes both high-level composed styles (banner, keys, scrollbar) and a
+/// color palette that can be overridden to theme the entire debug overlay.
+///
+/// # Example
+///
+/// ```
+/// use ratatui::style::Color;
+/// use tui_dispatch_debug::debug::DebugStyle;
+///
+/// let mut style = DebugStyle::default();
+/// style.accent = Color::Rgb(255, 0, 128);
+/// style.neon_green = Color::Rgb(0, 200, 100);
+/// ```
 #[derive(Debug, Clone)]
 pub struct DebugStyle {
     /// Background style for the banner
@@ -44,6 +58,34 @@ pub struct DebugStyle {
     pub value_style: Style,
     /// Dim factor for background (0.0-1.0)
     pub dim_factor: f32,
+
+    // -- Color palette --
+    /// Accent color used for titles, headers, and highlights
+    pub accent: Color,
+    /// Primary text color
+    pub text_primary: Color,
+    /// Secondary/muted text color
+    pub text_secondary: Color,
+    /// Deep background color
+    pub bg_deep: Color,
+    /// Surface background color
+    pub bg_surface: Color,
+    /// Highlight background (selected items)
+    pub bg_highlight: Color,
+    /// Overlay background
+    pub overlay_bg: Color,
+    /// Alternate overlay background (for striped rows)
+    pub overlay_bg_alt: Color,
+    /// Darker overlay background (headers, footers)
+    pub overlay_bg_dark: Color,
+    /// Purple accent for types, keywords, section headers
+    pub neon_purple: Color,
+    /// Cyan accent for type names, links
+    pub neon_cyan: Color,
+    /// Amber accent for keys, field names
+    pub neon_amber: Color,
+    /// Green accent for strings, IDs
+    pub neon_green: Color,
 }
 
 /// Style and symbol overrides for debug scrollbars
@@ -131,65 +173,79 @@ impl Default for DebugStyle {
             label_style: Style::default().fg(TEXT_SECONDARY),
             value_style: Style::default().fg(TEXT_PRIMARY),
             dim_factor: 0.7,
+            accent: ACCENT_MINT,
+            text_primary: TEXT_PRIMARY,
+            text_secondary: TEXT_SECONDARY,
+            bg_deep: BG_DEEP,
+            bg_surface: BG_SURFACE,
+            bg_highlight: BG_HIGHLIGHT,
+            overlay_bg: OVERLAY_BG,
+            overlay_bg_alt: OVERLAY_BG_ALT,
+            overlay_bg_dark: OVERLAY_BG_DARK,
+            neon_purple: NEON_PURPLE,
+            neon_cyan: NEON_CYAN,
+            neon_amber: NEON_AMBER,
+            neon_green: NEON_GREEN,
         }
     }
 }
 
-// Re-export colors for use in table styling
+// Deprecated static color accessors — use instance fields instead.
+#[allow(deprecated)]
 impl DebugStyle {
-    /// Get the neon purple color
+    #[deprecated(note = "use the `neon_purple` field on a DebugStyle instance")]
     pub const fn neon_purple() -> Color {
         NEON_PURPLE
     }
-    /// Get the neon cyan color
+    #[deprecated(note = "use the `neon_cyan` field on a DebugStyle instance")]
     pub const fn neon_cyan() -> Color {
         NEON_CYAN
     }
-    /// Get the neon amber color
+    #[deprecated(note = "use the `neon_amber` field on a DebugStyle instance")]
     pub const fn neon_amber() -> Color {
         NEON_AMBER
     }
-    /// Get the neon green color
+    #[deprecated(note = "use the `neon_green` field on a DebugStyle instance")]
     pub const fn neon_green() -> Color {
         NEON_GREEN
     }
-    /// Get the accent mint color
+    #[deprecated(note = "use the `accent` field on a DebugStyle instance")]
     pub const fn accent() -> Color {
         ACCENT_MINT
     }
-    /// Get the deep background color
+    #[deprecated(note = "use the `bg_deep` field on a DebugStyle instance")]
     pub const fn bg_deep() -> Color {
         BG_DEEP
     }
-    /// Get the panel background color
+    /// Returns the panel background color (not exposed as instance field).
     pub const fn bg_panel() -> Color {
         BG_PANEL
     }
-    /// Get the surface background color
+    #[deprecated(note = "use the `bg_surface` field on a DebugStyle instance")]
     pub const fn bg_surface() -> Color {
         BG_SURFACE
     }
-    /// Get the highlight background color (for selected items)
+    #[deprecated(note = "use the `bg_highlight` field on a DebugStyle instance")]
     pub const fn bg_highlight() -> Color {
         BG_HIGHLIGHT
     }
-    /// Get the overlay background color
+    #[deprecated(note = "use the `overlay_bg` field on a DebugStyle instance")]
     pub const fn overlay_bg() -> Color {
         OVERLAY_BG
     }
-    /// Get the alternate overlay background color
+    #[deprecated(note = "use the `overlay_bg_alt` field on a DebugStyle instance")]
     pub const fn overlay_bg_alt() -> Color {
         OVERLAY_BG_ALT
     }
-    /// Get the darker overlay background color
+    #[deprecated(note = "use the `overlay_bg_dark` field on a DebugStyle instance")]
     pub const fn overlay_bg_dark() -> Color {
         OVERLAY_BG_DARK
     }
-    /// Get the primary text color
+    #[deprecated(note = "use the `text_primary` field on a DebugStyle instance")]
     pub const fn text_primary() -> Color {
         TEXT_PRIMARY
     }
-    /// Get the secondary text color
+    #[deprecated(note = "use the `text_secondary` field on a DebugStyle instance")]
     pub const fn text_secondary() -> Color {
         TEXT_SECONDARY
     }

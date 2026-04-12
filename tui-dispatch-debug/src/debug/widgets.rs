@@ -345,27 +345,34 @@ pub struct DebugTableStyle {
     pub row_styles: (Style, Style),
 }
 
-impl Default for DebugTableStyle {
-    fn default() -> Self {
-        use super::config::DebugStyle;
+impl DebugTableStyle {
+    /// Create a table style from a `DebugStyle` color palette.
+    pub fn from_style(s: &super::config::DebugStyle) -> Self {
         Self {
             header: Style::default()
-                .fg(DebugStyle::accent())
-                .bg(DebugStyle::overlay_bg_dark())
+                .fg(s.accent)
+                .bg(s.overlay_bg_dark)
                 .add_modifier(Modifier::BOLD),
             section: Style::default()
-                .fg(DebugStyle::neon_purple())
-                .bg(DebugStyle::overlay_bg_dark())
+                .fg(s.neon_purple)
+                .bg(s.overlay_bg_dark)
                 .add_modifier(Modifier::BOLD),
             key: Style::default()
-                .fg(DebugStyle::neon_amber())
+                .fg(s.neon_amber)
                 .add_modifier(Modifier::BOLD),
-            value: Style::default().fg(DebugStyle::text_primary()),
+            value: Style::default().fg(s.text_primary),
             row_styles: (
-                Style::default().bg(DebugStyle::overlay_bg()),
-                Style::default().bg(DebugStyle::overlay_bg_alt()),
+                Style::default().bg(s.overlay_bg),
+                Style::default().bg(s.overlay_bg_alt),
             ),
         }
+    }
+}
+
+#[allow(deprecated)]
+impl Default for DebugTableStyle {
+    fn default() -> Self {
+        Self::from_style(&super::config::DebugStyle::default())
     }
 }
 
@@ -474,17 +481,26 @@ pub struct CellPreviewWidget<'a> {
     preview: &'a CellPreview,
     label_style: Style,
     value_style: Style,
+    bg_surface: ratatui::style::Color,
+    mod_color: ratatui::style::Color,
 }
 
 impl<'a> CellPreviewWidget<'a> {
-    /// Create a new cell preview widget with default neon styling
-    pub fn new(preview: &'a CellPreview) -> Self {
-        use super::config::DebugStyle;
+    /// Create a cell preview widget styled from a `DebugStyle` palette.
+    pub fn from_style(preview: &'a CellPreview, s: &DebugStyle) -> Self {
         Self {
             preview,
-            label_style: Style::default().fg(DebugStyle::text_secondary()),
-            value_style: Style::default().fg(DebugStyle::text_primary()),
+            label_style: Style::default().fg(s.text_secondary),
+            value_style: Style::default().fg(s.text_primary),
+            bg_surface: s.bg_surface,
+            mod_color: s.neon_purple,
         }
+    }
+
+    /// Create a new cell preview widget with default neon styling
+    #[allow(deprecated)]
+    pub fn new(preview: &'a CellPreview) -> Self {
+        Self::from_style(preview, &DebugStyle::default())
     }
 
     /// Set the style for labels (fg, bg, etc.)
@@ -502,8 +518,6 @@ impl<'a> CellPreviewWidget<'a> {
 
 impl Widget for CellPreviewWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        use super::config::DebugStyle;
-
         if area.width < 20 || area.height < 1 {
             return;
         }
@@ -520,8 +534,8 @@ impl Widget for CellPreviewWidget<'_> {
         let mod_str = format_modifier_compact(self.preview.modifier);
 
         // Character background highlight
-        let char_bg = Style::default().bg(DebugStyle::bg_surface());
-        let mod_style = Style::default().fg(DebugStyle::neon_purple());
+        let char_bg = Style::default().bg(self.bg_surface);
+        let mod_style = Style::default().fg(self.mod_color);
 
         // Single line: [char]  fg █ RGB  bg █ RGB  mod
         let mut spans = vec![
@@ -560,15 +574,21 @@ pub(crate) struct DebugSyntaxStyle {
 }
 
 impl DebugSyntaxStyle {
-    pub(crate) fn with_base(base: Style) -> Self {
+    /// Create syntax style from a `DebugStyle` palette and a base text style.
+    pub(crate) fn from_style(s: &DebugStyle, base: Style) -> Self {
         Self {
-            punctuation: Style::default().fg(DebugStyle::text_secondary()),
-            string: Style::default().fg(DebugStyle::neon_green()),
-            number: Style::default().fg(DebugStyle::neon_cyan()),
-            keyword: Style::default().fg(DebugStyle::neon_purple()),
+            punctuation: Style::default().fg(s.text_secondary),
+            string: Style::default().fg(s.neon_green),
+            number: Style::default().fg(s.neon_cyan),
+            keyword: Style::default().fg(s.neon_purple),
             identifier: base,
             fallback: base,
         }
+    }
+
+    #[allow(deprecated)]
+    pub(crate) fn with_base(base: Style) -> Self {
+        Self::from_style(&DebugStyle::default(), base)
     }
 }
 
@@ -704,28 +724,35 @@ pub struct ActionLogStyle {
     pub row_styles: (Style, Style),
 }
 
-impl Default for ActionLogStyle {
-    fn default() -> Self {
-        use super::config::DebugStyle;
+impl ActionLogStyle {
+    /// Create an action log style from a `DebugStyle` color palette.
+    pub fn from_style(s: &super::config::DebugStyle) -> Self {
         Self {
             header: Style::default()
-                .fg(DebugStyle::accent())
-                .bg(DebugStyle::overlay_bg_dark())
+                .fg(s.accent)
+                .bg(s.overlay_bg_dark)
                 .add_modifier(Modifier::BOLD),
-            sequence: Style::default().fg(DebugStyle::text_secondary()),
+            sequence: Style::default().fg(s.text_secondary),
             name: Style::default()
-                .fg(DebugStyle::neon_amber())
+                .fg(s.neon_amber)
                 .add_modifier(Modifier::BOLD),
-            params: Style::default().fg(DebugStyle::text_primary()),
-            elapsed: Style::default().fg(DebugStyle::text_secondary()),
+            params: Style::default().fg(s.text_primary),
+            elapsed: Style::default().fg(s.text_secondary),
             selected: Style::default()
-                .bg(DebugStyle::bg_highlight())
+                .bg(s.bg_highlight)
                 .add_modifier(Modifier::BOLD),
             row_styles: (
-                Style::default().bg(DebugStyle::overlay_bg()),
-                Style::default().bg(DebugStyle::overlay_bg_alt()),
+                Style::default().bg(s.overlay_bg),
+                Style::default().bg(s.overlay_bg_alt),
             ),
         }
+    }
+}
+
+#[allow(deprecated)]
+impl Default for ActionLogStyle {
+    fn default() -> Self {
+        Self::from_style(&super::config::DebugStyle::default())
     }
 }
 

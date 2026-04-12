@@ -66,6 +66,10 @@ pub enum DebugOverlay {
     ActionDetail(ActionDetailOverlay),
     /// Components overlay - shows mounted component debug info
     Components(ComponentsOverlay),
+    /// State entry detail - shows full value for a single state entry
+    StateDetail(StateEntryDetail),
+    /// Component detail - shows full info for a single component
+    ComponentDetail(ComponentDetailOverlay),
 }
 
 /// Overlay for displaying detailed action information
@@ -79,6 +83,48 @@ pub struct ActionDetailOverlay {
     pub params: String,
     /// Elapsed time display
     pub elapsed: String,
+}
+
+/// Detail view for a single state tree entry (full untruncated value).
+#[derive(Debug, Clone)]
+pub struct StateEntryDetail {
+    /// Section name this entry belongs to
+    pub section: String,
+    /// Entry key
+    pub key: String,
+    /// Full entry value (untruncated)
+    pub value: String,
+}
+
+/// Detail view for a single mounted component.
+#[derive(Debug, Clone)]
+pub struct ComponentDetailOverlay {
+    /// Index in the components list (for restoring selection on back)
+    pub index: usize,
+    /// Short type name
+    pub type_name: String,
+    /// Full qualified type name
+    pub type_name_full: String,
+    /// Bound component ID name
+    pub bound_id: Option<String>,
+    /// Last rendered area
+    pub last_area: Option<Rect>,
+    /// Debug state key-value pairs
+    pub debug_entries: Vec<(String, String)>,
+}
+
+impl ComponentDetailOverlay {
+    /// Create from a component snapshot.
+    pub fn from_snapshot(snap: &ComponentSnapshot, index: usize) -> Self {
+        Self {
+            index,
+            type_name: snap.type_name.clone(),
+            type_name_full: snap.type_name_full.clone(),
+            bound_id: snap.bound_id.clone(),
+            last_area: snap.last_area,
+            debug_entries: snap.debug_entries.clone(),
+        }
+    }
 }
 
 /// A non-generic snapshot of a single mounted component's debug info.
@@ -204,7 +250,9 @@ impl DebugOverlay {
             DebugOverlay::Inspect(table) | DebugOverlay::State(table) => Some(table),
             DebugOverlay::ActionLog(_)
             | DebugOverlay::ActionDetail(_)
-            | DebugOverlay::Components(_) => None,
+            | DebugOverlay::Components(_)
+            | DebugOverlay::StateDetail(_)
+            | DebugOverlay::ComponentDetail(_) => None,
         }
     }
 
@@ -248,6 +296,8 @@ impl DebugOverlay {
             DebugOverlay::ActionLog(_) => "action_log",
             DebugOverlay::ActionDetail(_) => "action_detail",
             DebugOverlay::Components(_) => "components",
+            DebugOverlay::StateDetail(_) => "state_detail",
+            DebugOverlay::ComponentDetail(_) => "component_detail",
         }
     }
 }

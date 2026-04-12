@@ -40,6 +40,14 @@ pub enum DebugAction {
     ActionLogShowDetail,
     /// Go back from detail view to action log
     ActionLogBackToList,
+    /// Show detail for selected state tree entry
+    StateTreeShowDetail,
+    /// Go back from state detail to state tree
+    StateTreeBackToTree,
+    /// Show detail for selected component
+    ComponentShowDetail,
+    /// Go back from component detail to components list
+    ComponentBackToList,
 }
 
 impl DebugAction {
@@ -86,7 +94,11 @@ impl DebugAction {
             | Self::ActionLogPageUp
             | Self::ActionLogPageDown
             | Self::ActionLogShowDetail
-            | Self::ActionLogBackToList => None,
+            | Self::ActionLogBackToList
+            | Self::StateTreeShowDetail
+            | Self::StateTreeBackToTree
+            | Self::ComponentShowDetail
+            | Self::ComponentBackToList => None,
         }
     }
 }

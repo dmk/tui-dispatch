@@ -125,6 +125,7 @@ pub mod cell;
 pub mod config;
 pub mod format;
 pub mod layer;
+pub mod scroll_state;
 pub mod state;
 pub mod table;
 pub mod widgets;
@@ -146,14 +147,18 @@ pub use action_logger::{
     ActionLoggerMiddleware,
 };
 
+// Scroll/cursor utilities
+pub use scroll_state::ScrollState;
+
 // Low-level API
 pub use cell::{
     format_color_compact, format_modifier_compact, inspect_cell, point_in_rect, CellPreview,
 };
-pub use format::{debug_string, debug_string_compact, debug_string_pretty};
+pub use format::{debug_string, debug_string_compact, debug_string_pretty, pretty_reformat};
 pub use table::{
-    ActionLogDisplayEntry, ActionLogOverlay, ComponentSnapshot, ComponentsOverlay, DebugOverlay,
-    DebugTableBuilder, DebugTableOverlay, DebugTableRow,
+    ActionLogDisplayEntry, ActionLogOverlay, ComponentDetailOverlay, ComponentSnapshot,
+    ComponentsOverlay, DebugOverlay, DebugTableBuilder, DebugTableOverlay, DebugTableRow,
+    StateEntryDetail,
 };
 pub use widgets::{
     buffer_to_text, dim_buffer, paint_snapshot, ActionLogStyle, ActionLogWidget, BannerItem,

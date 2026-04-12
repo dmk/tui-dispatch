@@ -145,21 +145,24 @@ fn ron_value_spans(value: &str, style: &InlineValueStyle) -> Vec<Span<'static>> 
     spans
 }
 
-fn render_state_tree_node(ctx: TreeNodeRender<'_, String, String>) -> Line<'static> {
+fn render_state_tree_node(
+    ctx: TreeNodeRender<'_, String, String>,
+    palette: &DebugStyle,
+) -> Line<'static> {
     // Section header style - bold accent color for expandable sections
     let section_style = Style::default()
-        .fg(DebugStyle::accent())
+        .fg(palette.accent)
         .add_modifier(Modifier::BOLD);
     // Key/field label style
-    let key_style = Style::default().fg(DebugStyle::text_primary()).bold();
+    let key_style = Style::default().fg(palette.text_primary).bold();
     // Value styling
-    let value_style = Style::default().fg(DebugStyle::text_primary());
-    let type_style = Style::default().fg(DebugStyle::neon_purple());
-    let string_style = Style::default().fg(DebugStyle::neon_green());
-    let number_style = Style::default().fg(DebugStyle::neon_amber());
+    let value_style = Style::default().fg(palette.text_primary);
+    let type_style = Style::default().fg(palette.neon_purple);
+    let string_style = Style::default().fg(palette.neon_green);
+    let number_style = Style::default().fg(palette.neon_amber);
 
     let selection_patch = if ctx.is_selected {
-        Style::default().bg(DebugStyle::bg_highlight())
+        Style::default().bg(palette.bg_highlight)
     } else {
         Style::default()
     };
@@ -285,6 +288,8 @@ const STATE_TREE_HINTS: ModalHints = ModalHints {
     left: &[
         ModalHint::new("j/k", "scroll"),
         ModalHint::new("Space", "expand"),
+        ModalHint::new("Enter", "detail"),
+        ModalHint::new("/", "filter"),
     ],
     right: &[ModalHint::new("w", "save"), ModalHint::new("Bksp", "close")],
 };
@@ -295,13 +300,39 @@ const ACTION_DETAIL_HINTS: ModalHints = ModalHints {
     right: &[ModalHint::new("Bksp", "back")],
 };
 
+// State Entry Detail hints
+const STATE_DETAIL_HINTS: ModalHints = ModalHints {
+    left: &[ModalHint::new("j/k", "scroll")],
+    right: &[ModalHint::new("Bksp", "back")],
+};
+
 // Components Modal hints
 const COMPONENTS_HINTS: ModalHints = ModalHints {
     left: &[
         ModalHint::new("j/k", "scroll"),
-        ModalHint::new("Enter", "expand"),
+        ModalHint::new("Space", "expand"),
+        ModalHint::new("Enter", "detail"),
+        ModalHint::new("/", "filter"),
     ],
     right: &[ModalHint::new("Bksp", "close")],
+};
+
+// Search input mode hints (shared by state tree + components)
+const SEARCH_INPUT_HINTS: ModalHints = ModalHints {
+    left: &[
+        ModalHint::new("type", "query"),
+        ModalHint::new("Bksp", "edit"),
+    ],
+    right: &[
+        ModalHint::new("Enter", "done"),
+        ModalHint::new("Esc", "done"),
+    ],
+};
+
+// Component Detail hints
+const COMPONENT_DETAIL_HINTS: ModalHints = ModalHints {
+    left: &[ModalHint::new("j/k", "scroll")],
+    right: &[ModalHint::new("Bksp", "back")],
 };
 
 // Inspect Modal hints
@@ -417,14 +448,30 @@ pub struct DebugLayer<A> {
     state_tree_selected: Option<String>,
     /// Expanded node ids for the state tree
     state_tree_expanded: HashSet<String>,
-    /// Scroll offset for state/inspect table overlays
-    table_scroll_offset: usize,
-    /// Cached page size for table overlay scrolling
-    table_page_size: usize,
-    /// Scroll offset for action detail modal
-    detail_scroll_offset: usize,
-    /// Cached page size for action detail scrolling
-    detail_page_size: usize,
+    /// Search query for the state tree
+    state_search_query: String,
+    /// Whether state search input is active
+    state_search_active: bool,
+    /// Filtered state tree nodes (recomputed on query/node change)
+    state_tree_filtered: Vec<TreeNode<String, String>>,
+    /// Tree view component for components overlay
+    components_tree_view: TreeView<String>,
+    /// Cached tree nodes for components overlay
+    components_tree_nodes: Vec<TreeNode<String, String>>,
+    /// Currently selected component tree node id
+    components_tree_selected: Option<String>,
+    /// Expanded node ids for the components tree
+    components_tree_expanded: HashSet<String>,
+    /// Search query for the components tree
+    components_search_query: String,
+    /// Whether components search input is active
+    components_search_active: bool,
+    /// Filtered components tree nodes (recomputed on query/node change)
+    components_tree_filtered: Vec<TreeNode<String, String>>,
+    /// Scroll state for state/inspect table overlays
+    table_scroll: super::scroll_state::ScrollState,
+    /// Scroll state for action detail modal
+    detail_scroll: super::scroll_state::ScrollState,
     /// Handle to pause/resume task manager
     #[cfg(feature = "tasks")]
     task_handle: Option<TaskPauseHandle<A>>,
@@ -449,8 +496,8 @@ impl<A> std::fmt::Debug for DebugLayer<A> {
             .field("state_tree_nodes", &self.state_tree_nodes.len())
             .field("state_tree_selected", &self.state_tree_selected)
             .field("banner_position", &self.banner_position)
-            .field("table_scroll_offset", &self.table_scroll_offset)
-            .field("detail_scroll_offset", &self.detail_scroll_offset)
+            .field("table_scroll", &self.table_scroll)
+            .field("detail_scroll", &self.detail_scroll)
             .field("queued_actions", &self.freeze.queued_actions.len())
             .finish()
     }
@@ -481,10 +528,18 @@ impl<A: Action> DebugLayer<A> {
             state_tree_nodes: Vec::new(),
             state_tree_selected: None,
             state_tree_expanded: HashSet::new(),
-            table_scroll_offset: 0,
-            table_page_size: 1,
-            detail_scroll_offset: 0,
-            detail_page_size: 1,
+            state_search_query: String::new(),
+            state_search_active: false,
+            state_tree_filtered: Vec::new(),
+            components_tree_view: TreeView::new(),
+            components_tree_nodes: Vec::new(),
+            components_tree_selected: None,
+            components_tree_expanded: HashSet::new(),
+            components_search_query: String::new(),
+            components_search_active: false,
+            components_tree_filtered: Vec::new(),
+            table_scroll: super::scroll_state::ScrollState::new(),
+            detail_scroll: super::scroll_state::ScrollState::new(),
             #[cfg(feature = "tasks")]
             task_handle: None,
             #[cfg(feature = "subscriptions")]
@@ -910,12 +965,22 @@ impl<A: Action> DebugLayer<A> {
                     }
                     Some(DebugOverlay::State(_)) => {
                         self.sync_state_tree_state();
-                        let nodes = &self.state_tree_nodes;
+                        let filtered = &self.state_tree_filtered;
                         let selected_id = self.state_tree_selected.as_ref();
                         let expanded_ids = &self.state_tree_expanded;
                         let style = self.state_tree_style();
-                        let props =
-                            Self::build_state_tree_props(nodes, selected_id, expanded_ids, style);
+                        let palette = &self.style;
+                        let render_node =
+                            |ctx: TreeNodeRender<'_, String, String>| -> Line<'static> {
+                                render_state_tree_node(ctx, palette)
+                            };
+                        let props = Self::build_tree_props(
+                            filtered,
+                            selected_id,
+                            expanded_ids,
+                            style,
+                            &render_node,
+                        );
                         let actions: Vec<_> = self
                             .state_tree_view
                             .handle_event(
@@ -935,17 +1000,68 @@ impl<A: Action> DebugLayer<A> {
                     }
                     Some(DebugOverlay::Inspect(table)) => {
                         if *delta > 0 {
-                            self.scroll_table_up();
+                            self.table_scroll.scroll_up();
                         } else {
-                            self.scroll_table_down(table.rows.len());
+                            self.table_scroll.scroll_down(table.rows.len());
                         }
                     }
                     Some(DebugOverlay::ActionDetail(detail)) => {
                         let params_lines = self.detail_params_lines(detail);
                         if *delta > 0 {
-                            self.scroll_detail_up();
+                            self.detail_scroll.scroll_up();
                         } else {
-                            self.scroll_detail_down(params_lines.len());
+                            self.detail_scroll.scroll_down(params_lines.len());
+                        }
+                    }
+                    Some(DebugOverlay::StateDetail(detail)) => {
+                        let line_count = self.state_detail_lines(detail).len();
+                        if *delta > 0 {
+                            self.detail_scroll.scroll_up();
+                        } else {
+                            self.detail_scroll.scroll_down(line_count);
+                        }
+                    }
+                    Some(DebugOverlay::ComponentDetail(detail)) => {
+                        let line_count = self.component_detail_lines(detail).len();
+                        if *delta > 0 {
+                            self.detail_scroll.scroll_up();
+                        } else {
+                            self.detail_scroll.scroll_down(line_count);
+                        }
+                    }
+                    Some(DebugOverlay::Components(_)) => {
+                        self.sync_components_tree_state();
+                        let filtered = &self.components_tree_filtered;
+                        let selected_id = self.components_tree_selected.as_ref();
+                        let expanded_ids = &self.components_tree_expanded;
+                        let style = self.state_tree_style();
+                        let palette = &self.style;
+                        let render_node =
+                            |ctx: TreeNodeRender<'_, String, String>| -> Line<'static> {
+                                render_state_tree_node(ctx, palette)
+                            };
+                        let props = Self::build_tree_props(
+                            filtered,
+                            selected_id,
+                            expanded_ids,
+                            style,
+                            &render_node,
+                        );
+                        let actions: Vec<_> = self
+                            .components_tree_view
+                            .handle_event(
+                                &EventKind::Scroll {
+                                    delta: *delta,
+                                    column: *column,
+                                    row: *row,
+                                    modifiers: *modifiers,
+                                },
+                                props,
+                            )
+                            .into_iter()
+                            .collect();
+                        if !actions.is_empty() {
+                            self.apply_components_tree_actions(actions);
                         }
                     }
                     _ => {}
@@ -979,7 +1095,7 @@ impl<A: Action> DebugLayer<A> {
             .map(|f| f())
             .unwrap_or_default();
         let overlay = ComponentsOverlay::new("Components", components);
-        self.freeze.set_overlay(DebugOverlay::Components(overlay));
+        self.set_components_overlay(overlay);
     }
 
     /// Queue an action to be processed when debug mode is disabled.
@@ -1000,12 +1116,17 @@ impl<A: Action> DebugLayer<A> {
     // =========================================================================
 
     fn set_state_overlay(&mut self, table: DebugTableOverlay) {
-        let is_new_overlay = !matches!(self.freeze.overlay, Some(DebugOverlay::State(_)));
+        let is_new_overlay = !matches!(
+            self.freeze.overlay,
+            Some(DebugOverlay::State(_)) | Some(DebugOverlay::StateDetail(_))
+        );
         if is_new_overlay {
-            self.table_scroll_offset = 0;
+            self.table_scroll.reset();
             self.state_tree_view = TreeView::new();
             self.state_tree_selected = None;
             self.state_tree_expanded.clear();
+            self.state_search_query.clear();
+            self.state_search_active = false;
         }
 
         self.state_tree_nodes = self.build_state_tree_nodes(&table);
@@ -1016,6 +1137,7 @@ impl<A: Action> DebugLayer<A> {
                 .map(|node| node.id.clone())
                 .collect();
         }
+        self.refilter_state_tree();
         self.sync_state_tree_state();
         self.state_snapshot = Some(table.clone());
         self.freeze.set_overlay(DebugOverlay::State(table));
@@ -1067,24 +1189,139 @@ impl<A: Action> DebugLayer<A> {
         sections
     }
 
+    /// Build a detail view for the currently selected state tree entry.
+    fn build_state_entry_detail(
+        &self,
+        selected_id: &str,
+    ) -> Option<super::table::StateEntryDetail> {
+        // Only entry nodes (leaves) have details
+        if !selected_id.starts_with("entry:") {
+            return None;
+        }
+
+        // Find the node in the tree to get the full value
+        for section_node in &self.state_tree_nodes {
+            for child in &section_node.children {
+                if child.id == selected_id {
+                    // Node value is "key: value"
+                    let (key, value) = child.value.split_once(": ").unwrap_or((&child.value, ""));
+                    return Some(super::table::StateEntryDetail {
+                        section: section_node.value.clone(),
+                        key: key.to_string(),
+                        value: value.to_string(),
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    fn build_components_tree_nodes(
+        components: &[super::table::ComponentSnapshot],
+    ) -> Vec<TreeNode<String, String>> {
+        components
+            .iter()
+            .enumerate()
+            .map(|(i, comp)| {
+                let id = format!("comp:{i}");
+                let bound = comp
+                    .bound_id
+                    .as_deref()
+                    .map(|b| format!(" \u{2192} {b}")) // → arrow
+                    .unwrap_or_default();
+                let area_str = comp
+                    .last_area
+                    .map(|a| format!(" [{}x{} @ ({},{})]", a.width, a.height, a.x, a.y))
+                    .unwrap_or_default();
+                let label = format!("{}{}{}", comp.type_name, bound, area_str);
+
+                let children: Vec<TreeNode<String, String>> = comp
+                    .debug_entries
+                    .iter()
+                    .enumerate()
+                    .map(|(j, (k, v))| {
+                        TreeNode::new(format!("entry:{i}:{j}:{k}"), format!("{k}: {v}"))
+                    })
+                    .collect();
+
+                TreeNode::with_children(id, label, children)
+            })
+            .collect()
+    }
+
+    fn set_components_overlay(&mut self, overlay: super::table::ComponentsOverlay) {
+        let is_new = !matches!(
+            self.freeze.overlay,
+            Some(DebugOverlay::Components(_)) | Some(DebugOverlay::ComponentDetail(_))
+        );
+        if is_new {
+            self.components_tree_view = TreeView::new();
+            self.components_tree_selected = None;
+            self.components_tree_expanded.clear();
+            self.components_search_query.clear();
+            self.components_search_active = false;
+        }
+
+        self.components_tree_nodes = Self::build_components_tree_nodes(&overlay.components);
+
+        if is_new {
+            // Auto-expand all components by default
+            self.components_tree_expanded = self
+                .components_tree_nodes
+                .iter()
+                .map(|node| node.id.clone())
+                .collect();
+        }
+
+        self.refilter_components_tree();
+        self.freeze.set_overlay(DebugOverlay::Components(overlay));
+    }
+
+    fn refilter_state_tree(&mut self) {
+        self.state_tree_filtered =
+            filter_tree_nodes(&self.state_tree_nodes, &self.state_search_query);
+
+        let filtered = &self.state_tree_filtered;
+        let selected_valid = self
+            .state_tree_selected
+            .as_deref()
+            .map(|id| Self::tree_contains_id(filtered, id))
+            .unwrap_or(false);
+        if !selected_valid {
+            self.state_tree_selected = filtered.first().map(|node| node.id.clone());
+        }
+    }
+
+    fn refilter_components_tree(&mut self) {
+        self.components_tree_filtered =
+            filter_tree_nodes(&self.components_tree_nodes, &self.components_search_query);
+
+        let filtered = &self.components_tree_filtered;
+        let selected_valid = self
+            .components_tree_selected
+            .as_deref()
+            .map(|id| Self::tree_contains_id(filtered, id))
+            .unwrap_or(false);
+        if !selected_valid {
+            self.components_tree_selected = filtered.first().map(|node| node.id.clone());
+        }
+    }
+
     fn sync_state_tree_state(&mut self) {
         let nodes = &self.state_tree_nodes;
         self.state_tree_expanded
             .retain(|id| Self::tree_contains_id(nodes, id));
 
+        let filtered = &self.state_tree_filtered;
         let selected_valid = self
             .state_tree_selected
             .as_deref()
-            .map(|id| self.state_tree_contains_id(id))
+            .map(|id| Self::tree_contains_id(filtered, id))
             .unwrap_or(false);
 
         if !selected_valid {
-            self.state_tree_selected = self.state_tree_nodes.first().map(|node| node.id.clone());
+            self.state_tree_selected = filtered.first().map(|node| node.id.clone());
         }
-    }
-
-    fn state_tree_contains_id(&self, id: &str) -> bool {
-        Self::tree_contains_id(&self.state_tree_nodes, id)
     }
 
     fn tree_contains_id(nodes: &[TreeNode<String, String>], id: &str) -> bool {
@@ -1098,24 +1335,25 @@ impl<A: Action> DebugLayer<A> {
             base: BaseStyle {
                 border: None,
                 padding: Padding::default(),
-                bg: Some(DebugStyle::overlay_bg()),
-                fg: Some(DebugStyle::text_primary()),
+                bg: Some(self.style.overlay_bg),
+                fg: Some(self.style.text_primary),
             },
             selection: SelectionStyle::disabled(),
             scrollbar: self.component_scrollbar_style(),
             branches: TreeBranchStyle {
                 mode: TreeBranchMode::Branch,
-                connector_style: Style::default().fg(DebugStyle::text_secondary()),
+                connector_style: Style::default().fg(self.style.text_secondary),
                 ..Default::default()
             },
         }
     }
 
-    fn build_state_tree_props<'a>(
+    fn build_tree_props<'a>(
         nodes: &'a [TreeNode<String, String>],
         selected_id: Option<&'a String>,
         expanded_ids: &'a HashSet<String>,
         style: TreeViewStyle,
+        render_node: &'a dyn Fn(TreeNodeRender<'_, String, String>) -> Line<'static>,
     ) -> TreeViewProps<'a, String, String, StateTreeAction> {
         TreeViewProps {
             nodes,
@@ -1124,11 +1362,11 @@ impl<A: Action> DebugLayer<A> {
             is_focused: true,
             style,
             behavior: TreeViewBehavior::default(),
-            measure_node: None, // No fixed column width
+            measure_node: None,
             column_padding: 0,
             on_select: |id| state_tree_select(id),
             on_toggle: |id, expanded| state_tree_toggle(id, expanded),
-            render_node: &render_state_tree_node,
+            render_node,
         }
     }
 
@@ -1143,6 +1381,26 @@ impl<A: Action> DebugLayer<A> {
                         self.state_tree_expanded.insert(id);
                     } else {
                         self.state_tree_expanded.remove(&id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn apply_components_tree_actions(
+        &mut self,
+        actions: impl IntoIterator<Item = StateTreeAction>,
+    ) {
+        for action in actions {
+            match action {
+                StateTreeAction::Select(id) => {
+                    self.components_tree_selected = Some(id);
+                }
+                StateTreeAction::Toggle(id, expand) => {
+                    if expand {
+                        self.components_tree_expanded.insert(id);
+                    } else {
+                        self.components_tree_expanded.remove(&id);
                     }
                 }
             }
@@ -1183,13 +1441,6 @@ impl<A: Action> DebugLayer<A> {
         PathBuf::from(format!("debug-state-{timestamp}.json"))
     }
 
-    #[allow(dead_code)]
-    fn update_table_scroll(&mut self, table: &DebugTableOverlay, visible_rows: usize) {
-        self.table_page_size = visible_rows.max(1);
-        let max_offset = table.rows.len().saturating_sub(visible_rows);
-        self.table_scroll_offset = self.table_scroll_offset.min(max_offset);
-    }
-
     fn overlay_modal_area(&self, app_area: Rect) -> Rect {
         let modal_width = (app_area.width * 80 / 100)
             .clamp(40, 160)
@@ -1206,7 +1457,7 @@ impl<A: Action> DebugLayer<A> {
             base: BaseStyle {
                 border: None,
                 padding: Padding::default(), // No outer padding - title/footer at edges
-                bg: Some(DebugStyle::overlay_bg()),
+                bg: Some(self.style.overlay_bg),
                 fg: None,
             },
         }
@@ -1287,9 +1538,8 @@ impl<A: Action> DebugLayer<A> {
 
         use ratatui::text::Span;
 
-        let title_style = Style::default()
-            .fg(DebugStyle::accent())
-            .add_modifier(Modifier::BOLD);
+        let accent = self.style.accent;
+        let title_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
         let title_items = [StatusBarItem::span(Span::styled(
             format!(" {title} "),
             title_style,
@@ -1301,10 +1551,10 @@ impl<A: Action> DebugLayer<A> {
                 bg: None,
                 fg: None,
             },
-            text: Style::default().fg(DebugStyle::accent()),
+            text: Style::default().fg(accent),
             hint_key: title_style,
-            hint_label: Style::default().fg(DebugStyle::accent()),
-            separator: Style::default().fg(DebugStyle::accent()),
+            hint_label: Style::default().fg(accent),
+            separator: Style::default().fg(accent),
         };
         let title_area = Rect { height: 1, ..area };
 
@@ -1352,10 +1602,10 @@ impl<A: Action> DebugLayer<A> {
 
         // Key style: bold, dark text on muted background
         let key_style = Style::default()
-            .fg(DebugStyle::bg_deep())
-            .bg(DebugStyle::text_secondary())
+            .fg(self.style.bg_deep)
+            .bg(self.style.text_secondary)
             .add_modifier(Modifier::BOLD);
-        let label_style = Style::default().fg(DebugStyle::text_secondary());
+        let label_style = Style::default().fg(self.style.text_secondary);
 
         // Build left items from hints
         let mut left_items: Vec<StatusBarItem<'static>> = Vec::new();
@@ -1387,7 +1637,7 @@ impl<A: Action> DebugLayer<A> {
             base: BaseStyle {
                 border: None,
                 padding: Padding::default(),
-                bg: Some(DebugStyle::overlay_bg_dark()),
+                bg: Some(self.style.overlay_bg_dark),
                 fg: None,
             },
             text: label_style,
@@ -1442,138 +1692,6 @@ impl<A: Action> DebugLayer<A> {
             track_symbol: style.track_symbol,
             begin_symbol: style.begin_symbol,
             end_symbol: style.end_symbol,
-        }
-    }
-
-    fn table_page_size_value(&self) -> usize {
-        self.table_page_size.max(1)
-    }
-
-    fn table_max_offset(&self, rows_len: usize) -> usize {
-        rows_len.saturating_sub(self.table_page_size_value())
-    }
-
-    fn scroll_table_up(&mut self) {
-        self.table_scroll_offset = self.table_scroll_offset.saturating_sub(1);
-    }
-
-    fn scroll_table_down(&mut self, rows_len: usize) {
-        let max_offset = self.table_max_offset(rows_len);
-        self.table_scroll_offset = (self.table_scroll_offset + 1).min(max_offset);
-    }
-
-    fn scroll_table_to_top(&mut self) {
-        self.table_scroll_offset = 0;
-    }
-
-    fn scroll_table_to_bottom(&mut self, rows_len: usize) {
-        self.table_scroll_offset = self.table_max_offset(rows_len);
-    }
-
-    fn scroll_table_page_up(&mut self) {
-        let page_size = self.table_page_size_value();
-        self.table_scroll_offset = self.table_scroll_offset.saturating_sub(page_size);
-    }
-
-    fn scroll_table_page_down(&mut self, rows_len: usize) {
-        let page_size = self.table_page_size_value();
-        let max_offset = self.table_max_offset(rows_len);
-        self.table_scroll_offset = (self.table_scroll_offset + page_size).min(max_offset);
-    }
-
-    fn detail_page_size_value(&self) -> usize {
-        self.detail_page_size.max(1)
-    }
-
-    fn detail_max_offset(&self, rows_len: usize) -> usize {
-        rows_len.saturating_sub(self.detail_page_size_value())
-    }
-
-    fn scroll_detail_up(&mut self) {
-        self.detail_scroll_offset = self.detail_scroll_offset.saturating_sub(1);
-    }
-
-    fn scroll_detail_down(&mut self, rows_len: usize) {
-        let max_offset = self.detail_max_offset(rows_len);
-        self.detail_scroll_offset = (self.detail_scroll_offset + 1).min(max_offset);
-    }
-
-    fn scroll_detail_to_top(&mut self) {
-        self.detail_scroll_offset = 0;
-    }
-
-    fn scroll_detail_to_bottom(&mut self, rows_len: usize) {
-        self.detail_scroll_offset = self.detail_max_offset(rows_len);
-    }
-
-    fn scroll_detail_page_up(&mut self) {
-        let page_size = self.detail_page_size_value();
-        self.detail_scroll_offset = self.detail_scroll_offset.saturating_sub(page_size);
-    }
-
-    fn scroll_detail_page_down(&mut self, rows_len: usize) {
-        let page_size = self.detail_page_size_value();
-        let max_offset = self.detail_max_offset(rows_len);
-        self.detail_scroll_offset = (self.detail_scroll_offset + page_size).min(max_offset);
-    }
-
-    fn handle_table_scroll_key(&mut self, key: KeyCode, rows_len: usize) -> bool {
-        match key {
-            KeyCode::Char('j') | KeyCode::Down => {
-                self.scroll_table_down(rows_len);
-                true
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.scroll_table_up();
-                true
-            }
-            KeyCode::Char('g') => {
-                self.scroll_table_to_top();
-                true
-            }
-            KeyCode::Char('G') => {
-                self.scroll_table_to_bottom(rows_len);
-                true
-            }
-            KeyCode::PageDown => {
-                self.scroll_table_page_down(rows_len);
-                true
-            }
-            KeyCode::PageUp => {
-                self.scroll_table_page_up();
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn handle_detail_scroll_key(&mut self, key: KeyCode, rows_len: usize) -> bool {
-        match key {
-            KeyCode::Char('j') | KeyCode::Down => {
-                self.scroll_detail_down(rows_len);
-                true
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.scroll_detail_up();
-                true
-            }
-            KeyCode::Char('g') => {
-                self.scroll_detail_to_top();
-                true
-            }
-            KeyCode::Char('G') => {
-                self.scroll_detail_to_bottom(rows_len);
-                true
-            }
-            KeyCode::PageDown => {
-                self.scroll_detail_page_down(rows_len);
-                true
-            }
-            KeyCode::PageUp => {
-                self.scroll_detail_page_up();
-                true
-            }
-            _ => false,
         }
     }
 
@@ -1665,10 +1783,72 @@ impl<A: Action> DebugLayer<A> {
             }
         }
 
-        // Esc toggles debug mode when action-log search input did not consume it.
-        if key.code == KeyCode::Esc {
-            let effect = self.toggle();
-            return Some(effect.into_iter().collect());
+        // Handle search input for state / components overlays (before global shortcuts).
+        if matches!(
+            self.freeze.overlay,
+            Some(DebugOverlay::State(_)) | Some(DebugOverlay::Components(_))
+        ) {
+            let (search_active, is_state) =
+                if matches!(self.freeze.overlay, Some(DebugOverlay::State(_))) {
+                    (self.state_search_active, true)
+                } else {
+                    (self.components_search_active, false)
+                };
+
+            if search_active {
+                let is_text = !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT);
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter => {
+                        if is_state {
+                            self.state_search_active = false;
+                        } else {
+                            self.components_search_active = false;
+                        }
+                        return Some(vec![]);
+                    }
+                    KeyCode::Backspace => {
+                        let query = if is_state {
+                            &mut self.state_search_query
+                        } else {
+                            &mut self.components_search_query
+                        };
+                        if query.pop().is_none() {
+                            if is_state {
+                                self.state_search_active = false;
+                            } else {
+                                self.components_search_active = false;
+                            }
+                        }
+                        if is_state {
+                            self.refilter_state_tree();
+                        } else {
+                            self.refilter_components_tree();
+                        }
+                        return Some(vec![]);
+                    }
+                    KeyCode::Char(c) if is_text => {
+                        if is_state {
+                            self.state_search_query.push(c);
+                            self.refilter_state_tree();
+                        } else {
+                            self.components_search_query.push(c);
+                            self.refilter_components_tree();
+                        }
+                        return Some(vec![]);
+                    }
+                    _ => return Some(vec![]),
+                }
+            }
+
+            if key.code == KeyCode::Char('/') {
+                if is_state {
+                    self.state_search_active = true;
+                } else {
+                    self.components_search_active = true;
+                }
+                return Some(vec![]);
+            }
         }
 
         match key.code {
@@ -1724,17 +1904,35 @@ impl<A: Action> DebugLayer<A> {
         // Handle remaining overlay-specific navigation.
         match &self.freeze.overlay {
             Some(DebugOverlay::State(_)) => {
-                // Backspace closes this overlay
                 if key.code == KeyCode::Backspace {
                     self.handle_action(DebugAction::CloseOverlay);
                     return Some(vec![]);
                 }
+                // Enter on a leaf node opens detail view
+                if key.code == KeyCode::Enter {
+                    if let Some(ref id) = self.state_tree_selected {
+                        if id.starts_with("entry:") {
+                            self.handle_action(DebugAction::StateTreeShowDetail);
+                            return Some(vec![]);
+                        }
+                    }
+                }
                 self.sync_state_tree_state();
-                let nodes = &self.state_tree_nodes;
+                let filtered = &self.state_tree_filtered;
                 let selected_id = self.state_tree_selected.as_ref();
                 let expanded_ids = &self.state_tree_expanded;
                 let style = self.state_tree_style();
-                let props = Self::build_state_tree_props(nodes, selected_id, expanded_ids, style);
+                let palette = &self.style;
+                let render_node = |ctx: TreeNodeRender<'_, String, String>| -> Line<'static> {
+                    render_state_tree_node(ctx, palette)
+                };
+                let props = Self::build_tree_props(
+                    filtered,
+                    selected_id,
+                    expanded_ids,
+                    style,
+                    &render_node,
+                );
                 let actions: Vec<_> = self
                     .state_tree_view
                     .handle_event(&EventKind::Key(key), props)
@@ -1751,7 +1949,10 @@ impl<A: Action> DebugLayer<A> {
                     self.handle_action(DebugAction::CloseOverlay);
                     return Some(vec![]);
                 }
-                if self.handle_table_scroll_key(key.code, table.rows.len()) {
+                if self
+                    .table_scroll
+                    .handle_scroll_key(key.code, table.rows.len())
+                {
                     return Some(vec![]);
                 }
             }
@@ -1763,7 +1964,10 @@ impl<A: Action> DebugLayer<A> {
                 }
 
                 let params_lines = self.detail_params_lines(detail);
-                if self.handle_detail_scroll_key(key.code, params_lines.len()) {
+                if self
+                    .detail_scroll
+                    .handle_scroll_key(key.code, params_lines.len())
+                {
                     return Some(vec![]);
                 }
             }
@@ -1772,21 +1976,67 @@ impl<A: Action> DebugLayer<A> {
                     self.handle_action(DebugAction::CloseOverlay);
                     return Some(vec![]);
                 }
-                if let Some(DebugOverlay::Components(ref mut overlay)) = self.freeze.overlay {
-                    match key.code {
-                        KeyCode::Char('j') | KeyCode::Down => overlay.scroll_down(),
-                        KeyCode::Char('k') | KeyCode::Up => overlay.scroll_up(),
-                        KeyCode::Char('g') | KeyCode::Home => overlay.scroll_to_top(),
-                        KeyCode::Char('G') | KeyCode::End => overlay.scroll_to_bottom(),
-                        KeyCode::PageUp => overlay.page_up(10),
-                        KeyCode::PageDown => overlay.page_down(10),
-                        KeyCode::Enter | KeyCode::Char(' ') => overlay.toggle_expanded(),
-                        _ => {}
+                // Enter on a component node opens detail view
+                if key.code == KeyCode::Enter {
+                    if let Some(ref id) = self.components_tree_selected {
+                        if id.starts_with("comp:") {
+                            self.handle_action(DebugAction::ComponentShowDetail);
+                            return Some(vec![]);
+                        }
                     }
                 }
-                return Some(vec![]);
+                let filtered = &self.components_tree_filtered;
+                let selected_id = self.components_tree_selected.as_ref();
+                let expanded_ids = &self.components_tree_expanded;
+                let style = self.state_tree_style();
+                let palette = &self.style;
+                let render_node = |ctx: TreeNodeRender<'_, String, String>| -> Line<'static> {
+                    render_state_tree_node(ctx, palette)
+                };
+                let props = Self::build_tree_props(
+                    filtered,
+                    selected_id,
+                    expanded_ids,
+                    style,
+                    &render_node,
+                );
+                let actions: Vec<_> = self
+                    .components_tree_view
+                    .handle_event(&EventKind::Key(key), props)
+                    .into_iter()
+                    .collect();
+                if !actions.is_empty() {
+                    self.apply_components_tree_actions(actions);
+                    return Some(vec![]);
+                }
+            }
+            Some(DebugOverlay::StateDetail(detail)) => {
+                if matches!(key.code, KeyCode::Esc | KeyCode::Backspace) {
+                    self.handle_action(DebugAction::StateTreeBackToTree);
+                    return Some(vec![]);
+                }
+                let line_count = self.state_detail_lines(detail).len();
+                if self.detail_scroll.handle_scroll_key(key.code, line_count) {
+                    return Some(vec![]);
+                }
+            }
+            Some(DebugOverlay::ComponentDetail(detail)) => {
+                if matches!(key.code, KeyCode::Esc | KeyCode::Backspace) {
+                    self.handle_action(DebugAction::ComponentBackToList);
+                    return Some(vec![]);
+                }
+                let line_count = self.component_detail_lines(detail).len();
+                if self.detail_scroll.handle_scroll_key(key.code, line_count) {
+                    return Some(vec![]);
+                }
             }
             _ => {}
+        }
+
+        // Esc toggles debug mode unless the active overlay handled it above.
+        if key.code == KeyCode::Esc {
+            let effect = self.toggle();
+            return Some(effect.into_iter().collect());
         }
 
         // Consume all key events when debug is enabled
@@ -1814,13 +2064,12 @@ impl<A: Action> DebugLayer<A> {
             self.freeze.disable();
             self.state_snapshot = None;
             self.state_tree_nodes.clear();
+            self.state_tree_filtered.clear();
             self.state_tree_selected = None;
             self.state_tree_expanded.clear();
             self.state_tree_view = TreeView::new();
-            self.table_scroll_offset = 0;
-            self.table_page_size = 1;
-            self.detail_scroll_offset = 0;
-            self.detail_page_size = 1;
+            self.table_scroll.reset();
+            self.detail_scroll.reset();
 
             // Combine queued actions from freeze and task manager
             let mut all_queued = queued;
@@ -1844,13 +2093,12 @@ impl<A: Action> DebugLayer<A> {
             self.freeze.enable();
             self.state_snapshot = None;
             self.state_tree_nodes.clear();
+            self.state_tree_filtered.clear();
             self.state_tree_selected = None;
             self.state_tree_expanded.clear();
             self.state_tree_view = TreeView::new();
-            self.table_scroll_offset = 0;
-            self.table_page_size = 1;
-            self.detail_scroll_offset = 0;
-            self.detail_page_size = 1;
+            self.table_scroll.reset();
+            self.detail_scroll.reset();
             None
         }
     }
@@ -1940,8 +2188,7 @@ impl<A: Action> DebugLayer<A> {
             DebugAction::ActionLogShowDetail => {
                 if let Some(DebugOverlay::ActionLog(ref log)) = self.freeze.overlay {
                     if let Some(detail) = log.selected_detail() {
-                        self.detail_scroll_offset = 0;
-                        self.detail_page_size = 1;
+                        self.detail_scroll.reset();
                         self.freeze.set_overlay(DebugOverlay::ActionDetail(detail));
                     }
                 }
@@ -1954,6 +2201,51 @@ impl<A: Action> DebugLayer<A> {
                 }
                 None
             }
+            DebugAction::StateTreeShowDetail => {
+                if let Some(ref selected_id) = self.state_tree_selected.clone() {
+                    if let Some(detail) = self.build_state_entry_detail(selected_id) {
+                        self.detail_scroll.reset();
+                        self.freeze.set_overlay(DebugOverlay::StateDetail(detail));
+                    }
+                }
+                None
+            }
+            DebugAction::StateTreeBackToTree => {
+                if matches!(self.freeze.overlay, Some(DebugOverlay::StateDetail(_))) {
+                    if let Some(ref table) = self.state_snapshot {
+                        self.set_state_overlay(table.clone());
+                    }
+                }
+                None
+            }
+            DebugAction::ComponentShowDetail => {
+                if let Some(DebugOverlay::Components(ref overlay)) = self.freeze.overlay {
+                    // Extract component index from tree selection "comp:N"
+                    if let Some(idx) = self
+                        .components_tree_selected
+                        .as_ref()
+                        .and_then(|id| id.strip_prefix("comp:"))
+                        .and_then(|n| n.parse::<usize>().ok())
+                    {
+                        if let Some(comp) = overlay.components.get(idx) {
+                            let detail =
+                                super::table::ComponentDetailOverlay::from_snapshot(comp, idx);
+                            self.detail_scroll.reset();
+                            self.freeze
+                                .set_overlay(DebugOverlay::ComponentDetail(detail));
+                        }
+                    }
+                }
+                None
+            }
+            DebugAction::ComponentBackToList => {
+                if let Some(DebugOverlay::ComponentDetail(ref detail)) = self.freeze.overlay {
+                    let selected_id = format!("comp:{}", detail.index);
+                    self.show_components();
+                    self.components_tree_selected = Some(selected_id);
+                }
+                None
+            }
             DebugAction::ToggleMouseCapture => {
                 self.freeze.toggle_mouse_capture();
                 None
@@ -1961,7 +2253,7 @@ impl<A: Action> DebugLayer<A> {
             DebugAction::InspectCell { column, row } => {
                 if let Some(ref snapshot) = self.freeze.snapshot {
                     let overlay = self.build_inspect_overlay(column, row, snapshot);
-                    self.table_scroll_offset = 0;
+                    self.table_scroll.reset();
                     self.freeze.set_overlay(DebugOverlay::Inspect(overlay));
                 }
                 self.freeze.mouse_capture_enabled = false;
@@ -2033,12 +2325,25 @@ impl<A: Action> DebugLayer<A> {
                     // Highlight the selected component's render area on the
                     // dimmed background, drawn before the modal so it sits
                     // underneath.
-                    if let Some(comp) = components.components.get(components.selected) {
-                        if let Some(area) = comp.last_area {
-                            highlight_rect(frame.buffer_mut(), area, app_area);
+                    if let Some(idx) = self
+                        .components_tree_selected
+                        .as_ref()
+                        .and_then(|id| id.strip_prefix("comp:"))
+                        .and_then(|n| n.parse::<usize>().ok())
+                    {
+                        if let Some(comp) = components.components.get(idx) {
+                            if let Some(area) = comp.last_area {
+                                highlight_rect(frame.buffer_mut(), area, app_area);
+                            }
                         }
                     }
                     self.render_components_modal(frame, app_area, &components.clone());
+                }
+                DebugOverlay::StateDetail(detail) => {
+                    self.render_state_detail_modal(frame, app_area, &detail.clone());
+                }
+                DebugOverlay::ComponentDetail(detail) => {
+                    self.render_component_detail_modal(frame, app_area, &detail.clone());
                 }
             }
         }
@@ -2147,73 +2452,65 @@ impl<A: Action> DebugLayer<A> {
     ) {
         self.sync_state_tree_state();
 
-        // Inline the overlay container logic to avoid borrow issues
-        let modal_area = self.overlay_modal_area(app_area);
-        let modal_style = self.overlay_modal_style();
-        let title = &table.title;
-
-        let mut modal = Modal::new();
-        let mut render_content = |frame: &mut Frame, content_area: Rect| {
-            if content_area.height == 0 || content_area.width == 0 {
-                return;
-            }
-
-            // Render title bar (top)
-            let content_area = self.render_overlay_title(frame, content_area, title);
-            if content_area.height == 0 || content_area.width == 0 {
-                return;
-            }
-
-            // Render footer bar (bottom)
-            let content_area =
-                self.render_overlay_footer(frame, content_area, STATE_TREE_HINTS, None);
-            if content_area.height == 0 || content_area.width == 0 {
-                return;
-            }
-
-            // Apply inner padding to body content only (not title/footer)
-            let body_area = Rect {
-                x: content_area.x.saturating_add(1),
-                y: content_area.y,
-                width: content_area.width.saturating_sub(2),
-                height: content_area.height,
-            };
-            if body_area.width == 0 {
-                return;
-            }
-
-            let nodes = &self.state_tree_nodes;
-            let selected_id = self.state_tree_selected.as_ref();
-            let expanded_ids = &self.state_tree_expanded;
-            let style = self.state_tree_style();
-            let props = Self::build_state_tree_props(nodes, selected_id, expanded_ids, style);
-
-            <TreeView<String> as tui_dispatch_core::Component<StateTreeAction>>::render(
-                &mut self.state_tree_view,
-                frame,
-                body_area,
-                props,
-            );
+        let mut tree_view = std::mem::take(&mut self.state_tree_view);
+        let filtered = &self.state_tree_filtered;
+        let selected_id = self.state_tree_selected.as_ref();
+        let expanded_ids = &self.state_tree_expanded;
+        let style = self.state_tree_style();
+        let palette = &self.style;
+        let render_node = |ctx: TreeNodeRender<'_, String, String>| -> Line<'static> {
+            render_state_tree_node(ctx, palette)
+        };
+        let search_footer =
+            self.search_footer_center_items(&self.state_search_query, self.state_search_active);
+        let hints = if self.state_search_active {
+            SEARCH_INPUT_HINTS
+        } else {
+            STATE_TREE_HINTS
         };
 
-        modal.render(
+        self.render_overlay_container(
             frame,
             app_area,
-            ModalProps {
-                is_open: true,
-                is_focused: false,
-                area: modal_area,
-                style: modal_style,
-                behavior: ModalBehavior::default(),
-                on_close: || (),
-                render_content: &mut render_content,
+            &table.title,
+            Some(hints),
+            search_footer,
+            |frame, body_area| {
+                let body_area = Rect {
+                    x: body_area.x.saturating_add(1),
+                    y: body_area.y,
+                    width: body_area.width.saturating_sub(2),
+                    height: body_area.height,
+                };
+                if body_area.width == 0 {
+                    return;
+                }
+
+                let props = Self::build_tree_props(
+                    filtered,
+                    selected_id,
+                    expanded_ids,
+                    style.clone(),
+                    &render_node,
+                );
+
+                <TreeView<String> as tui_dispatch_core::Component<StateTreeAction>>::render(
+                    &mut tree_view,
+                    frame,
+                    body_area,
+                    props,
+                );
             },
         );
+
+        self.state_tree_view = tree_view;
     }
 
     fn render_table_modal(&mut self, frame: &mut Frame, app_area: Rect, table: &DebugTableOverlay) {
         let scrollbar_style = self.component_scrollbar_style();
-        let table_scroll_offset = self.table_scroll_offset;
+        let table_scroll_offset = self.table_scroll.offset;
+        let style_snapshot = self.style.clone();
+        let mut rows_page_size: usize = 0;
 
         self.render_overlay_container(
             frame,
@@ -2229,9 +2526,8 @@ impl<A: Action> DebugLayer<A> {
                             height: 1,
                             ..table_area
                         };
-                        let preview_widget = CellPreviewWidget::new(preview)
-                            .label_style(Style::default().fg(DebugStyle::text_secondary()))
-                            .value_style(Style::default().fg(DebugStyle::text_primary()));
+                        let preview_widget =
+                            CellPreviewWidget::from_style(preview, &style_snapshot);
                         frame.render_widget(preview_widget, preview_area);
 
                         table_area = Rect {
@@ -2258,8 +2554,9 @@ impl<A: Action> DebugLayer<A> {
                     height: table_area.height.saturating_sub(1),
                     ..table_area
                 };
+                rows_page_size = rows_area.height as usize;
 
-                let style = DebugTableStyle::default();
+                let style = DebugTableStyle::from_style(&style_snapshot);
                 let show_scrollbar = rows_area.height > 0
                     && table.rows.len() > rows_area.height as usize
                     && table_area.width > 1;
@@ -2297,7 +2594,7 @@ impl<A: Action> DebugLayer<A> {
                     return;
                 }
 
-                let syntax_style = DebugSyntaxStyle::with_base(style.value);
+                let syntax_style = DebugSyntaxStyle::from_style(&style_snapshot, style.value);
                 let mut rows = Vec::new();
                 let mut entry_index = 0usize;
                 for row in table.rows.iter() {
@@ -2337,34 +2634,18 @@ impl<A: Action> DebugLayer<A> {
                     }
                 }
 
-                // Note: page size update removed to avoid borrow issues
-                let scroll_style = ScrollViewStyle {
-                    base: BaseStyle {
-                        border: None,
-                        padding: Padding::default(),
-                        bg: None,
-                        fg: None,
-                    },
-                    scrollbar: scrollbar_style.clone(),
-                };
-                let scroller = LinesScroller::new(&rows);
-                let mut scroll_view = ScrollView::new();
-                <ScrollView as tui_dispatch_core::Component<()>>::render(
-                    &mut scroll_view,
+                render_scroll_view(
                     frame,
                     rows_area,
-                    ScrollViewProps {
-                        content_height: scroller.content_height(),
-                        scroll_offset: table_scroll_offset,
-                        is_focused: true,
-                        style: scroll_style,
-                        behavior: ScrollViewBehavior::default(),
-                        on_scroll: |_| (),
-                        render_content: &mut scroller.renderer(),
-                    },
+                    &rows,
+                    table_scroll_offset,
+                    None,
+                    &scrollbar_style,
                 );
             },
         );
+
+        self.table_scroll.page_size = rows_page_size.max(1);
     }
 
     fn render_action_log_modal(&self, frame: &mut Frame, app_area: Rect, log: &ActionLogOverlay) {
@@ -2389,17 +2670,21 @@ impl<A: Action> DebugLayer<A> {
             ACTION_LOG_HINTS
         };
 
+        let log_style = ActionLogStyle::from_style(&self.style);
+        let log_syntax = DebugSyntaxStyle::from_style(&self.style, log_style.params);
+        let text_secondary_fg = self.style.text_secondary;
+
         self.render_overlay_container(
             frame,
             app_area,
             &title,
             Some(action_log_hints),
-            self.action_log_footer_center_items(log),
+            self.search_footer_center_items(&log.search_query, log.search_input_active),
             |frame, log_area| {
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
 
-                let style = ActionLogStyle::default();
+                let style = &log_style;
                 let spacing = 1usize;
                 let seq_width = 5usize;
                 let name_width = 20usize;
@@ -2456,11 +2741,11 @@ impl<A: Action> DebugLayer<A> {
                     return;
                 }
 
-                let syntax_style = DebugSyntaxStyle::with_base(style.params);
+                let syntax_style = log_syntax.clone();
                 let rows: Vec<Line> = if filtered_count == 0 {
                     vec![Line::from(vec![Span::styled(
                         " (no matching actions) ",
-                        Style::default().fg(DebugStyle::text_secondary()),
+                        Style::default().fg(text_secondary_fg),
                     )])]
                 } else {
                     (0..filtered_count)
@@ -2515,74 +2800,44 @@ impl<A: Action> DebugLayer<A> {
                         .collect()
                 };
 
-                let scroll_style = ScrollViewStyle {
-                    base: BaseStyle {
-                        border: None,
-                        padding: Padding::default(),
-                        bg: None,
-                        fg: None,
-                    },
-                    scrollbar: self.component_scrollbar_style(),
-                };
-                let content_height = rows.len();
                 let visible_rows = body_area.height as usize;
                 let scroll_offset = if visible_rows == 0 || selected_visible_idx < visible_rows {
                     0
                 } else {
                     selected_visible_idx - visible_rows + 1
                 };
-                let scroller = LinesScroller::new(&rows);
-                let mut scroll_view = ScrollView::new();
-                <ScrollView as tui_dispatch_core::Component<()>>::render(
-                    &mut scroll_view,
-                    frame,
-                    body_area,
-                    ScrollViewProps {
-                        content_height,
-                        scroll_offset,
-                        is_focused: true,
-                        style: scroll_style,
-                        behavior: ScrollViewBehavior::default(),
-                        on_scroll: |_| (),
-                        render_content: &mut scroller.renderer(),
-                    },
-                );
+                let scrollbar = self.component_scrollbar_style();
+                render_scroll_view(frame, body_area, &rows, scroll_offset, None, &scrollbar);
             },
         );
     }
 
-    fn action_log_footer_center_items(
+    fn search_footer_center_items(
         &self,
-        log: &ActionLogOverlay,
+        query: &str,
+        input_active: bool,
     ) -> Option<Vec<StatusBarItem<'static>>> {
         use ratatui::text::Span;
 
+        if query.is_empty() && !input_active {
+            return None;
+        }
+
         let key_style = Style::default()
-            .fg(DebugStyle::bg_deep())
-            .bg(DebugStyle::text_secondary())
+            .fg(self.style.bg_deep)
+            .bg(self.style.text_secondary)
             .add_modifier(Modifier::BOLD);
-        let label_style = Style::default().fg(DebugStyle::text_secondary());
-        let value_style = Style::default().fg(DebugStyle::text_primary());
+        let value_style = Style::default().fg(self.style.text_primary);
 
-        let filter_value = if log.search_input_active {
-            format!("/{}_", log.search_query)
-        } else if log.search_query.is_empty() {
-            "off".to_string()
+        let filter_value = if input_active {
+            format!("/{}_", query)
         } else {
-            format!("/{}", log.search_query)
-        };
-
-        let matches = if log.search_query.is_empty() {
-            format!("{}", log.entries.len())
-        } else {
-            format!("{}", log.search_match_count())
+            format!("/{}", query)
         };
 
         Some(vec![
             StatusBarItem::span(Span::styled(" filter ", key_style)),
             StatusBarItem::span(Span::styled(format!(" {} ", filter_value), value_style)),
-            StatusBarItem::span(Span::styled(" matches ", key_style)),
-            StatusBarItem::span(Span::styled(format!(" {} ", matches), label_style)),
         ])
     }
 
@@ -2595,8 +2850,12 @@ impl<A: Action> DebugLayer<A> {
         let title = format!("Action #{} - {}", detail.sequence, detail.name);
         let param_lines = self.detail_params_lines(detail);
         let scrollbar_style = self.component_scrollbar_style();
-        let detail_scroll_offset = self.detail_scroll_offset;
-        let detail_page_size = self.detail_page_size;
+        let detail_scroll_offset = self.detail_scroll.offset;
+        let detail_page_size = self.detail_scroll.page_size;
+        let detail_label_fg = self.style.text_secondary;
+        let detail_value_fg = self.style.text_primary;
+        let detail_params_bg = self.style.overlay_bg_dark;
+        let mut body_page_size: usize = 0;
 
         self.render_overlay_container(
             frame,
@@ -2608,8 +2867,8 @@ impl<A: Action> DebugLayer<A> {
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
 
-                let label_style = Style::default().fg(DebugStyle::text_secondary());
-                let value_style = Style::default().fg(DebugStyle::text_primary());
+                let label_style = Style::default().fg(detail_label_fg);
+                let value_style = Style::default().fg(detail_value_fg);
 
                 let header_lines = vec![
                     Line::from(vec![
@@ -2672,45 +2931,46 @@ impl<A: Action> DebugLayer<A> {
                         .height
                         .saturating_sub(header_area_height + footer_area_height),
                 };
+                body_page_size = params_area.height as usize;
 
-                // Note: page size and scroll offset updates removed to avoid borrow issues
                 let max_offset = param_lines_len.saturating_sub(detail_page_size.max(1));
                 let current_scroll_offset = detail_scroll_offset.min(max_offset);
 
                 if params_area.height > 0 {
-                    let scroll_style = ScrollViewStyle {
-                        base: BaseStyle {
-                            border: None,
-                            padding: Padding::default(),
-                            bg: Some(DebugStyle::overlay_bg_dark()),
-                            fg: None,
-                        },
-                        scrollbar: scrollbar_style.clone(),
-                    };
-
-                    let scroller = LinesScroller::new(&param_lines);
-                    let mut scroll_view = ScrollView::new();
-                    <ScrollView as tui_dispatch_core::Component<()>>::render(
-                        &mut scroll_view,
+                    render_scroll_view(
                         frame,
                         params_area,
-                        ScrollViewProps {
-                            content_height: param_lines_len,
-                            scroll_offset: current_scroll_offset,
-                            is_focused: true,
-                            style: scroll_style,
-                            behavior: ScrollViewBehavior::default(),
-                            on_scroll: |_| (),
-                            render_content: &mut scroller.renderer(),
-                        },
+                        &param_lines,
+                        current_scroll_offset,
+                        Some(detail_params_bg),
+                        &scrollbar_style,
                     );
                 }
             },
         );
+
+        self.detail_scroll.page_size = body_page_size.max(1);
+    }
+
+    fn sync_components_tree_state(&mut self) {
+        let nodes = &self.components_tree_nodes;
+        self.components_tree_expanded
+            .retain(|id| Self::tree_contains_id(nodes, id));
+
+        let filtered = &self.components_tree_filtered;
+        let selected_valid = self
+            .components_tree_selected
+            .as_deref()
+            .map(|id| Self::tree_contains_id(filtered, id))
+            .unwrap_or(false);
+
+        if !selected_valid {
+            self.components_tree_selected = filtered.first().map(|node| node.id.clone());
+        }
     }
 
     fn render_components_modal(
-        &self,
+        &mut self,
         frame: &mut Frame,
         app_area: Rect,
         overlay: &super::table::ComponentsOverlay,
@@ -2722,255 +2982,62 @@ impl<A: Action> DebugLayer<A> {
             format!("{} (none)", overlay.title)
         };
 
-        let selected = overlay.selected;
-        let expanded = &overlay.expanded;
-        let scrollbar_style = self.component_scrollbar_style();
+        self.sync_components_tree_state();
+
+        let mut tree_view = std::mem::take(&mut self.components_tree_view);
+        let filtered = &self.components_tree_filtered;
+        let selected_id = self.components_tree_selected.as_ref();
+        let expanded_ids = &self.components_tree_expanded;
+        let style = self.state_tree_style();
+        let palette = &self.style;
+        let render_node = |ctx: TreeNodeRender<'_, String, String>| -> Line<'static> {
+            render_state_tree_node(ctx, palette)
+        };
+        let search_footer = self.search_footer_center_items(
+            &self.components_search_query,
+            self.components_search_active,
+        );
+        let hints = if self.components_search_active {
+            SEARCH_INPUT_HINTS
+        } else {
+            COMPONENTS_HINTS
+        };
 
         self.render_overlay_container(
             frame,
             app_area,
             &title,
-            Some(COMPONENTS_HINTS),
-            None,
+            Some(hints),
+            search_footer,
             |frame, body_area| {
-                use ratatui::text::{Line, Span};
-                use ratatui::widgets::Paragraph;
-
-                let header_style = Style::default()
-                    .fg(DebugStyle::accent())
-                    .bg(DebugStyle::overlay_bg_dark())
-                    .add_modifier(Modifier::BOLD);
-                let type_style = Style::default()
-                    .fg(DebugStyle::neon_cyan())
-                    .add_modifier(Modifier::BOLD);
-                let id_style = Style::default().fg(DebugStyle::neon_green());
-                let area_style = Style::default().fg(DebugStyle::text_secondary());
-                let key_style = Style::default()
-                    .fg(DebugStyle::neon_amber())
-                    .add_modifier(Modifier::BOLD);
-                let value_style = Style::default().fg(DebugStyle::text_primary());
-                let selected_style = Style::default()
-                    .bg(DebugStyle::bg_highlight())
-                    .add_modifier(Modifier::BOLD);
-                let alt_row_0 = Style::default().bg(DebugStyle::overlay_bg());
-                let alt_row_1 = Style::default().bg(DebugStyle::overlay_bg_alt());
-
-                // Column layout: indicator (2) + Component (type_w) + sp + ID (id_w) + sp + Area (area_w)
-                let spacing = 1usize;
-                let indicator_w = 2usize;
-                let show_scrollbar = body_area.height > 0
-                    && count > body_area.height.saturating_sub(1) as usize
-                    && body_area.width > 1;
-                let text_width = if show_scrollbar {
-                    body_area.width.saturating_sub(1)
-                } else {
-                    body_area.width
-                } as usize;
-
-                // Compute column widths from data
-                let max_type = overlay
-                    .components
-                    .iter()
-                    .map(|c| c.type_name.chars().count())
-                    .max()
-                    .unwrap_or(9)
-                    .max(9);
-                let max_id = overlay
-                    .components
-                    .iter()
-                    .map(|c| {
-                        c.bound_id
-                            .as_ref()
-                            .map(|id| id.chars().count() + 2) // "→ " prefix
-                            .unwrap_or(1)
-                    })
-                    .max()
-                    .unwrap_or(2)
-                    .max(2);
-                let fixed = indicator_w + spacing * 2;
-                let remaining = text_width.saturating_sub(fixed);
-                let type_w = max_type.min(remaining / 3).max(9);
-                let id_w = max_id.min(remaining / 3).max(2);
-                let area_w = remaining.saturating_sub(type_w + id_w).max(4);
-
-                // Render header
-                let header_area = Rect {
-                    height: 1,
-                    ..body_area
+                let body_area = Rect {
+                    x: body_area.x.saturating_add(1),
+                    y: body_area.y,
+                    width: body_area.width.saturating_sub(2),
+                    height: body_area.height,
                 };
-                let rows_area = Rect {
-                    y: body_area.y.saturating_add(1),
-                    height: body_area.height.saturating_sub(1),
-                    ..body_area
-                };
-
-                let header_line = Line::from(vec![
-                    Span::styled(pad_text("", indicator_w), header_style),
-                    Span::styled(pad_text("Component", type_w), header_style),
-                    Span::styled(pad_text(" ", spacing), header_style),
-                    Span::styled(pad_text("ID", id_w), header_style),
-                    Span::styled(pad_text(" ", spacing), header_style),
-                    Span::styled(pad_text("Area", area_w), header_style),
-                ]);
-                frame.render_widget(Paragraph::new(header_line), header_area);
-
-                if rows_area.height == 0 {
+                if body_area.width == 0 {
                     return;
                 }
 
-                if count == 0 {
-                    let empty_text = pad_text(" No components mounted", text_width);
-                    let empty_lines = vec![Line::from(Span::styled(
-                        empty_text,
-                        Style::default()
-                            .fg(DebugStyle::text_secondary())
-                            .bg(DebugStyle::overlay_bg()),
-                    ))];
-                    let scroller = LinesScroller::new(&empty_lines);
-                    let mut scroll_view = ScrollView::new();
-                    <ScrollView as tui_dispatch_core::Component<()>>::render(
-                        &mut scroll_view,
-                        frame,
-                        rows_area,
-                        ScrollViewProps {
-                            content_height: 1,
-                            scroll_offset: 0,
-                            is_focused: true,
-                            style: ScrollViewStyle {
-                                base: BaseStyle {
-                                    border: None,
-                                    padding: Padding::default(),
-                                    bg: None,
-                                    fg: None,
-                                },
-                                scrollbar: scrollbar_style.clone(),
-                            },
-                            behavior: ScrollViewBehavior::default(),
-                            on_scroll: |_| (),
-                            render_content: &mut scroller.renderer(),
-                        },
-                    );
-                    return;
-                }
+                let props = Self::build_tree_props(
+                    filtered,
+                    selected_id,
+                    expanded_ids,
+                    style.clone(),
+                    &render_node,
+                );
 
-                // Max key width for expanded debug entries
-                let max_debug_key = overlay
-                    .components
-                    .iter()
-                    .flat_map(|c| c.debug_entries.iter().map(|(k, _)| k.chars().count()))
-                    .max()
-                    .unwrap_or(0);
-                let debug_indent = 6usize;
-                let debug_key_w =
-                    (max_debug_key + 2).min(text_width.saturating_sub(debug_indent + 4));
-
-                let mut lines: Vec<Line<'static>> = Vec::new();
-                let mut selected_line_idx: usize = 0;
-
-                for (i, comp) in overlay.components.iter().enumerate() {
-                    let is_selected = i == selected;
-                    let is_expanded = expanded.contains(&i);
-                    let row_style = if is_selected {
-                        selected_style
-                    } else if i % 2 == 0 {
-                        alt_row_0
-                    } else {
-                        alt_row_1
-                    };
-
-                    if is_selected {
-                        selected_line_idx = lines.len();
-                    }
-
-                    let indicator = if comp.debug_entries.is_empty() {
-                        "  "
-                    } else if is_expanded {
-                        "▼ "
-                    } else {
-                        "▶ "
-                    };
-
-                    let type_text = pad_text(&comp.type_name, type_w);
-                    let id_text = if let Some(ref id) = comp.bound_id {
-                        pad_text(&format!("→ {id}"), id_w)
-                    } else {
-                        pad_text("-", id_w)
-                    };
-                    let area_text = if let Some(a) = comp.last_area {
-                        pad_text(
-                            &format!("{}×{} @ ({},{})", a.width, a.height, a.x, a.y),
-                            area_w,
-                        )
-                    } else {
-                        pad_text("-", area_w)
-                    };
-
-                    lines.push(Line::from(vec![
-                        Span::styled(indicator.to_string(), area_style).patch_style(row_style),
-                        Span::styled(type_text, type_style).patch_style(row_style),
-                        Span::styled(pad_text(" ", spacing), row_style),
-                        Span::styled(id_text, id_style).patch_style(row_style),
-                        Span::styled(pad_text(" ", spacing), row_style),
-                        Span::styled(area_text, area_style).patch_style(row_style),
-                    ]));
-
-                    if is_expanded {
-                        if comp.debug_entries.is_empty() {
-                            let empty_text = pad_text("      (no debug state)", text_width);
-                            lines.push(Line::from(Span::styled(empty_text, row_style)));
-                        } else {
-                            for (k, v) in &comp.debug_entries {
-                                let key_text = pad_text(k, debug_key_w);
-                                let val_width =
-                                    text_width.saturating_sub(debug_indent + debug_key_w);
-                                let val_text =
-                                    pad_text(&truncate_with_ellipsis(v, val_width), val_width);
-                                lines.push(Line::from(vec![
-                                    Span::styled(pad_text("", debug_indent), row_style),
-                                    Span::styled(key_text, key_style).patch_style(row_style),
-                                    Span::styled(val_text, value_style).patch_style(row_style),
-                                ]));
-                            }
-                        }
-                    }
-                }
-
-                let content_height = lines.len();
-                let visible_height = rows_area.height as usize;
-                let scroll_offset = if visible_height == 0 || selected_line_idx < visible_height {
-                    0
-                } else {
-                    selected_line_idx - visible_height + 1
-                };
-
-                let scroll_style = ScrollViewStyle {
-                    base: BaseStyle {
-                        border: None,
-                        padding: Padding::default(),
-                        bg: None,
-                        fg: None,
-                    },
-                    scrollbar: scrollbar_style.clone(),
-                };
-
-                let scroller = LinesScroller::new(&lines);
-                let mut scroll_view = ScrollView::new();
-                <ScrollView as tui_dispatch_core::Component<()>>::render(
-                    &mut scroll_view,
+                <TreeView<String> as tui_dispatch_core::Component<StateTreeAction>>::render(
+                    &mut tree_view,
                     frame,
-                    rows_area,
-                    ScrollViewProps {
-                        content_height,
-                        scroll_offset,
-                        is_focused: true,
-                        style: scroll_style,
-                        behavior: ScrollViewBehavior::default(),
-                        on_scroll: |_| (),
-                        render_content: &mut scroller.renderer(),
-                    },
+                    body_area,
+                    props,
                 );
             },
         );
+
+        self.components_tree_view = tree_view;
     }
 
     fn detail_params_lines(
@@ -2983,8 +3050,8 @@ impl<A: Action> DebugLayer<A> {
             return Vec::new();
         }
 
-        let value_style = Style::default().fg(DebugStyle::text_primary());
-        let syntax_style = DebugSyntaxStyle::with_base(value_style);
+        let value_style = Style::default().fg(self.style.text_primary);
+        let syntax_style = DebugSyntaxStyle::from_style(&self.style, value_style);
 
         detail
             .params
@@ -2995,6 +3062,196 @@ impl<A: Action> DebugLayer<A> {
                 Line::from(spans)
             })
             .collect()
+    }
+
+    fn state_detail_lines(
+        &self,
+        detail: &super::table::StateEntryDetail,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        use ratatui::text::{Line, Span};
+
+        let label_style = Style::default().fg(self.style.text_secondary);
+        let value_style = Style::default().fg(self.style.text_primary);
+        let syntax_style = DebugSyntaxStyle::from_style(&self.style, value_style);
+
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Section: ", label_style),
+                Span::styled(detail.section.clone(), value_style),
+            ]),
+            Line::from(vec![
+                Span::styled("Key: ", label_style),
+                Span::styled(detail.key.clone(), value_style),
+            ]),
+            Line::default(),
+            Line::from(Span::styled("Value:", label_style)),
+        ];
+
+        let pretty_value = super::format::pretty_reformat(&detail.value);
+        for line in pretty_value.lines() {
+            let mut spans = vec![Span::styled("  ", value_style)];
+            spans.extend(debug_spans(line, &syntax_style));
+            lines.push(Line::from(spans));
+        }
+
+        if detail.value.is_empty() {
+            lines.push(Line::from(Span::styled("  (empty)", label_style)));
+        }
+
+        lines
+    }
+
+    fn render_state_detail_modal(
+        &mut self,
+        frame: &mut Frame,
+        app_area: Rect,
+        detail: &super::table::StateEntryDetail,
+    ) {
+        let title = format!("{} - {}", detail.section, detail.key);
+        let content_lines = self.state_detail_lines(detail);
+        let scrollbar_style = self.component_scrollbar_style();
+        let detail_scroll_offset = self.detail_scroll.offset;
+        let detail_bg = self.style.overlay_bg_dark;
+        let mut body_page_size: usize = 0;
+
+        self.render_overlay_container(
+            frame,
+            app_area,
+            &title,
+            Some(STATE_DETAIL_HINTS),
+            None,
+            |frame, body_area| {
+                body_page_size = body_area.height as usize;
+                if body_area.height > 0 {
+                    render_scroll_view(
+                        frame,
+                        body_area,
+                        &content_lines,
+                        detail_scroll_offset,
+                        Some(detail_bg),
+                        &scrollbar_style,
+                    );
+                }
+            },
+        );
+
+        self.detail_scroll.page_size = body_page_size.max(1);
+    }
+
+    fn component_detail_lines(
+        &self,
+        detail: &super::table::ComponentDetailOverlay,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        use ratatui::text::{Line, Span};
+
+        let label_style = Style::default().fg(self.style.text_secondary);
+        let value_style = Style::default().fg(self.style.text_primary);
+        let type_style = Style::default().fg(self.style.neon_cyan);
+
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Type: ", label_style),
+                Span::styled(detail.type_name.clone(), type_style),
+            ]),
+            Line::from(vec![
+                Span::styled("Full path: ", label_style),
+                Span::styled(detail.type_name_full.clone(), value_style),
+            ]),
+            Line::from(vec![
+                Span::styled("ID: ", label_style),
+                Span::styled(
+                    detail.bound_id.as_deref().unwrap_or("(none)").to_string(),
+                    value_style,
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Area: ", label_style),
+                Span::styled(
+                    detail
+                        .last_area
+                        .map(|a| format!("{}x{} at ({},{})", a.width, a.height, a.x, a.y))
+                        .unwrap_or_else(|| "(not rendered)".into()),
+                    value_style,
+                ),
+            ]),
+        ];
+
+        if !detail.debug_entries.is_empty() {
+            lines.push(Line::default());
+            lines.push(Line::from(Span::styled("Debug State:", label_style)));
+
+            let syntax_style = DebugSyntaxStyle::from_style(&self.style, value_style);
+            let max_key = detail
+                .debug_entries
+                .iter()
+                .map(|(k, _)| k.len())
+                .max()
+                .unwrap_or(0);
+
+            for (key, value) in &detail.debug_entries {
+                let pretty = super::format::pretty_reformat(value);
+                let pretty_lines: Vec<&str> = pretty.lines().collect();
+                let padded_key = format!("  {key:>width$}: ", width = max_key);
+                if pretty_lines.len() <= 1 {
+                    let mut spans = vec![Span::styled(padded_key, label_style)];
+                    spans.extend(debug_spans(
+                        pretty_lines.first().unwrap_or(&""),
+                        &syntax_style,
+                    ));
+                    lines.push(Line::from(spans));
+                } else {
+                    // Multi-line: key on first line, value lines indented below
+                    let indent = " ".repeat(max_key + 5); // "  " + key + ": "
+                    let mut first_spans = vec![Span::styled(padded_key, label_style)];
+                    first_spans.extend(debug_spans(pretty_lines[0], &syntax_style));
+                    lines.push(Line::from(first_spans));
+                    for vline in &pretty_lines[1..] {
+                        let mut spans = vec![Span::styled(indent.clone(), value_style)];
+                        spans.extend(debug_spans(vline, &syntax_style));
+                        lines.push(Line::from(spans));
+                    }
+                }
+            }
+        }
+
+        lines
+    }
+
+    fn render_component_detail_modal(
+        &mut self,
+        frame: &mut Frame,
+        app_area: Rect,
+        detail: &super::table::ComponentDetailOverlay,
+    ) {
+        let title = format!("Component - {}", detail.type_name);
+        let content_lines = self.component_detail_lines(detail);
+        let scrollbar_style = self.component_scrollbar_style();
+        let detail_scroll_offset = self.detail_scroll.offset;
+        let detail_bg = self.style.overlay_bg_dark;
+        let mut body_page_size: usize = 0;
+
+        self.render_overlay_container(
+            frame,
+            app_area,
+            &title,
+            Some(COMPONENT_DETAIL_HINTS),
+            None,
+            |frame, body_area| {
+                body_page_size = body_area.height as usize;
+                if body_area.height > 0 {
+                    render_scroll_view(
+                        frame,
+                        body_area,
+                        &content_lines,
+                        detail_scroll_offset,
+                        Some(detail_bg),
+                        &scrollbar_style,
+                    );
+                }
+            },
+        );
+
+        self.detail_scroll.page_size = body_page_size.max(1);
     }
 
     fn build_inspect_overlay(&self, column: u16, row: u16, snapshot: &Buffer) -> DebugTableOverlay {
@@ -3010,6 +3267,81 @@ impl<A: Action> DebugLayer<A> {
 
         builder.finish(format!("Inspect ({column}, {row})"))
     }
+}
+
+/// Filter tree nodes by a case-insensitive substring query.
+///
+/// If a parent's label matches, all its children are kept.
+/// If only some children match, the parent is kept with just those children.
+fn filter_tree_nodes(
+    nodes: &[TreeNode<String, String>],
+    query: &str,
+) -> Vec<TreeNode<String, String>> {
+    if query.is_empty() {
+        return nodes.to_vec();
+    }
+    let q = query.to_lowercase();
+    nodes
+        .iter()
+        .filter_map(|node| {
+            if node.value.to_lowercase().contains(&q) {
+                return Some(node.clone());
+            }
+            let matching: Vec<_> = node
+                .children
+                .iter()
+                .filter(|c| c.value.to_lowercase().contains(&q))
+                .cloned()
+                .collect();
+            if matching.is_empty() {
+                None
+            } else {
+                Some(TreeNode::with_children(
+                    node.id.clone(),
+                    node.value.clone(),
+                    matching,
+                ))
+            }
+        })
+        .collect()
+}
+
+/// Render pre-built `Line`s inside a `ScrollView` with a scrollbar.
+///
+/// Free function to avoid `&mut self` borrow conflicts inside closures.
+fn render_scroll_view(
+    frame: &mut Frame,
+    area: Rect,
+    lines: &[Line<'_>],
+    scroll_offset: usize,
+    bg: Option<ratatui::style::Color>,
+    scrollbar_style: &ComponentScrollbarStyle,
+) {
+    let scroll_style = ScrollViewStyle {
+        base: BaseStyle {
+            border: None,
+            padding: Padding::default(),
+            bg,
+            fg: None,
+        },
+        scrollbar: scrollbar_style.clone(),
+    };
+    let scroller = LinesScroller::new(lines);
+    let mut scroll_view = ScrollView::new();
+    <ScrollView as tui_dispatch_core::Component<()>>::render(
+        &mut scroll_view,
+        frame,
+        area,
+        ScrollViewProps {
+            content_height: scroller.content_height(),
+            scroll_offset,
+            is_focused: true,
+            style: scroll_style,
+            behavior: ScrollViewBehavior::default(),
+            on_scroll: |_| (),
+            render_content: &mut scroller.renderer(),
+        },
+    );
 }
 
 #[derive(Debug, Serialize)]
@@ -3386,5 +3718,79 @@ mod tests {
             }
             _ => panic!("action log overlay should remain open"),
         }
+    }
+
+    #[test]
+    fn test_esc_from_state_detail_returns_to_tree() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        use tui_dispatch_core::EventKind;
+
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
+        layer.toggle();
+
+        let table = DebugTableBuilder::new()
+            .section("State")
+            .entry("key", "value")
+            .finish("Application State");
+        layer.set_state_overlay(table);
+        layer.state_tree_selected = Some("entry:0:0:key".to_string());
+        layer.handle_action(DebugAction::StateTreeShowDetail);
+
+        assert!(matches!(
+            layer.freeze.overlay,
+            Some(DebugOverlay::StateDetail(_))
+        ));
+
+        let outcome = layer.handle_event(&EventKind::Key(KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }));
+
+        assert!(outcome.consumed);
+        assert!(layer.is_enabled());
+        assert!(matches!(layer.freeze.overlay, Some(DebugOverlay::State(_))));
+    }
+
+    #[test]
+    fn test_esc_from_component_detail_returns_to_list() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        use tui_dispatch_core::EventKind;
+
+        let mut layer: DebugLayer<TestAction> = DebugLayer::new(KeyCode::F(12));
+        layer.toggle();
+        layer.component_snapshotter = Some(Box::new(|| {
+            vec![super::super::table::ComponentSnapshot {
+                raw_id: 1,
+                type_name: "Widget".to_string(),
+                type_name_full: "crate::ui::Widget".to_string(),
+                bound_id: Some("root".to_string()),
+                last_area: None,
+                debug_entries: vec![("state".to_string(), "Ready".to_string())],
+            }]
+        }));
+        layer.show_components();
+        layer.components_tree_selected = Some("comp:0".to_string());
+        layer.handle_action(DebugAction::ComponentShowDetail);
+
+        assert!(matches!(
+            layer.freeze.overlay,
+            Some(DebugOverlay::ComponentDetail(_))
+        ));
+
+        let outcome = layer.handle_event(&EventKind::Key(KeyEvent {
+            code: KeyCode::Esc,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }));
+
+        assert!(outcome.consumed);
+        assert!(layer.is_enabled());
+        assert!(matches!(
+            layer.freeze.overlay,
+            Some(DebugOverlay::Components(_))
+        ));
     }
 }
