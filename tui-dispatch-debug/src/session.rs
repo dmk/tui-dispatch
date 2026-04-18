@@ -17,7 +17,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 use tui_dispatch_core::bus::EventOutcome;
-use tui_dispatch_core::runtime::{EffectContext, EffectRuntime, EffectStoreLike, RenderContext};
+use tui_dispatch_core::runtime::{
+    EffectContext, EffectDispatchStore, EffectRuntime, RenderContext,
+};
 use tui_dispatch_core::store::{ComposedMiddleware, Middleware};
 use tui_dispatch_core::testing::RenderHarness;
 use tui_dispatch_core::{
@@ -407,7 +409,7 @@ impl DebugSession {
         B: Backend,
         S: Clone + DebugState + Serialize + 'static,
         A: Action + ActionParams,
-        St: EffectStoreLike<S, A, E>,
+        St: EffectDispatchStore<S, A, E>,
         FInit: FnOnce(&mut EffectRuntime<S, A, E, St>),
         FRender: FnMut(&mut ratatui::Frame, Rect, &S, RenderContext),
         FEvent: FnMut(&EventKind, &S) -> R,
@@ -572,7 +574,7 @@ impl DebugSession {
         B: Backend,
         S: Clone + DebugState + Serialize + EventRoutingState<Id, Ctx> + 'static,
         A: Action + ActionParams,
-        St: EffectStoreLike<S, A, E>,
+        St: EffectDispatchStore<S, A, E>,
         Id: ComponentId + 'static,
         Ctx: BindingContext + 'static,
         FInit: FnOnce(&mut EffectRuntime<S, A, E, St>),

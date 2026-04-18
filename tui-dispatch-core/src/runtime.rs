@@ -315,7 +315,7 @@ impl<S, A: Action, M: Middleware<S, A>> DispatchStore<S, A> for StoreWithMiddlew
 }
 
 /// Effect store interface used by `EffectRuntime`.
-pub trait EffectStoreLike<S, A: Action, E> {
+pub trait EffectDispatchStore<S, A: Action, E> {
     /// Dispatch an action and return state changes plus effects.
     fn dispatch(&mut self, action: A) -> ReducerResult<E>;
     /// Dispatch an action and return state changes plus effects.
@@ -328,7 +328,7 @@ pub trait EffectStoreLike<S, A: Action, E> {
     fn state(&self) -> &S;
 }
 
-impl<S, A: Action, E> EffectStoreLike<S, A, E> for EffectStore<S, A, E> {
+impl<S, A: Action, E> EffectDispatchStore<S, A, E> for EffectStore<S, A, E> {
     fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         EffectStore::dispatch(self, action)
     }
@@ -338,7 +338,7 @@ impl<S, A: Action, E> EffectStoreLike<S, A, E> for EffectStore<S, A, E> {
     }
 }
 
-impl<S, A: Action, E, M: Middleware<S, A>> EffectStoreLike<S, A, E>
+impl<S, A: Action, E, M: Middleware<S, A>> EffectDispatchStore<S, A, E>
     for EffectStoreWithMiddleware<S, A, E, M>
 {
     fn dispatch(&mut self, action: A) -> ReducerResult<E> {
@@ -565,7 +565,7 @@ impl<'a, A: Action> EffectContext<'a, A> {
 }
 
 /// Runtime helper for effect-based stores.
-pub struct EffectRuntime<S, A: Action, E, St: EffectStoreLike<S, A, E> = EffectStore<S, A, E>> {
+pub struct EffectRuntime<S, A: Action, E, St: EffectDispatchStore<S, A, E> = EffectStore<S, A, E>> {
     store: St,
     shell: RuntimeShell<S, A>,
     #[cfg(feature = "tasks")]
@@ -584,7 +584,7 @@ impl<S: 'static, A: Action, E> EffectRuntime<S, A, E, EffectStore<S, A, E>> {
     }
 }
 
-impl<S: 'static, A: Action, E, St: EffectStoreLike<S, A, E>> EffectRuntime<S, A, E, St> {
+impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S, A, E, St> {
     /// Create a runtime from an existing effect store.
     pub fn from_store(store: St) -> Self {
         let shell = RuntimeShell::new();
@@ -948,7 +948,7 @@ mod tests {
         }
     }
 
-    impl EffectStoreLike<TestState, TestAction, ()> for MockEffectStore {
+    impl EffectDispatchStore<TestState, TestAction, ()> for MockEffectStore {
         fn dispatch(&mut self, _action: TestAction) -> ReducerResult<()> {
             ReducerResult::changed()
         }

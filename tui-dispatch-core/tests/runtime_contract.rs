@@ -389,8 +389,7 @@ async fn dispatch_error_handler_continue_keeps_loop_alive_until_quit() {
     let observed: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
     let observed_clone = observed.clone();
 
-    let mut runtime = DispatchRuntime::from_store(store)
-        .with_event_poller(fast_poller());
+    let mut runtime = DispatchRuntime::from_store(store).with_event_poller(fast_poller());
 
     let tx = runtime.action_tx();
     let tx_for_handler = tx.clone();
