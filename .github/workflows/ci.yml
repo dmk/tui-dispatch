@@ -27,6 +27,34 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --all --all-features
 
+  # Mirrors the `test-feature-matrix` target in the Makefile — keep the combo
+  # list below in sync with the one there when adding/removing features.
+  test-feature-matrix:
+    name: Test (core / features=${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - ""
+          - "tasks"
+          - "subscriptions"
+          - "debug"
+          - "tasks,subscriptions"
+          - "debug,tasks"
+          - "debug,subscriptions"
+          - "debug,tasks,subscriptions"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tui-dispatch-core contract tests
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo test -p tui-dispatch-core --tests --no-default-features
+          else
+            cargo test -p tui-dispatch-core --tests --no-default-features --features "${{ matrix.features }}"
+          fi
+
   fmt:
     name: Format
     runs-on: ubuntu-latest

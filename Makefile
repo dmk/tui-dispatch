@@ -1,7 +1,7 @@
 # tui-dispatch Makefile
 # Convenience targets for build, test, lint, and development
 
-.PHONY: all build check test fmt clippy clean help verify release lint fmt-check doc docs-serve tag
+.PHONY: all build check test test-feature-matrix fmt clippy clean help verify release lint fmt-check doc docs-serve tag
 
 # Default target
 all: build
@@ -23,6 +23,23 @@ check:
 # Run all tests
 test:
 	cargo test --all --all-features
+
+# Run tui-dispatch-core contract tests across every supported feature combo
+# (PR1 / RUNTIME_PR_PLAN.md — keep the runtime contract validated under the
+# feature axes consumers actually build with, not only `--all-features`).
+# NOTE: the same combo list is mirrored in .github/workflows/ci.yml under the
+# `test-feature-matrix` job — keep the two in sync when adding/removing combos.
+test-feature-matrix:
+	@set -e; for feats in "" "tasks" "subscriptions" "debug" \
+		"tasks,subscriptions" "debug,tasks" "debug,subscriptions" \
+		"debug,tasks,subscriptions"; do \
+		echo "==> tui-dispatch-core contract tests (features='$$feats')"; \
+		if [ -z "$$feats" ]; then \
+			cargo test -p tui-dispatch-core --tests --no-default-features; \
+		else \
+			cargo test -p tui-dispatch-core --tests --no-default-features --features "$$feats"; \
+		fi; \
+	done
 
 # Format code
 fmt:
@@ -88,6 +105,7 @@ help:
 	@echo "  make release     - Build release"
 	@echo "  make check       - Check compilation"
 	@echo "  make test        - Run tests"
+	@echo "  make test-feature-matrix - Run core contract tests across feature combos"
 	@echo "  make fmt         - Format code"
 	@echo "  make fmt-check   - Check code formatting"
 	@echo "  make clippy      - Run linter"
