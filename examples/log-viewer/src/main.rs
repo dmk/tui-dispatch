@@ -1,10 +1,8 @@
 use std::io;
-use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use clap::Parser;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -17,7 +15,8 @@ use log_viewer_example::{
     default_keybindings, global_commands, reducer, Action, AppBindingContext, AppState, RouteId,
 };
 use ratatui::{backend::CrosstermBackend, text::Line, Terminal};
-use tui_dispatch::prelude::{process_raw_event, EventBus, RawEvent, Store};
+use tokio::sync::mpsc;
+use tui_dispatch::prelude::{DispatchRuntime, EventBus};
 use tui_dispatch_components::{
     ComponentHost, SelectList, SelectListBehavior, SelectListProps, SelectListStyle, StatusBar,
 };
@@ -35,7 +34,8 @@ struct Args {
     debug: DebugCliArgs,
 }
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let args = Args::parse();
 
     let positional: Vec<String> = args.file.into_iter().collect();
@@ -58,7 +58,7 @@ fn main() -> io::Result<()> {
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
-    let result = run_app(&mut terminal, mode, &args.debug);
+    let result = run_app(&mut terminal, mode, &args.debug).await;
 
     disable_raw_mode()?;
     execute!(
@@ -71,7 +71,7 @@ fn main() -> io::Result<()> {
     result
 }
 
-fn run_app<B: ratatui::backend::Backend>(
+async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     mode: InputMode,
     debug_args: &DebugCliArgs,
@@ -92,80 +92,49 @@ fn run_app<B: ratatui::backend::Backend>(
     bus.register_global(global_commands);
 
     let bindings = default_keybindings();
-    let (tx, rx) = mpsc::channel::<Vec<String>>();
-    let _reader = spawn_ingest(mode.clone(), tx)?;
-    let mut store = Store::new(AppState::new(mode.source_label()), reducer);
-    let mut status_bar = StatusBar::new();
-    let mut debug = DebugLayer::<Action>::simple()
+
+    let debug_layer = DebugLayer::<Action>::simple()
         .with_component_host(&host)
         .with_action_log_filter(debug_args.action_filter())
         .active(debug_args.enabled);
 
-    loop {
-        drain_ingest(&mut store, &rx);
+    let mut runtime = DispatchRuntime::new(AppState::new(mode.source_label()), reducer)
+        .with_debug(debug_layer)
+        .with_event_bus(bus, bindings);
 
-        terminal.draw(|frame| {
-            debug.render_state(frame, store.state(), |f, app_area| {
-                render_app(f, app_area, store.state(), &host, mounted, &mut status_bar);
-            });
-        })?;
-        host.sync_areas(&mut bus);
-
-        if !event::poll(Duration::from_millis(75))? {
-            continue;
-        }
-
-        let Some(raw) = read_terminal_event()? else {
-            continue;
-        };
-        let event_kind = process_raw_event(raw);
-
-        // Debug layer intercepts first when active
-        let dbg = debug.handle_event_with_state(&event_kind, store.state());
-        if dbg.consumed {
-            for action in dbg.queued_actions {
-                store.dispatch(action);
-            }
-            continue;
-        }
-
-        let outcome = bus.handle_event(&event_kind, store.state(), &bindings);
-
-        let mut keep_running = true;
-        for action in outcome.actions {
-            debug.log_action(&action);
-            keep_running = store.dispatch(action);
-            if !keep_running {
+    // Forward ingested log batches into the action queue.
+    let (ingest_tx, mut ingest_rx) = mpsc::unbounded_channel::<Vec<String>>();
+    let _reader = spawn_ingest(mode.clone(), ingest_tx)?;
+    let action_tx = runtime.action_tx();
+    tokio::spawn(async move {
+        while let Some(batch) = ingest_rx.recv().await {
+            if action_tx.send(Action::LogsAppended(batch)).is_err() {
                 break;
             }
         }
+    });
 
-        if !keep_running {
-            break;
-        }
-    }
+    let mut status_bar = StatusBar::new();
+    let host_for_render = host.clone();
+    let host_for_hook = host.clone();
 
-    Ok(())
-}
-
-fn drain_ingest(store: &mut Store<AppState, Action>, rx: &Receiver<Vec<String>>) {
-    let mut pending = Vec::new();
-    while let Ok(mut batch) = rx.try_recv() {
-        pending.append(&mut batch);
-    }
-
-    if !pending.is_empty() {
-        store.dispatch(Action::LogsAppended(pending));
-    }
-}
-
-fn read_terminal_event() -> io::Result<Option<RawEvent>> {
-    Ok(match event::read()? {
-        Event::Key(key) => Some(RawEvent::Key(key)),
-        Event::Mouse(mouse) => Some(RawEvent::Mouse(mouse)),
-        Event::Resize(width, height) => Some(RawEvent::Resize(width, height)),
-        _ => None,
-    })
+    runtime
+        .run_with_hooks(
+            terminal,
+            |frame, area, state, _render_ctx, _event_ctx| {
+                render_app(
+                    frame,
+                    area,
+                    state,
+                    &host_for_render,
+                    mounted,
+                    &mut status_bar,
+                );
+            },
+            |action| matches!(action, Action::Quit),
+            |bus, _state| host_for_hook.sync_areas(bus),
+        )
+        .await
 }
 
 fn level_filter_props(state: &AppState) -> FilterPaneProps<'_, Action> {

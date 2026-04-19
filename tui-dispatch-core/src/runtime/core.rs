@@ -1,4 +1,4 @@
-//! Runtime helpers for tui-dispatch apps.
+//! Core runtime helpers for tui-dispatch apps.
 //!
 //! These helpers wrap the common event/action/render loop while keeping
 //! the same behavior as the manual wiring shown in the examples.
@@ -12,14 +12,11 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::bus::{
-    process_raw_event, spawn_event_poller, EventBus, EventOutcome, EventRoutingState, RawEvent,
-};
+use crate::bus::{process_raw_event, spawn_event_poller, EventOutcome, RawEvent};
 use crate::effect::{EffectStore, EffectStoreWithMiddleware, ReducerResult};
-use crate::event::{ComponentId, EventContext, EventKind};
-use crate::keybindings::Keybindings;
+use crate::event::EventKind;
 use crate::store::{DispatchError, Middleware, Reducer, Store, StoreWithMiddleware};
-use crate::{Action, BindingContext};
+use crate::Action;
 
 #[cfg(feature = "subscriptions")]
 use crate::subscriptions::Subscriptions;
@@ -122,34 +119,40 @@ pub trait DebugHooks<A>: Sized {
 }
 
 // ---------------------------------------------------------------------------
-// Shared draw macro — renders a frame with optional debug overlay.
+// Shared draw helper — renders a frame with optional debug overlay.
 //
-// Reaches through `$self.shell` for render context / debug / should_render
-// and `$self.store.state()` for state. `$render_call` must be callable as
-// `$render_call(frame, area, state, ctx)`. For bus variants, callers wrap
-// the user's render closure to include EventContext.
+// Takes shell and state separately so callers can pass borrows from disjoint
+// fields without conflict. For bus variants, the caller wraps the user's
+// render closure to include EventContext before passing it in.
 // ---------------------------------------------------------------------------
-macro_rules! draw_frame {
-    ($self:expr, $terminal:expr, $render_call:expr) => {{
-        let render_ctx = $self.shell.render_ctx();
-        let state = $self.store.state();
-        $terminal.draw(|frame| {
-            #[cfg(feature = "debug")]
-            if let Some(debug) = $self.shell.debug.as_mut() {
-                let mut rf = |f: &mut Frame, area: Rect, s: &S, ctx: RenderContext| {
-                    ($render_call)(f, area, s, ctx)
-                };
-                debug.render(frame, state, render_ctx, &mut rf);
-            } else {
-                ($render_call)(frame, frame.area(), state, render_ctx);
-            }
-            #[cfg(not(feature = "debug"))]
-            {
-                ($render_call)(frame, frame.area(), state, render_ctx);
-            }
-        })?;
-        $self.shell.should_render = false;
-    }};
+pub(crate) fn draw_frame<S: 'static, A, B, F>(
+    shell: &mut RuntimeShell<S, A>,
+    state: &S,
+    terminal: &mut Terminal<B>,
+    mut render: F,
+) -> io::Result<()>
+where
+    A: Action,
+    B: Backend,
+    F: FnMut(&mut Frame, Rect, &S, RenderContext),
+{
+    let render_ctx = shell.render_ctx();
+    terminal.draw(|frame| {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = shell.debug.as_mut() {
+            let mut rf =
+                |f: &mut Frame, area: Rect, s: &S, ctx: RenderContext| render(f, area, s, ctx);
+            debug.render(frame, state, render_ctx, &mut rf);
+        } else {
+            render(frame, frame.area(), state, render_ctx);
+        }
+        #[cfg(not(feature = "debug"))]
+        {
+            render(frame, frame.area(), state, render_ctx);
+        }
+    })?;
+    shell.should_render = false;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +176,7 @@ pub(crate) struct RuntimeShell<S, A: Action> {
 }
 
 impl<S: 'static, A: Action> RuntimeShell<S, A> {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Self {
             action_tx,
@@ -187,15 +190,15 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         }
     }
 
-    fn enqueue(&self, action: A) {
+    pub(crate) fn enqueue(&self, action: A) {
         let _ = self.action_tx.send(action);
     }
 
-    fn action_tx_clone(&self) -> mpsc::UnboundedSender<A> {
+    pub(crate) fn action_tx_clone(&self) -> mpsc::UnboundedSender<A> {
         self.action_tx.clone()
     }
 
-    fn render_ctx(&self) -> RenderContext {
+    pub(crate) fn render_ctx(&self) -> RenderContext {
         RenderContext {
             debug_enabled: {
                 #[cfg(feature = "debug")]
@@ -212,7 +215,7 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
 
     /// Returns `Some(needs_render)` if the debug layer intercepted the event.
     #[allow(unused_variables)]
-    fn debug_intercept_event(&mut self, event: &EventKind, state: &S) -> Option<bool> {
+    pub(crate) fn debug_intercept_event(&mut self, event: &EventKind, state: &S) -> Option<bool> {
         #[cfg(feature = "debug")]
         if let Some(debug) = self.debug.as_mut() {
             return debug.handle_event(event, state, &self.action_tx);
@@ -221,14 +224,14 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
     }
 
     #[allow(unused_variables)]
-    fn debug_log_action(&mut self, action: &A) {
+    pub(crate) fn debug_log_action(&mut self, action: &A) {
         #[cfg(feature = "debug")]
         if let Some(debug) = self.debug.as_mut() {
             debug.log_action(action);
         }
     }
 
-    fn enqueue_outcome(&mut self, outcome: EventOutcome<A>) {
+    pub(crate) fn enqueue_outcome(&mut self, outcome: EventOutcome<A>) {
         if outcome.needs_render {
             self.should_render = true;
         }
@@ -237,7 +240,7 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         }
     }
 
-    fn spawn_poller(&self) -> (mpsc::UnboundedReceiver<RawEvent>, CancellationToken) {
+    pub(crate) fn spawn_poller(&self) -> (mpsc::UnboundedReceiver<RawEvent>, CancellationToken) {
         let (event_tx, event_rx) = mpsc::unbounded_channel::<RawEvent>();
         let cancel_token = CancellationToken::new();
         let _handle = spawn_event_poller(
@@ -251,7 +254,7 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
 
     /// Apply the configured dispatch error policy. Returns `true` when the
     /// loop should stop.
-    fn apply_error_policy(&mut self, error: DispatchError) -> bool {
+    pub(crate) fn apply_error_policy(&mut self, error: DispatchError) -> bool {
         apply_dispatch_error_policy(
             self.dispatch_error_handler.as_mut(),
             error,
@@ -262,7 +265,7 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
     /// Process a single raw event: run the debug intercept first, then the
     /// caller-supplied event→outcome mapping. Updates `should_render` and
     /// forwards any emitted actions through the action channel.
-    fn process_event<FMap, R>(&mut self, raw_event: RawEvent, state: &S, map: FMap)
+    pub(crate) fn process_event<FMap, R>(&mut self, raw_event: RawEvent, state: &S, map: FMap)
     where
         FMap: FnOnce(&EventKind, &S) -> R,
         R: Into<EventOutcome<A>>,
@@ -356,8 +359,8 @@ impl<S, A: Action, E, M: Middleware<S, A>> EffectDispatchStore<S, A, E>
 
 /// Runtime helper for simple stores (no effects).
 pub struct DispatchRuntime<S, A: Action, St: DispatchStore<S, A> = Store<S, A>> {
-    store: St,
-    shell: RuntimeShell<S, A>,
+    pub(crate) store: St,
+    pub(crate) shell: RuntimeShell<S, A>,
 }
 
 impl<S: 'static, A: Action> DispatchRuntime<S, A, Store<S, A>> {
@@ -420,7 +423,7 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
         self.store.state()
     }
 
-    fn dispatch_action(&mut self, action: A) -> bool {
+    pub(crate) fn dispatch_action(&mut self, action: A) -> bool {
         match self.store.try_dispatch(action) {
             Ok(changed) => {
                 self.shell.should_render = changed;
@@ -449,67 +452,12 @@ impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
 
         loop {
             if self.shell.should_render {
-                draw_frame!(self, terminal, render);
+                draw_frame(&mut self.shell, self.store.state(), terminal, &mut render)?;
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
                     self.shell.process_event(raw_event, self.store.state(), &mut map_event);
-                }
-
-                Some(action) = self.shell.action_rx.recv() => {
-                    if should_quit(&action) {
-                        break;
-                    }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_action(action) {
-                        break;
-                    }
-                }
-
-                else => { break; }
-            }
-        }
-
-        cancel_token.cancel();
-        Ok(())
-    }
-
-    /// Run the event/action loop using an EventBus for routing.
-    pub async fn run_with_bus<B, FRender, FQuit, Id, Ctx>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-        bus: &mut EventBus<S, A, Id, Ctx>,
-        keybindings: &Keybindings<Ctx>,
-        mut render: FRender,
-        mut should_quit: FQuit,
-    ) -> io::Result<()>
-    where
-        B: Backend,
-        Id: ComponentId + 'static,
-        Ctx: BindingContext + 'static,
-        S: EventRoutingState<Id, Ctx>,
-        FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
-        FQuit: FnMut(&A) -> bool,
-    {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
-
-        loop {
-            if self.shell.should_render {
-                draw_frame!(self, terminal, |f, area, s, ctx| render(
-                    f,
-                    area,
-                    s,
-                    ctx,
-                    bus.context_mut()
-                ));
-            }
-
-            tokio::select! {
-                Some(raw_event) = event_rx.recv() => {
-                    self.shell.process_event(raw_event, self.store.state(), |event, state| {
-                        bus.handle_event(event, state, keybindings)
-                    });
                 }
 
                 Some(action) = self.shell.action_rx.recv() => {
@@ -566,14 +514,14 @@ impl<'a, A: Action> EffectContext<'a, A> {
 
 /// Runtime helper for effect-based stores.
 pub struct EffectRuntime<S, A: Action, E, St: EffectDispatchStore<S, A, E> = EffectStore<S, A, E>> {
-    store: St,
-    shell: RuntimeShell<S, A>,
+    pub(crate) store: St,
+    pub(crate) shell: RuntimeShell<S, A>,
     #[cfg(feature = "tasks")]
-    tasks: TaskManager<A>,
+    pub(crate) tasks: TaskManager<A>,
     #[cfg(feature = "subscriptions")]
-    subscriptions: Subscriptions<A>,
+    pub(crate) subscriptions: Subscriptions<A>,
     /// Broadcasts action names when dispatched (for replay await functionality).
-    action_broadcast: tokio::sync::broadcast::Sender<String>,
+    pub(crate) action_broadcast: tokio::sync::broadcast::Sender<String>,
     _effect: std::marker::PhantomData<E>,
 }
 
@@ -680,7 +628,7 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
     }
 
     #[cfg(all(feature = "tasks", feature = "subscriptions"))]
-    fn effect_context(&mut self) -> EffectContext<'_, A> {
+    pub(crate) fn effect_context(&mut self) -> EffectContext<'_, A> {
         EffectContext {
             action_tx: &self.shell.action_tx,
             tasks: &mut self.tasks,
@@ -689,7 +637,7 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
     }
 
     #[cfg(all(feature = "tasks", not(feature = "subscriptions")))]
-    fn effect_context(&mut self) -> EffectContext<'_, A> {
+    pub(crate) fn effect_context(&mut self) -> EffectContext<'_, A> {
         EffectContext {
             action_tx: &self.shell.action_tx,
             tasks: &mut self.tasks,
@@ -697,7 +645,7 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
     }
 
     #[cfg(all(not(feature = "tasks"), feature = "subscriptions"))]
-    fn effect_context(&mut self) -> EffectContext<'_, A> {
+    pub(crate) fn effect_context(&mut self) -> EffectContext<'_, A> {
         EffectContext {
             action_tx: &self.shell.action_tx,
             subscriptions: &mut self.subscriptions,
@@ -705,7 +653,7 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
     }
 
     #[cfg(all(not(feature = "tasks"), not(feature = "subscriptions")))]
-    fn effect_context(&mut self) -> EffectContext<'_, A> {
+    pub(crate) fn effect_context(&mut self) -> EffectContext<'_, A> {
         EffectContext {
             action_tx: &self.shell.action_tx,
         }
@@ -717,7 +665,7 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
         }
     }
 
-    fn cleanup(&mut self, cancel_token: CancellationToken) {
+    pub(crate) fn cleanup(&mut self, cancel_token: CancellationToken) {
         cancel_token.cancel();
         #[cfg(feature = "subscriptions")]
         self.subscriptions.cancel_all();
@@ -725,7 +673,7 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
         self.tasks.cancel_all();
     }
 
-    fn dispatch_and_handle_effects(
+    pub(crate) fn dispatch_and_handle_effects(
         &mut self,
         action: A,
         handle_effect: &mut impl FnMut(E, &mut EffectContext<A>),
@@ -767,69 +715,12 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
 
         loop {
             if self.shell.should_render {
-                draw_frame!(self, terminal, render);
+                draw_frame(&mut self.shell, self.store.state(), terminal, &mut render)?;
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
                     self.shell.process_event(raw_event, self.store.state(), &mut map_event);
-                }
-
-                Some(action) = self.shell.action_rx.recv() => {
-                    if should_quit(&action) {
-                        break;
-                    }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_and_handle_effects(action, &mut handle_effect) {
-                        break;
-                    }
-                }
-
-                else => { break; }
-            }
-        }
-
-        self.cleanup(cancel_token);
-        Ok(())
-    }
-
-    /// Run the event/action loop using an EventBus for routing.
-    pub async fn run_with_bus<B, FRender, FQuit, FEffect, Id, Ctx>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-        bus: &mut EventBus<S, A, Id, Ctx>,
-        keybindings: &Keybindings<Ctx>,
-        mut render: FRender,
-        mut should_quit: FQuit,
-        mut handle_effect: FEffect,
-    ) -> io::Result<()>
-    where
-        B: Backend,
-        Id: ComponentId + 'static,
-        Ctx: BindingContext + 'static,
-        S: EventRoutingState<Id, Ctx>,
-        FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
-        FQuit: FnMut(&A) -> bool,
-        FEffect: FnMut(E, &mut EffectContext<A>),
-    {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
-
-        loop {
-            if self.shell.should_render {
-                draw_frame!(self, terminal, |f, area, s, ctx| render(
-                    f,
-                    area,
-                    s,
-                    ctx,
-                    bus.context_mut()
-                ));
-            }
-
-            tokio::select! {
-                Some(raw_event) = event_rx.recv() => {
-                    self.shell.process_event(raw_event, self.store.state(), |event, state| {
-                        bus.handle_event(event, state, keybindings)
-                    });
                 }
 
                 Some(action) = self.shell.action_rx.recv() => {

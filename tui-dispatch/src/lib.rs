@@ -177,8 +177,9 @@ pub mod prelude {
 
     // Runtime helpers
     pub use tui_dispatch_core::{
-        DispatchErrorPolicy, DispatchRuntime, DispatchStore, EffectContext, EffectDispatchStore,
-        EffectRuntime, EventOutcome, PollerConfig, RenderContext,
+        BusDispatchRuntime, BusEffectRuntime, DispatchErrorPolicy, DispatchRuntime, DispatchStore,
+        EffectContext, EffectDispatchStore, EffectRuntime, EventOutcome, PollerConfig,
+        RenderContext,
     };
 
     // Tasks (requires "tasks" feature)

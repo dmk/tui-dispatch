@@ -1,9 +1,10 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, IsTerminal, Seek};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
+
+use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InputMode {
@@ -40,7 +41,7 @@ pub fn usage(program: &str) -> String {
 
 pub fn spawn_ingest(
     mode: InputMode,
-    tx: Sender<Vec<String>>,
+    tx: UnboundedSender<Vec<String>>,
 ) -> io::Result<thread::JoinHandle<()>> {
     if let InputMode::File(path) = &mode {
         validate_file(path)?;
@@ -68,7 +69,7 @@ fn validate_file(path: impl AsRef<Path>) -> io::Result<()> {
     }
 }
 
-fn ingest_stdin(tx: Sender<Vec<String>>) -> io::Result<()> {
+fn ingest_stdin(tx: UnboundedSender<Vec<String>>) -> io::Result<()> {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     let mut line = String::new();
@@ -88,7 +89,7 @@ fn ingest_stdin(tx: Sender<Vec<String>>) -> io::Result<()> {
     Ok(())
 }
 
-fn ingest_file(path: PathBuf, tx: Sender<Vec<String>>) -> io::Result<()> {
+fn ingest_file(path: PathBuf, tx: UnboundedSender<Vec<String>>) -> io::Result<()> {
     let mut reader = BufReader::new(File::open(&path)?);
     let mut batch = Vec::new();
 

@@ -564,8 +564,8 @@ impl DebugSession {
         auto_action: Option<A>,
         quit_action: Option<A>,
         init_runtime: FInit,
-        bus: &mut EventBus<S, A, Id, Ctx>,
-        keybindings: &Keybindings<Ctx>,
+        bus: EventBus<S, A, Id, Ctx>,
+        keybindings: Keybindings<Ctx>,
         mut render: FRender,
         mut should_quit: FQuit,
         mut handle_effect: FEffect,
@@ -708,11 +708,11 @@ impl DebugSession {
             }
         }
 
-        let result = runtime
-            .run_with_bus(
+        let mut bus_runtime = runtime.with_event_bus(bus, keybindings);
+
+        let result = bus_runtime
+            .run(
                 terminal,
-                bus,
-                keybindings,
                 |frame, area, state, render_ctx, event_ctx| {
                     render(frame, area, state, render_ctx, event_ctx);
                 },
@@ -722,7 +722,7 @@ impl DebugSession {
             .await;
 
         match result {
-            Ok(()) => Ok(DebugRunOutput::new(runtime.state().clone(), None)),
+            Ok(()) => Ok(DebugRunOutput::new(bus_runtime.state().clone(), None)),
             Err(err) => Err(err),
         }
     }

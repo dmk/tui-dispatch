@@ -9,8 +9,8 @@
 //!   user-supplied quit predicate
 //! * shutdown cleanup of the event poller, tasks, and subscriptions
 //! * dispatch error-policy behavior through the live loop
-//! * borrowing-friendly closure ergonomics for `run(...)` /
-//!   `run_with_bus(...)` (compile-pass + behavioral)
+//! * borrowing-friendly closure ergonomics for `run(...)` (compile-pass +
+//!   behavioral)
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
