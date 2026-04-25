@@ -60,7 +60,7 @@ EventBus routes event
   ↓
 Action (intent)
   ↓
-reducer updates state + returns Effect
+reducer updates state + returns ReducerResult<Effect>
   ↓
 effect handler spawns async task
   ↓
@@ -394,7 +394,7 @@ pub fn handle_key(key: KeyEvent, state: &AppState) -> Vec<Action> {
 }
 ```
 
-## Part 7: Wire It Up With EffectRuntime + EventBus
+## Part 7: Wire It Up With Runtime + EventBus
 
 Create `src/main.rs`:
 
@@ -466,11 +466,11 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io
         }
     });
 
-    let mut runtime = EffectRuntime::<AppState, Action, Effect>::new(AppState::new(), reducer)
+    let mut runtime = Runtime::<AppState, Action, Effect>::new(AppState::new(), reducer)
         .with_event_bus(bus, keybindings);
 
     runtime
-        .run(
+        .run_with_effects(
             terminal,
             |frame, area, state, _ctx: RenderContext, event_ctx| {
                 event_ctx.set_component_area(AppComponentId::Main, area);
@@ -510,7 +510,7 @@ Create `tests/reducer_tests.rs`:
 
 ```rust
 use github_lookup::{action::Action, effect::Effect, reducer::reducer, state::{AppState, GitHubUser}};
-use tui_dispatch::testing::{EffectAssertions, EffectStoreTestHarness};
+use tui_dispatch::testing::{EffectAssertions, StoreTestHarness};
 
 fn mock_user() -> GitHubUser {
     GitHubUser {
@@ -526,7 +526,7 @@ fn mock_user() -> GitHubUser {
 
 #[test]
 fn test_fetch_emits_effect() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     harness.dispatch_collect(Action::UserFetch("octocat".into()));
     harness.assert_state(|s| s.is_loading);
@@ -538,7 +538,7 @@ fn test_fetch_emits_effect() {
 
 #[test]
 fn test_complete_flow() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     harness.dispatch_collect(Action::UserFetch("octocat".into()));
 

@@ -1,4 +1,4 @@
-//! Tests using EffectStoreTestHarness
+//! Tests using StoreTestHarness
 //!
 //! These tests demonstrate how to test the async/effects pattern
 //! without actually making HTTP requests.
@@ -27,7 +27,7 @@ fn mock_user() -> GitHubUser {
 
 #[test]
 fn test_user_fetch_flow() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     // Update query
     harness.dispatch_collect(Action::QueryChange("octocat".into()));
@@ -48,7 +48,7 @@ fn test_user_fetch_flow() {
 
 #[test]
 fn test_user_load_success() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     // Start fetch
     harness.dispatch_collect(Action::UserFetch("octocat".into()));
@@ -69,7 +69,7 @@ fn test_user_load_success() {
 
 #[test]
 fn test_user_load_error() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     // Start fetch
     harness.dispatch_collect(Action::UserFetch("nonexistent".into()));
@@ -86,7 +86,7 @@ fn test_user_load_error() {
 
 #[test]
 fn test_clear_resets_state() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     // Load a user first
     harness.dispatch_collect(Action::UserFetch("octocat".into()));
@@ -105,7 +105,7 @@ fn test_clear_resets_state() {
 
 #[test]
 fn test_empty_username_not_fetched() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     // Try to fetch empty username
     harness.dispatch_collect(Action::UserFetch("   ".into()));
@@ -118,7 +118,7 @@ fn test_empty_username_not_fetched() {
 
 #[test]
 fn test_effect_assertions() {
-    let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
+    let mut harness = StoreTestHarness::new(AppState::default(), reducer);
 
     // Initially no effects
     let effects = harness.drain_effects();

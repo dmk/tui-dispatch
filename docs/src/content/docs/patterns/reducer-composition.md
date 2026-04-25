@@ -21,33 +21,33 @@ As your app grows, a single reducer can become unwieldy. The `reducer_compose!` 
 ```rust
 use tui_dispatch::reducer_compose;
 
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     reducer_compose!(state, action, {
         category "nav" => handle_nav,
         category "search" => handle_search,
-        Action::Quit => |s, _| { s.should_quit = true; true },
+        Action::Quit => |s, _| { s.should_quit = true; ReducerResult::changed() },
         _ => handle_default,
     })
 }
 
-fn handle_nav(state: &mut AppState, action: Action) -> bool {
+fn handle_nav(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
-        Action::NavUp => { state.selected = state.selected.saturating_sub(1); true }
-        Action::NavDown => { state.selected += 1; true }
-        _ => false,
+        Action::NavUp => { state.selected = state.selected.saturating_sub(1); ReducerResult::changed() }
+        Action::NavDown => { state.selected += 1; ReducerResult::changed() }
+        _ => ReducerResult::unchanged(),
     }
 }
 
-fn handle_search(state: &mut AppState, action: Action) -> bool {
+fn handle_search(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
-        Action::SearchStart => { state.mode = Mode::Search; true }
-        Action::SearchClear => { state.query.clear(); true }
-        _ => false,
+        Action::SearchStart => { state.mode = Mode::Search; ReducerResult::changed() }
+        Action::SearchClear => { state.query.clear(); ReducerResult::changed() }
+        _ => ReducerResult::unchanged(),
     }
 }
 
-fn handle_default(state: &mut AppState, action: Action) -> bool {
-    false
+fn handle_default(state: &mut AppState, action: Action) -> ReducerResult {
+    ReducerResult::unchanged()
 }
 ```
 
@@ -92,7 +92,7 @@ enum Mode {
     Command,
 }
 
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     let mode = state.mode;
 
     reducer_compose!(state, action, mode, {
@@ -164,7 +164,7 @@ All handlers must have the same signature:
 fn handler(state: &mut S, action: A) -> R
 ```
 
-Where `R` is your return type (`bool` or `ReducerResult<E>`).
+Where `R` is usually `ReducerResult` or `ReducerResult<E>`.
 
 ## Complete Example
 
@@ -212,7 +212,7 @@ enum Action {
     Quit,
 }
 
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     let mode = state.mode;
 
     reducer_compose!(state, action, mode, {
@@ -224,67 +224,67 @@ fn reducer(state: &mut AppState, action: Action) -> bool {
         category "nav" => handle_nav,
 
         // Specific patterns
-        Action::Quit => |s, _| { true },
+        Action::Quit => |s, _| { ReducerResult::changed() },
 
         // Fallback
-        _ => |_, _| false,
+        _ => |_, _| ReducerResult::unchanged(),
     })
 }
 
-fn handle_nav(state: &mut AppState, action: Action) -> bool {
+fn handle_nav(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::NavUp => {
             state.selected = state.selected.saturating_sub(1);
-            true
+            ReducerResult::changed()
         }
         Action::NavDown => {
             if state.selected < state.items.len().saturating_sub(1) {
                 state.selected += 1;
             }
-            true
+            ReducerResult::changed()
         }
         Action::NavSelect => {
             // Handle selection
-            true
+            ReducerResult::changed()
         }
-        _ => false,
+        _ => ReducerResult::unchanged(),
     }
 }
 
-fn handle_search(state: &mut AppState, action: Action) -> bool {
+fn handle_search(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::SearchInput(c) => {
             state.query.push(c);
-            true
+            ReducerResult::changed()
         }
         Action::SearchClear => {
             state.query.clear();
             state.mode = Mode::Browse;
-            true
+            ReducerResult::changed()
         }
         Action::SearchSubmit => {
             // Execute search
             state.mode = Mode::Browse;
-            true
+            ReducerResult::changed()
         }
-        _ => false,
+        _ => ReducerResult::unchanged(),
     }
 }
 
-fn handle_modal(state: &mut AppState, action: Action) -> bool {
+fn handle_modal(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::ModalClose => {
             state.modal_open = false;
             state.mode = Mode::Browse;
-            true
+            ReducerResult::changed()
         }
         Action::ModalConfirm => {
             // Handle confirmation
             state.modal_open = false;
             state.mode = Mode::Browse;
-            true
+            ReducerResult::changed()
         }
-        _ => false, // Modal captures all input
+        _ => ReducerResult::unchanged(), // Modal captures all input
     }
 }
 ```

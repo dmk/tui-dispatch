@@ -55,8 +55,8 @@ Plug in what your app needs:
 
 | Extension | Purpose |
 |-----------|---------|
-| **Runtime** | Event/action/render loop (`DispatchRuntime`, `EffectRuntime`) |
-| **Effects** | Declare async work as data (`ReducerResult`, `EffectStore`, `EffectRuntime`) |
+| **Runtime** | Event/action/render loop (`Runtime`) |
+| **Effects** | Declare async work as data (`ReducerResult`, `Runtime::run_with_effects`) |
 | **EventBus** | Event routing (modal → hovered → focused → subscribers → global) |
 | **DataResource** | Typed async lifecycle (Empty/Loading/Loaded/Failed) |
 | **TaskManager** | Async task lifecycle |
@@ -67,10 +67,9 @@ Each extension has a consistent pattern: create it and wire it where needed.
 State-centric pieces like `DataResource` live in `AppState`, while runtime helpers like `TaskManager` and `Subscriptions`
 live in the runtime and are accessed via `EffectContext`.
 
-The runtime composes additively. A base `DispatchRuntime` / `EffectRuntime` can
-be extended with `.with_debug(...)` and `.with_event_bus(bus, keybindings)` to
-produce a `BusDispatchRuntime` / `BusEffectRuntime` with a fluent `run(...)` /
-`run_with_hooks(...)` loop. Apps can still stop at `Layer 0` and write their
+The runtime composes additively. A `Runtime` can be extended with
+`.with_debug(...)` and `.with_event_bus(bus, keybindings)` while keeping the
+same public runtime surface. Apps can still stop at `Layer 0` and write their
 own loop when runtime helpers are not wanted.
 
 ### Layer 2: Components

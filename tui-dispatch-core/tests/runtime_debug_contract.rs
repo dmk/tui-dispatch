@@ -1,7 +1,7 @@
 //! Contract tests for the runtime/debug integration surface.
 //!
-//! `tui-dispatch-debug` plugs into the runtime through the `DebugAdapter` and
-//! `DebugHooks` traits exposed under `feature = "debug"`. These tests pin
+//! `tui-dispatch-debug` plugs into the runtime through the `DebugAdapter`
+//! trait exposed under `feature = "debug"`. These tests pin
 //! exactly what the runtime guarantees about that integration so the
 //! upcoming refactor cannot quietly change it:
 //!
@@ -11,8 +11,8 @@
 //!   `Some(needs_render)` short-circuits the rest of routing
 //! * `DebugAdapter::render` is invoked when a debug adapter is attached
 //! * `RenderContext::debug_enabled` mirrors `DebugAdapter::is_enabled()`
-//! * `DebugHooks::with_task_manager` / `with_subscriptions` are wired up
-//!   when `EffectRuntime::with_debug` is called with the corresponding
+//! * `DebugAdapter::with_task_manager` / `with_subscriptions` are wired up
+//!   when `Runtime::with_debug` is called with the corresponding
 //!   feature enabled
 //!
 //! The whole file is feature-gated; without `feature = "debug"` it is empty.
@@ -27,10 +27,9 @@ use ratatui::layout::Rect;
 use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 
-use tui_dispatch_core::runtime::{DebugAdapter, DebugHooks};
+use tui_dispatch_core::runtime::DebugAdapter;
 use tui_dispatch_core::{
-    Action, DispatchRuntime, EffectRuntime, EventKind, EventOutcome, PollerConfig, ReducerResult,
-    RenderContext,
+    Action, EventKind, EventOutcome, PollerConfig, ReducerResult, RenderContext, Runtime,
 };
 
 // ---------------------------------------------------------------------------
@@ -55,8 +54,8 @@ impl Action for TestAction {
 #[derive(Default)]
 struct TestState;
 
-fn reducer(_state: &mut TestState, _action: TestAction) -> bool {
-    true
+fn reducer(_state: &mut TestState, _action: TestAction) -> ReducerResult {
+    ReducerResult::changed()
 }
 
 fn effect_reducer(_state: &mut TestState, _action: TestAction) -> ReducerResult<()> {
@@ -164,9 +163,6 @@ impl DebugAdapter<TestState, TestAction> for MockDebug {
         self.calls.lock().unwrap().is_enabled_queries += 1;
         self.enabled
     }
-}
-
-impl DebugHooks<TestAction> for MockDebug {
     #[cfg(feature = "tasks")]
     fn with_task_manager(self, _tasks: &tui_dispatch_core::tasks::TaskManager<TestAction>) -> Self {
         self.calls.lock().unwrap().task_manager_attached = true;
@@ -183,16 +179,45 @@ impl DebugHooks<TestAction> for MockDebug {
     }
 }
 
+struct MinimalDebug;
+
+impl DebugAdapter<TestState, TestAction> for MinimalDebug {
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        state: &TestState,
+        render_ctx: RenderContext,
+        render_fn: &mut dyn FnMut(&mut Frame, Rect, &TestState, RenderContext),
+    ) {
+        render_fn(frame, frame.area(), state, render_ctx);
+    }
+
+    fn handle_event(
+        &mut self,
+        _event: &EventKind,
+        _state: &TestState,
+        _action_tx: &mpsc::UnboundedSender<TestAction>,
+    ) -> Option<bool> {
+        None
+    }
+
+    fn log_action(&mut self, _action: &TestAction) {}
+
+    fn is_enabled(&self) -> bool {
+        false
+    }
+}
+
 // ---------------------------------------------------------------------------
 // log_action ordering and frequency
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn dispatch_runtime_logs_each_dispatched_action_in_order() {
+async fn runtime_logs_each_dispatched_action_in_order() {
     let debug = MockDebug::new();
     let calls = debug.calls();
 
-    let mut runtime = DispatchRuntime::new(TestState, reducer)
+    let mut runtime = Runtime::new(TestState, reducer)
         .with_event_poller(fast_poller())
         .with_debug(debug);
 
@@ -220,11 +245,11 @@ async fn dispatch_runtime_logs_each_dispatched_action_in_order() {
 }
 
 #[tokio::test]
-async fn effect_runtime_logs_each_dispatched_action_in_order() {
+async fn runtime_with_effects_logs_each_dispatched_action_in_order() {
     let debug = MockDebug::new();
     let calls = debug.calls();
 
-    let mut runtime = EffectRuntime::new(TestState, effect_reducer)
+    let mut runtime = Runtime::new(TestState, effect_reducer)
         .with_event_poller(fast_poller())
         .with_debug(debug);
 
@@ -234,7 +259,7 @@ async fn effect_runtime_logs_each_dispatched_action_in_order() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _| {},
             |_, _: &TestState| EventOutcome::ignored(),
@@ -260,7 +285,7 @@ async fn debug_adapter_render_is_invoked_when_attached() {
     let debug = MockDebug::new();
     let calls = debug.calls();
 
-    let mut runtime = DispatchRuntime::new(TestState, reducer)
+    let mut runtime = Runtime::new(TestState, reducer)
         .with_event_poller(fast_poller())
         .with_debug(debug);
 
@@ -298,7 +323,7 @@ async fn render_context_debug_enabled_mirrors_adapter_is_enabled() {
     let debug = MockDebug::new().enabled(true);
     let calls = debug.calls();
 
-    let mut runtime = DispatchRuntime::new(TestState, reducer)
+    let mut runtime = Runtime::new(TestState, reducer)
         .with_event_poller(fast_poller())
         .with_debug(debug);
 
@@ -325,33 +350,38 @@ async fn render_context_debug_enabled_mirrors_adapter_is_enabled() {
 }
 
 // ---------------------------------------------------------------------------
-// DebugHooks auto-wiring on EffectRuntime::with_debug
+// DebugAdapter auto-wiring on Runtime::with_debug
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "tasks")]
 #[tokio::test]
-async fn effect_runtime_with_debug_invokes_with_task_manager_hook() {
+async fn runtime_with_debug_invokes_with_task_manager_hook() {
     let debug = MockDebug::new();
     let calls = debug.calls();
 
-    let _runtime = EffectRuntime::new(TestState, effect_reducer).with_debug(debug);
+    let _runtime = Runtime::new(TestState, effect_reducer).with_debug(debug);
 
     assert!(
         calls.lock().unwrap().task_manager_attached,
-        "DebugHooks::with_task_manager should fire when feature `tasks` is enabled"
+        "DebugAdapter::with_task_manager should fire when feature `tasks` is enabled"
     );
 }
 
 #[cfg(feature = "subscriptions")]
 #[tokio::test]
-async fn effect_runtime_with_debug_invokes_with_subscriptions_hook() {
+async fn runtime_with_debug_invokes_with_subscriptions_hook() {
     let debug = MockDebug::new();
     let calls = debug.calls();
 
-    let _runtime = EffectRuntime::new(TestState, effect_reducer).with_debug(debug);
+    let _runtime = Runtime::new(TestState, effect_reducer).with_debug(debug);
 
     assert!(
         calls.lock().unwrap().subscriptions_attached,
-        "DebugHooks::with_subscriptions should fire when feature `subscriptions` is enabled"
+        "DebugAdapter::with_subscriptions should fire when feature `subscriptions` is enabled"
     );
+}
+
+#[test]
+fn runtime_with_debug_accepts_adapter_without_optional_hooks() {
+    let _runtime = Runtime::new(TestState, reducer).with_debug(MinimalDebug);
 }

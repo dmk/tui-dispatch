@@ -53,22 +53,22 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## How It Works
 
-A reducer takes state and an action, returns whether state changed:
+A reducer takes state and an action, then returns a `ReducerResult`:
 
 ```rust
-fn reducer(state: &mut AppState, action: AppAction) -> bool {
+fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult {
     match action {
-        AppAction::Increment => { state.count += 1; true }
-        AppAction::Quit => false,
+        AppAction::Increment => { state.count += 1; ReducerResult::changed() }
+        AppAction::Quit => ReducerResult::unchanged(),
     }
 }
 ```
 
-Use `DispatchRuntime` or `Store` directly. See the [Counter example](/tui-dispatch/examples/counter/).
+Use `Runtime` or `Store` directly. See the [Counter example](/tui-dispatch/examples/counter/).
 
 ## Adding Effects
 
-When you need async operations, layer effects on top. The reducer returns `ReducerResult` instead of `bool`:
+When you need async operations, use the same reducer shape with an effect type:
 
 ```rust
 fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
@@ -86,7 +86,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
 }
 ```
 
-Effects are data describing side effects. The main loop executes them outside the reducer. Use `EffectRuntime` or `EffectStore`. See the [Weather example](/tui-dispatch/examples/weather/).
+Effects are data describing side effects. The main loop executes them outside the reducer with `Runtime::run_with_effects(...)`.
 
 ## Data Flow
 
@@ -125,7 +125,7 @@ Terminal Input
 ```
 tui-dispatch/
 ├── tui-dispatch/        # Re-exports + prelude
-├── tui-dispatch-core/   # Store, EffectStore, Runtime, Component, Keybindings, Middleware
+├── tui-dispatch-core/   # Store, Runtime, Component, Keybindings, Middleware
 ├── tui-dispatch-macros/ # #[derive(Action)], #[derive(DebugState)], #[derive(BindingContext)]
 └── tui-dispatch-debug/  # Debug overlay, action recording, replay, schema generation
 ```

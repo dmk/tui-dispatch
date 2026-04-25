@@ -342,13 +342,13 @@ impl<S, A: Action> Middleware<S, A> for MetricsMiddleware {
 
 ## Middleware with Effects
 
-For `EffectStore`, use `EffectStoreWithMiddleware`:
+For `Store`, use `StoreWithMiddleware`:
 
 ```rust
 use tui_dispatch::prelude::*;
 
 let middleware = LoggingMiddleware::new();
-let mut store = EffectStoreWithMiddleware::new(state, reducer, middleware);
+let mut store = StoreWithMiddleware::new(state, reducer, middleware);
 
 let result = store.dispatch(action);
 // result.changed: bool

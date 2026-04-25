@@ -24,7 +24,7 @@ the runtime helper:
 
 ```rust
 let debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
-let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
+let mut runtime = Runtime::new(state, reducer).with_debug(debug);
 
 runtime
     .run(

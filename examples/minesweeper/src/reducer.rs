@@ -1,9 +1,10 @@
 use crate::action::Action;
 use crate::state::{AppState, GameState};
+use tui_dispatch::ReducerResult;
 
 /// Reducer trusts middleware already validated guards (game over, revealed, flagged).
-pub fn reducer(state: &mut AppState, action: Action) -> bool {
-    match action {
+pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
+    let changed = match action {
         Action::Reveal(x, y) => {
             let cell = &mut state.grid[y][x];
             cell.revealed = true;
@@ -70,5 +71,11 @@ pub fn reducer(state: &mut AppState, action: Action) -> bool {
             true
         }
         Action::Quit => false,
+    };
+
+    if changed {
+        ReducerResult::changed()
+    } else {
+        ReducerResult::unchanged()
     }
 }

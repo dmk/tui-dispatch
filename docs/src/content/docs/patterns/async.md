@@ -222,7 +222,7 @@ tasks.cancel_all();
 
 ### Integrating with Effects
 
-When using `EffectRuntime`, effects are handled via `EffectContext`:
+When using `Runtime`, effects are handled via `EffectContext`:
 
 ```rust
 fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
@@ -352,7 +352,7 @@ fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
 async fn run() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-    let mut store = EffectStore::new(State::default(), reducer);
+    let mut store = Store::new(State::default(), reducer);
     let mut tasks = TaskManager::new(tx.clone());
     let mut subs = Subscriptions::new(tx.clone());
 

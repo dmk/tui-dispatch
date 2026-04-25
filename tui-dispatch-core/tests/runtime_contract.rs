@@ -1,4 +1,4 @@
-//! Runtime contract tests for `DispatchRuntime` and `EffectRuntime`.
+//! Runtime contract tests for the unified `Runtime`.
 //!
 //! These tests pin the public runtime contract before any internal refactor.
 //! They cover the surface that downstream code already relies on:
@@ -19,8 +19,8 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use tui_dispatch_core::{
-    Action, DispatchError, DispatchErrorPolicy, DispatchLimits, DispatchRuntime, EffectRuntime,
-    EventOutcome, Middleware, PollerConfig, ReducerResult, StoreWithMiddleware,
+    Action, DispatchError, DispatchErrorPolicy, DispatchLimits, EventOutcome, Middleware,
+    PollerConfig, ReducerResult, Runtime, StoreWithMiddleware,
 };
 
 // ---------------------------------------------------------------------------
@@ -47,13 +47,13 @@ struct TestState {
     ticks: u32,
 }
 
-fn reducer(state: &mut TestState, action: TestAction) -> bool {
+fn reducer(state: &mut TestState, action: TestAction) -> ReducerResult {
     match action {
         TestAction::Tick => {
             state.ticks += 1;
-            true
+            ReducerResult::changed()
         }
-        TestAction::Quit => false,
+        TestAction::Quit => ReducerResult::unchanged(),
     }
 }
 
@@ -88,9 +88,8 @@ fn quit_on_quit(action: &TestAction) -> bool {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn dispatch_runtime_enqueue_drains_through_run() {
-    let mut runtime =
-        DispatchRuntime::new(TestState::default(), reducer).with_event_poller(fast_poller());
+async fn runtime_enqueue_drains_through_run() {
+    let mut runtime = Runtime::new(TestState::default(), reducer).with_event_poller(fast_poller());
 
     runtime.enqueue(TestAction::Tick);
     runtime.enqueue(TestAction::Tick);
@@ -111,9 +110,8 @@ async fn dispatch_runtime_enqueue_drains_through_run() {
 }
 
 #[tokio::test]
-async fn dispatch_runtime_action_tx_clone_can_dispatch_from_other_task() {
-    let mut runtime =
-        DispatchRuntime::new(TestState::default(), reducer).with_event_poller(fast_poller());
+async fn runtime_action_tx_clone_can_dispatch_from_other_task() {
+    let mut runtime = Runtime::new(TestState::default(), reducer).with_event_poller(fast_poller());
 
     let tx = runtime.action_tx();
     tokio::spawn(async move {
@@ -136,16 +134,16 @@ async fn dispatch_runtime_action_tx_clone_can_dispatch_from_other_task() {
 }
 
 #[tokio::test]
-async fn effect_runtime_enqueue_drains_through_run() {
+async fn runtime_with_effects_enqueue_drains_through_run() {
     let mut runtime =
-        EffectRuntime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
+        Runtime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
 
     runtime.enqueue(TestAction::Tick);
     runtime.enqueue(TestAction::Quit);
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _| {},
             |_, _: &TestState| EventOutcome::ignored(),
@@ -159,9 +157,9 @@ async fn effect_runtime_enqueue_drains_through_run() {
 }
 
 #[tokio::test]
-async fn effect_runtime_subscribe_actions_broadcasts_dispatched_names() {
+async fn runtime_subscribe_actions_broadcasts_dispatched_names() {
     let mut runtime =
-        EffectRuntime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
+        Runtime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
 
     let mut rx = runtime.subscribe_actions();
 
@@ -170,7 +168,7 @@ async fn effect_runtime_subscribe_actions_broadcasts_dispatched_names() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _| {},
             |_, _: &TestState| EventOutcome::ignored(),
@@ -192,9 +190,9 @@ async fn effect_runtime_subscribe_actions_broadcasts_dispatched_names() {
 
 #[cfg(feature = "tasks")]
 #[tokio::test]
-async fn effect_runtime_cancels_tasks_on_quit() {
+async fn runtime_cancels_tasks_on_quit() {
     let mut runtime =
-        EffectRuntime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
+        Runtime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
 
     runtime.tasks().spawn("long", async {
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -206,7 +204,7 @@ async fn effect_runtime_cancels_tasks_on_quit() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _| {},
             |_, _: &TestState| EventOutcome::ignored(),
@@ -224,9 +222,9 @@ async fn effect_runtime_cancels_tasks_on_quit() {
 
 #[cfg(feature = "subscriptions")]
 #[tokio::test]
-async fn effect_runtime_cancels_subscriptions_on_quit() {
+async fn runtime_cancels_subscriptions_on_quit() {
     let mut runtime =
-        EffectRuntime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
+        Runtime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
 
     runtime
         .subscriptions()
@@ -237,7 +235,7 @@ async fn effect_runtime_cancels_subscriptions_on_quit() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _| {},
             |_, _: &TestState| EventOutcome::ignored(),
@@ -255,7 +253,7 @@ async fn effect_runtime_cancels_subscriptions_on_quit() {
 
 #[cfg(all(feature = "tasks", feature = "subscriptions"))]
 #[tokio::test]
-async fn effect_runtime_cleans_up_on_dispatch_error_stop() {
+async fn runtime_cleans_up_on_dispatch_error_stop() {
     // A middleware that always re-injects, paired with depth=1, forces every
     // dispatch to fail. The Stop policy must still trigger task/subscription
     // cleanup the same way the quit-path does.
@@ -274,15 +272,13 @@ async fn effect_runtime_cleans_up_on_dispatch_error_stop() {
         }
     }
 
-    use tui_dispatch_core::EffectStoreWithMiddleware;
-    let store =
-        EffectStoreWithMiddleware::new(TestState::default(), effect_reducer, LoopMiddleware)
-            .with_dispatch_limits(DispatchLimits {
-                max_depth: 1,
-                max_actions: 100,
-            });
+    let store = StoreWithMiddleware::new(TestState::default(), effect_reducer, LoopMiddleware)
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: 1,
+            max_actions: 100,
+        });
 
-    let mut runtime = EffectRuntime::from_store(store)
+    let mut runtime = Runtime::from_store(store)
         .with_event_poller(fast_poller())
         .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
 
@@ -298,7 +294,7 @@ async fn effect_runtime_cleans_up_on_dispatch_error_stop() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _| {},
             |_, _: &TestState| EventOutcome::ignored(),
@@ -349,7 +345,7 @@ async fn dispatch_error_handler_observes_error_and_stops_loop() {
     let observed: Arc<Mutex<Vec<DispatchError>>> = Arc::new(Mutex::new(Vec::new()));
     let observed_clone = observed.clone();
 
-    let mut runtime = DispatchRuntime::from_store(store)
+    let mut runtime = Runtime::from_store(store)
         .with_event_poller(fast_poller())
         .with_dispatch_error_handler(move |err| {
             observed_clone.lock().unwrap().push(err.clone());
@@ -389,7 +385,7 @@ async fn dispatch_error_handler_continue_keeps_loop_alive_until_quit() {
     let observed: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
     let observed_clone = observed.clone();
 
-    let mut runtime = DispatchRuntime::from_store(store).with_event_poller(fast_poller());
+    let mut runtime = Runtime::from_store(store).with_event_poller(fast_poller());
 
     let tx = runtime.action_tx();
     let tx_for_handler = tx.clone();
@@ -438,8 +434,7 @@ async fn run_accepts_closures_that_borrow_local_state() {
     let label = String::from("hello");
     let mut event_count: u32 = 0;
 
-    let mut runtime =
-        DispatchRuntime::new(TestState::default(), reducer).with_event_poller(fast_poller());
+    let mut runtime = Runtime::new(TestState::default(), reducer).with_event_poller(fast_poller());
     runtime.enqueue(TestAction::Tick);
     runtime.enqueue(TestAction::Quit);
 
@@ -474,14 +469,14 @@ async fn effect_run_accepts_borrowing_closures_for_render_event_and_effect() {
     let owned = vec![1u8, 2, 3];
 
     let mut runtime =
-        EffectRuntime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
+        Runtime::new(TestState::default(), effect_reducer).with_event_poller(fast_poller());
 
     runtime.enqueue(TestAction::Tick);
     runtime.enqueue(TestAction::Quit);
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_frame, _area, _state, _ctx| {
                 render_count += 1;
@@ -510,7 +505,7 @@ async fn effect_run_accepts_borrowing_closures_for_render_event_and_effect() {
 
 #[allow(dead_code, unused_variables)]
 fn _compile_pass_helper_signatures() {
-    let runtime = DispatchRuntime::new(TestState::default(), reducer);
+    let runtime = Runtime::new(TestState::default(), reducer);
 
     // enqueue takes &self
     let _: () = {
@@ -524,17 +519,17 @@ fn _compile_pass_helper_signatures() {
         let _ = tx.send(TestAction::Tick);
     });
 
-    let effect_runtime = EffectRuntime::new(TestState::default(), effect_reducer);
+    let effect_runtime = Runtime::new(TestState::default(), effect_reducer);
 
     // subscribe_actions takes &self and returns a broadcast::Receiver<String>
     let _rx: tokio::sync::broadcast::Receiver<String> = effect_runtime.subscribe_actions();
 
     // The configuration helpers are chainable.
-    let _runtime = DispatchRuntime::new(TestState::default(), reducer)
+    let _runtime = Runtime::new(TestState::default(), reducer)
         .with_event_poller(PollerConfig::default())
         .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
 
-    let _effect = EffectRuntime::new(TestState::default(), effect_reducer)
+    let _effect = Runtime::new(TestState::default(), effect_reducer)
         .with_event_poller(PollerConfig::default())
         .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
 }

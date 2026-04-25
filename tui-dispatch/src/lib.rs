@@ -23,11 +23,11 @@
 //! }
 //!
 //! // Write a reducer
-//! fn reducer(state: &mut MyState, action: MyAction) -> bool {
+//! fn reducer(state: &mut MyState, action: MyAction) -> ReducerResult {
 //!     match action {
-//!         MyAction::Increment => { state.count += 1; true }
-//!         MyAction::Decrement => { state.count -= 1; true }
-//!         MyAction::Quit => false,
+//!         MyAction::Increment => { state.count += 1; ReducerResult::changed() }
+//!         MyAction::Decrement => { state.count -= 1; ReducerResult::changed() }
+//!         MyAction::Quit => ReducerResult::unchanged(),
 //!     }
 //! }
 //!
@@ -39,7 +39,7 @@
 //!
 //! # With Effects
 //!
-//! For async operations, use `EffectStore` with `ReducerResult`:
+//! For async operations, return effects from the same `Store` reducer:
 //!
 //! ```
 //! use tui_dispatch::prelude::*;
@@ -74,7 +74,7 @@
 //!     }
 //! }
 //!
-//! let mut store = EffectStore::new(State::default(), reducer);
+//! let mut store = Store::new(State::default(), reducer);
 //! let result = store.dispatch(Action::Fetch);
 //! assert!(result.changed);
 //! assert_eq!(result.effects.len(), 1);
@@ -171,15 +171,12 @@ pub mod prelude {
     };
 
     // Effects and state types
-    pub use tui_dispatch_core::{
-        DataResource, EffectReducer, EffectStore, EffectStoreWithMiddleware, ReducerResult,
-    };
+    pub use tui_dispatch_core::{DataResource, NoEffect, ReducerResult};
 
     // Runtime helpers
     pub use tui_dispatch_core::{
-        BusDispatchRuntime, BusEffectRuntime, DispatchErrorPolicy, DispatchRuntime, DispatchStore,
-        EffectContext, EffectDispatchStore, EffectRuntime, EventOutcome, PollerConfig,
-        RenderContext,
+        DispatchErrorPolicy, EffectContext, EventOutcome, PollerConfig, RenderContext, Runtime,
+        RuntimeStore,
     };
 
     // Tasks (requires "tasks" feature)

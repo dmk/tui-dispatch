@@ -39,19 +39,22 @@ struct AppState {
 ```
 
 ### Reducer
-A pure function that takes current state and an action, mutates the state, and returns whether the state changed. (See also: [Redux Reducers](https://redux.js.org/tutorials/fundamentals/part-3-state-actions-reducers))
+A pure function that takes current state and an action, mutates the state, and returns a `ReducerResult`. (See also: [Redux Reducers](https://redux.js.org/tutorials/fundamentals/part-3-state-actions-reducers))
 
-**Simple reducer** (returns `bool`):
+Reducers without effects use the default `ReducerResult` type:
 ```rust
-fn reducer(state: &mut AppState, action: AppAction) -> bool {
+fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult {
     match action {
-        AppAction::CountIncrement => { state.count += 1; true }
-        AppAction::Quit => false, // false = don't render
+        AppAction::CountIncrement => {
+            state.count += 1;
+            ReducerResult::changed()
+        }
+        AppAction::Quit => ReducerResult::unchanged(),
     }
 }
 ```
 
-**Effect reducer** (returns `ReducerResult<E>`):
+Reducers that emit effects name the effect type:
 ```rust
 fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
     match action {
@@ -73,7 +76,8 @@ Container that holds state and applies the reducer when actions are dispatched. 
 
 ```rust
 let mut store = Store::new(AppState::default(), reducer);
-let changed = store.dispatch(AppAction::CountIncrement);
+let result = store.dispatch(AppAction::CountIncrement);
+assert!(result.changed);
 ```
 
 ### Dispatch
@@ -89,15 +93,12 @@ action_tx.send(action);        // Async dispatch via channel
 Add these when your app needs them. None are required.
 
 ### Runtime
-Event/action/render loop helper so apps don't have to hand-write the loop. Two base variants match the two reducer shapes:
+Event/action/render loop helper so apps don't have to hand-write the loop. `Runtime<S, A>` is the no-effect runtime shape; `Runtime<S, A, E>` runs reducers that can emit effects.
 
-- `DispatchRuntime<S, A>` — for reducers returning `bool`
-- `EffectRuntime<S, A, E>` — for reducers returning `ReducerResult<E>`
-
-Optional capabilities are attached additively with `with_*` builders. `with_event_bus(bus, keybindings)` returns a `BusDispatchRuntime` / `BusEffectRuntime` whose `run(...)` routes events through the bus.
+Optional capabilities are attached additively with `with_*` builders. `with_event_bus(bus, keybindings)` keeps the value as a `Runtime` and routes events through the bus.
 
 ```rust
-let mut runtime = DispatchRuntime::new(state, reducer)
+let mut runtime = Runtime::new(state, reducer)
     .with_debug(debug)
     .with_event_bus(bus, keybindings);
 
@@ -106,7 +107,7 @@ runtime.run(terminal, render, is_quit).await?;
 
 `run_with_hooks(...)` is the post-render integration seam wrappers consume when they need to touch the bus after each frame (e.g. syncing `ComponentHost` areas).
 
-Apps can skip the runtime helpers entirely and drive `Store` / `EffectStore` from a custom loop — Layer 0 stays fully usable on its own.
+Apps can skip the runtime helpers entirely and drive `Store` from a custom loop — Layer 0 stays fully usable on its own.
 
 ### Effect
 For apps with async operations. A declarative description of a side effect, returned from the reducer as data. The main loop executes effects outside the reducer. This pattern comes from [The Elm Architecture](https://guide.elm-lang.org/effects/) where commands describe what to do without doing it.
@@ -130,9 +131,9 @@ ReducerResult::changed_with(e)        // State changed, one effect
 ReducerResult::changed_with_many(v)   // State changed, multiple effects
 ```
 
-Use `EffectStore` instead of `Store` when your reducer returns `ReducerResult`:
+The same `Store` type works for reducers with and without effects:
 ```rust
-let mut store = EffectStore::new(AppState::default(), reducer);
+let mut store = Store::new(AppState::default(), reducer);
 let result = store.dispatch(action);
 // result.changed: bool
 // result.effects: Vec<Effect>

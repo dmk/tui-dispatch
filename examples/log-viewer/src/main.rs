@@ -16,7 +16,7 @@ use log_viewer_example::{
 };
 use ratatui::{backend::CrosstermBackend, text::Line, Terminal};
 use tokio::sync::mpsc;
-use tui_dispatch::prelude::{DispatchRuntime, EventBus};
+use tui_dispatch::prelude::{EventBus, Runtime};
 use tui_dispatch_components::{
     ComponentHost, SelectList, SelectListBehavior, SelectListProps, SelectListStyle, StatusBar,
 };
@@ -98,7 +98,7 @@ async fn run_app<B: ratatui::backend::Backend>(
         .with_action_log_filter(debug_args.action_filter())
         .active(debug_args.enabled);
 
-    let mut runtime = DispatchRuntime::new(AppState::new(mode.source_label()), reducer)
+    let mut runtime = Runtime::new(AppState::new(mode.source_label()), reducer)
         .with_debug(debug_layer)
         .with_event_bus(bus, bindings);
 

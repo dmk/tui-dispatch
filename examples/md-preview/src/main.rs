@@ -35,7 +35,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 use tui_dispatch::{
-    DefaultBindingContext, DispatchRuntime, EventKind, EventOutcome, FeatureFlags, Keybindings,
+    DefaultBindingContext, EventKind, EventOutcome, FeatureFlags, Keybindings, Runtime,
 };
 use tui_dispatch_debug::debug::{DebugLayer, DebugSection, DebugState, debug_string};
 
@@ -181,7 +181,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     // Debug layer - only active when --debug flag passed
     let debug: DebugLayer<Action> = DebugLayer::simple().active(debug_enabled);
 
-    let mut runtime = DispatchRuntime::new(state, reducer).with_debug(debug);
+    let mut runtime = Runtime::new(state, reducer).with_debug(debug);
 
     runtime
         .run(

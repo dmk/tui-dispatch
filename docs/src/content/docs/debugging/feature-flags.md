@@ -69,13 +69,13 @@ features.load_from_map(&config_map);
 Guard actions based on feature state:
 
 ```rust
-fn reducer(state: &mut AppState, action: Action, features: &Features) -> bool {
+fn reducer(state: &mut AppState, action: Action, features: &Features) -> ReducerResult {
     match action {
         Action::ShowSuggestions(s) if features.new_search_ui => {
             state.suggestions = s;
-            true
+            ReducerResult::changed()
         }
-        Action::ShowSuggestions(_) => false, // Feature disabled
+        Action::ShowSuggestions(_) => ReducerResult::unchanged(), // Feature disabled
         // ...
     }
 }

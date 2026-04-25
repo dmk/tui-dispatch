@@ -8,8 +8,7 @@ description: Why reducers are function pointers and how to work with that constr
 tui-dispatch defines reducers as bare function pointers:
 
 ```rust
-pub type Reducer<S, A> = fn(&mut S, A) -> bool;
-pub type EffectReducer<S, A, E> = fn(&mut S, A) -> ReducerResult<E>;
+pub type Reducer<S, A, E = NoEffect> = fn(&mut S, A) -> ReducerResult<E>;
 ```
 
 This is a deliberate choice, not an oversight. Unlike `Box<dyn FnMut>` or a generic `F: FnMut`, a function pointer:
@@ -36,14 +35,14 @@ struct AppState {
     max_items: usize,
 }
 
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::AddItem(item) => {
             if state.items.len() < state.max_items {
                 state.items.push(item);
-                true
+                ReducerResult::changed()
             } else {
-                false
+                ReducerResult::unchanged()
             }
         }
         // ...

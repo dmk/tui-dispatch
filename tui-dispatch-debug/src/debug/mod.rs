@@ -167,7 +167,7 @@ pub use widgets::{
 
 use ratatui::buffer::Buffer;
 use tui_dispatch_core::keybindings::BindingContext;
-use tui_dispatch_core::runtime::{DebugAdapter, DebugHooks, RenderContext};
+use tui_dispatch_core::runtime::{DebugAdapter, RenderContext};
 use tui_dispatch_core::{Action, ActionParams};
 
 // ============================================================================
@@ -407,9 +407,7 @@ where
     fn is_enabled(&self) -> bool {
         DebugLayer::is_enabled(self)
     }
-}
 
-impl<A: Action> DebugHooks<A> for DebugLayer<A> {
     #[cfg(feature = "tasks")]
     fn with_task_manager(self, tasks: &tui_dispatch_core::tasks::TaskManager<A>) -> Self {
         DebugLayer::with_task_manager(self, tasks)

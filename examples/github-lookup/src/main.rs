@@ -19,7 +19,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use tui_dispatch::{EffectContext, EffectRuntime, EventKind, EventOutcome, RenderContext};
+use tui_dispatch::{EffectContext, EventKind, EventOutcome, RenderContext, Runtime};
 
 use github_lookup::action::Action;
 use github_lookup::api;
@@ -54,12 +54,11 @@ async fn main() -> io::Result<()> {
 
 async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
     // Create the runtime with initial state and reducer
-    let mut runtime: EffectRuntime<AppState, Action, Effect> =
-        EffectRuntime::new(AppState::new(), reducer);
+    let mut runtime: Runtime<AppState, Action, Effect> = Runtime::new(AppState::new(), reducer);
 
     // Run the main event loop
     runtime
-        .run(
+        .run_with_effects(
             terminal,
             // Render function
             |frame, area, state, _render_ctx: RenderContext| {

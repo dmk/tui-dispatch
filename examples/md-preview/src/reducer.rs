@@ -2,10 +2,11 @@
 
 use crate::action::Action;
 use crate::state::AppState;
+use tui_dispatch::ReducerResult;
 
 /// Handle state transitions
-pub fn reducer(state: &mut AppState, action: Action) -> bool {
-    match action {
+pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
+    let changed = match action {
         // ===== Navigation =====
         Action::NavScroll(delta) => {
             let old = state.scroll_offset;
@@ -101,5 +102,11 @@ pub fn reducer(state: &mut AppState, action: Action) -> bool {
 
         // ===== App =====
         Action::Quit => false,
+    };
+
+    if changed {
+        ReducerResult::changed()
+    } else {
+        ReducerResult::unchanged()
     }
 }

@@ -14,7 +14,7 @@
 //! # Basic Example
 //!
 //! ```
-//! use tui_dispatch_core::{Action, Store};
+//! use tui_dispatch_core::{Action, ReducerResult, Store};
 //!
 //! #[derive(Clone, Debug)]
 //! enum MyAction { Increment, Decrement }
@@ -31,15 +31,16 @@
 //! #[derive(Default)]
 //! struct AppState { counter: i32 }
 //!
-//! fn reducer(state: &mut AppState, action: MyAction) -> bool {
+//! fn reducer(state: &mut AppState, action: MyAction) -> ReducerResult {
 //!     match action {
-//!         MyAction::Increment => { state.counter += 1; true }
-//!         MyAction::Decrement => { state.counter -= 1; true }
+//!         MyAction::Increment => { state.counter += 1; ReducerResult::changed() }
+//!         MyAction::Decrement => { state.counter -= 1; ReducerResult::changed() }
 //!     }
 //! }
 //!
 //! let mut store = Store::new(AppState::default(), reducer);
-//! store.dispatch(MyAction::Increment);
+//! let result = store.dispatch(MyAction::Increment);
+//! assert!(result.changed);
 //! assert_eq!(store.state().counter, 1);
 //! ```
 //!
@@ -102,7 +103,6 @@ extern crate tinycrossterm as crossterm;
 pub mod action;
 pub mod bus;
 pub mod component;
-pub mod effect;
 pub mod event;
 pub mod features;
 pub mod keybindings;
@@ -138,18 +138,14 @@ pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, 
 #[cfg(feature = "tracing")]
 pub use store::LoggingMiddleware;
 pub use store::{
-    ComposedMiddleware, DispatchError, DispatchLimits, Middleware, NoopMiddleware, Reducer, Store,
-    StoreWithMiddleware,
+    ComposedMiddleware, DispatchError, DispatchLimits, Middleware, NoEffect, NoopMiddleware,
+    Reducer, ReducerResult, Store, StoreWithMiddleware,
 };
 
 // Runtime exports
 pub use runtime::{
-    BusDispatchRuntime, BusEffectRuntime, DispatchErrorPolicy, DispatchRuntime, DispatchStore,
-    EffectContext, EffectDispatchStore, EffectRuntime, PollerConfig, RenderContext,
+    DispatchErrorPolicy, EffectContext, PollerConfig, RenderContext, Runtime, RuntimeStore,
 };
-
-// Effect exports
-pub use effect::{EffectReducer, EffectStore, EffectStoreWithMiddleware, ReducerResult};
 
 // Resource exports
 pub use resource::DataResource;
@@ -174,8 +170,7 @@ pub use ratatui::{
 pub use testing::{
     alt_key, buffer_rect_to_string_plain, buffer_to_string, buffer_to_string_plain, char_key,
     ctrl_key, into_event, key, key_event, key_events, keys, ActionAssertions, ActionAssertionsEq,
-    EffectAssertions, EffectAssertionsEq, EffectStoreTestHarness, RenderHarness, StoreTestHarness,
-    TestHarness,
+    EffectAssertions, EffectAssertionsEq, RenderHarness, StoreTestHarness, TestHarness,
 };
 
 #[cfg(feature = "testing-time")]
@@ -190,7 +185,6 @@ pub mod prelude {
         SimpleEventBus,
     };
     pub use crate::component::Component;
-    pub use crate::effect::{EffectReducer, EffectStore, EffectStoreWithMiddleware, ReducerResult};
     pub use crate::event::{
         ComponentId, Event, EventContext, EventKind, EventType, GlobalKeyPolicy, NumericComponentId,
     };
@@ -203,14 +197,13 @@ pub mod prelude {
     #[cfg(feature = "tracing")]
     pub use crate::store::LoggingMiddleware;
     pub use crate::store::{
-        ComposedMiddleware, DispatchError, DispatchLimits, Middleware, NoopMiddleware, Reducer,
-        Store, StoreWithMiddleware,
+        ComposedMiddleware, DispatchError, DispatchLimits, Middleware, NoEffect, NoopMiddleware,
+        Reducer, ReducerResult, Store, StoreWithMiddleware,
     };
 
     // Runtime helpers
     pub use crate::runtime::{
-        BusDispatchRuntime, BusEffectRuntime, DispatchErrorPolicy, DispatchRuntime, DispatchStore,
-        EffectContext, EffectDispatchStore, EffectRuntime, PollerConfig, RenderContext,
+        DispatchErrorPolicy, EffectContext, PollerConfig, RenderContext, Runtime, RuntimeStore,
     };
     #[cfg(feature = "subscriptions")]
     pub use crate::subscriptions::{SubKey, SubPauseHandle, Subscriptions};

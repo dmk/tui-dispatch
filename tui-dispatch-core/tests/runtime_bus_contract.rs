@@ -1,9 +1,7 @@
-//! Layer 1 bus-composition contract tests.
+//! Bus-routing contract tests for the unified `Runtime`.
 //!
-//! Pin the `BusDispatchRuntime` / `BusEffectRuntime` public surface reached
-//! via `with_event_bus(bus, keybindings)`. Covers accessor availability
-//! before `run`, the `run_with_hooks` post-render hook seam, and forwarded
-//! feature-gated accessors on `BusEffectRuntime`.
+//! Covers accessor availability before `run`, the `run_with_hooks`
+//! post-render hook, and feature-gated accessors after `.with_event_bus(...)`.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -12,8 +10,8 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
 use tui_dispatch_core::{
-    Action, BindingContext, BusDispatchRuntime, BusEffectRuntime, DispatchRuntime, EffectRuntime,
-    EventBus, EventRoutingState, Keybindings, NumericComponentId, PollerConfig, ReducerResult,
+    Action, BindingContext, EventBus, EventRoutingState, Keybindings, NumericComponentId,
+    PollerConfig, ReducerResult, Runtime,
 };
 
 // ---------------------------------------------------------------------------
@@ -75,13 +73,13 @@ impl BindingContext for TestCtx {
     }
 }
 
-fn reducer(state: &mut TestState, action: TestAction) -> bool {
+fn reducer(state: &mut TestState, action: TestAction) -> ReducerResult {
     match action {
         TestAction::Tick => {
             state.ticks += 1;
-            true
+            ReducerResult::changed()
         }
-        TestAction::Quit => false,
+        TestAction::Quit => ReducerResult::unchanged(),
     }
 }
 
@@ -123,14 +121,13 @@ fn make_bus() -> (
 }
 
 // ---------------------------------------------------------------------------
-// BusDispatchRuntime — accessors and basic loop drive
+// Runtime + bus — accessors and basic loop drive
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn bus_dispatch_runtime_accessors_available_before_run() {
+async fn bus_runtime_accessors_available_before_run() {
     let (bus, keybindings) = make_bus();
-    let runtime =
-        DispatchRuntime::new(TestState::default(), reducer).with_event_bus(bus, keybindings);
+    let runtime = Runtime::new(TestState::default(), reducer).with_event_bus(bus, keybindings);
 
     // Accessors should be callable without running the loop.
     assert_eq!(runtime.state().ticks, 0);
@@ -141,21 +138,19 @@ async fn bus_dispatch_runtime_accessors_available_before_run() {
 }
 
 #[tokio::test]
-async fn bus_dispatch_runtime_mut_accessors_available_before_run() {
+async fn bus_runtime_mut_accessors_available_before_run() {
     let (bus, keybindings) = make_bus();
-    let mut runtime =
-        DispatchRuntime::new(TestState::default(), reducer).with_event_bus(bus, keybindings);
+    let mut runtime = Runtime::new(TestState::default(), reducer).with_event_bus(bus, keybindings);
 
     // Mutable accessors are how callers register components/keybindings.
     let _: &mut EventBus<_, _, _, _> = runtime.bus_mut();
     let _: &mut Keybindings<_> = runtime.keybindings_mut();
-    let _: &mut DispatchRuntime<_, _, _> = runtime.inner_mut();
 }
 
 #[tokio::test]
-async fn bus_dispatch_runtime_run_drains_queued_actions() {
+async fn bus_runtime_run_drains_queued_actions() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = DispatchRuntime::new(TestState::default(), reducer)
+    let mut runtime = Runtime::new(TestState::default(), reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -173,9 +168,9 @@ async fn bus_dispatch_runtime_run_drains_queued_actions() {
 }
 
 #[tokio::test]
-async fn bus_dispatch_runtime_run_with_hooks_fires_after_render_callback() {
+async fn bus_runtime_run_with_hooks_fires_after_render_callback() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = DispatchRuntime::new(TestState::default(), reducer)
+    let mut runtime = Runtime::new(TestState::default(), reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -207,9 +202,9 @@ async fn bus_dispatch_runtime_run_with_hooks_fires_after_render_callback() {
 
 // Compile-pass: closures capturing local &mut state across `run(...)`.
 #[tokio::test]
-async fn bus_dispatch_runtime_run_accepts_borrowing_render_closure() {
+async fn bus_runtime_run_accepts_borrowing_render_closure() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = DispatchRuntime::new(TestState::default(), reducer)
+    let mut runtime = Runtime::new(TestState::default(), reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -237,13 +232,13 @@ async fn bus_dispatch_runtime_run_accepts_borrowing_render_closure() {
 }
 
 // ---------------------------------------------------------------------------
-// BusEffectRuntime — effects + forwarded accessors
+// Runtime + bus + effects
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn bus_effect_runtime_run_dispatches_effects() {
+async fn bus_runtime_run_with_effects_dispatches_effects() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = EffectRuntime::new(TestState::default(), effect_reducer)
+    let mut runtime = Runtime::new(TestState::default(), effect_reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -255,7 +250,7 @@ async fn bus_effect_runtime_run_dispatches_effects() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _, _| {},
             quit_on_quit,
@@ -271,9 +266,9 @@ async fn bus_effect_runtime_run_dispatches_effects() {
 }
 
 #[tokio::test]
-async fn bus_effect_runtime_subscribe_actions_survives_wrapping() {
+async fn bus_runtime_subscribe_actions_survives_wrapping() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = EffectRuntime::new(TestState::default(), effect_reducer)
+    let mut runtime = Runtime::new(TestState::default(), effect_reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -284,7 +279,7 @@ async fn bus_effect_runtime_subscribe_actions_survives_wrapping() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _, _| {},
             quit_on_quit,
@@ -297,9 +292,9 @@ async fn bus_effect_runtime_subscribe_actions_survives_wrapping() {
 }
 
 #[tokio::test]
-async fn bus_effect_runtime_run_with_hooks_fires_after_render_callback() {
+async fn bus_runtime_run_with_effect_hooks_fires_after_render_callback() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = EffectRuntime::new(TestState::default(), effect_reducer)
+    let mut runtime = Runtime::new(TestState::default(), effect_reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -311,7 +306,7 @@ async fn bus_effect_runtime_run_with_hooks_fires_after_render_callback() {
 
     let mut term = test_terminal();
     runtime
-        .run_with_hooks(
+        .run_with_effect_hooks(
             &mut term,
             |_, _, _, _, _| {},
             quit_on_quit,
@@ -329,9 +324,9 @@ async fn bus_effect_runtime_run_with_hooks_fires_after_render_callback() {
 
 #[cfg(feature = "tasks")]
 #[tokio::test]
-async fn bus_effect_runtime_tasks_accessor_forwards() {
+async fn bus_runtime_tasks_accessor_forwards() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = EffectRuntime::new(TestState::default(), effect_reducer)
+    let mut runtime = Runtime::new(TestState::default(), effect_reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -345,7 +340,7 @@ async fn bus_effect_runtime_tasks_accessor_forwards() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _, _| {},
             quit_on_quit,
@@ -362,9 +357,9 @@ async fn bus_effect_runtime_tasks_accessor_forwards() {
 
 #[cfg(feature = "subscriptions")]
 #[tokio::test]
-async fn bus_effect_runtime_subscriptions_accessor_forwards() {
+async fn bus_runtime_subscriptions_accessor_forwards() {
     let (bus, keybindings) = make_bus();
-    let mut runtime = EffectRuntime::new(TestState::default(), effect_reducer)
+    let mut runtime = Runtime::new(TestState::default(), effect_reducer)
         .with_event_poller(fast_poller())
         .with_event_bus(bus, keybindings);
 
@@ -377,7 +372,7 @@ async fn bus_effect_runtime_subscriptions_accessor_forwards() {
 
     let mut term = test_terminal();
     runtime
-        .run(
+        .run_with_effects(
             &mut term,
             |_, _, _, _, _| {},
             quit_on_quit,
@@ -399,8 +394,7 @@ async fn bus_effect_runtime_subscriptions_accessor_forwards() {
 #[allow(dead_code, unused_variables)]
 fn _compile_pass_bus_signatures() {
     let (bus, kb) = make_bus();
-    let runtime: BusDispatchRuntime<TestState, TestAction, NumericComponentId, TestCtx> =
-        DispatchRuntime::new(TestState::default(), reducer).with_event_bus(bus, kb);
+    let runtime = Runtime::new(TestState::default(), reducer).with_event_bus(bus, kb);
 
     // action_tx is clone-able and Send
     let tx = runtime.action_tx();
@@ -409,6 +403,5 @@ fn _compile_pass_bus_signatures() {
     });
 
     let (bus, kb) = make_bus();
-    let _effect: BusEffectRuntime<TestState, TestAction, TestEffect, NumericComponentId, TestCtx> =
-        EffectRuntime::new(TestState::default(), effect_reducer).with_event_bus(bus, kb);
+    let _effect = Runtime::new(TestState::default(), effect_reducer).with_event_bus(bus, kb);
 }

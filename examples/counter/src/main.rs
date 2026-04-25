@@ -38,17 +38,17 @@ enum Action {
 }
 
 // Reducer - how state changes
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::Increment => {
             state.count += 1;
-            true
+            ReducerResult::changed()
         }
         Action::Decrement => {
             state.count -= 1;
-            true
+            ReducerResult::changed()
         }
-        Action::Quit => false,
+        Action::Quit => ReducerResult::unchanged(),
     }
 }
 
@@ -112,9 +112,10 @@ fn main() -> io::Result<()> {
                 _ => continue,
             };
 
-            if !store.dispatch(action) {
+            if matches!(&action, Action::Quit) {
                 break;
             }
+            store.dispatch(action);
         }
     }
 

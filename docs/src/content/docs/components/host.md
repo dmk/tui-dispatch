@@ -91,7 +91,7 @@ to pass into `run_with_hooks(...)`:
 ```rust
 let host_for_hook = host.clone();
 
-let mut runtime = DispatchRuntime::new(state, reducer)
+let mut runtime = Runtime::new(state, reducer)
     .with_event_bus(bus, keybindings);
 
 runtime

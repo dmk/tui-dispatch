@@ -5,12 +5,12 @@ description: Frequently asked questions about tui-dispatch
 
 ## Do I need Tokio?
 
-If you use `DispatchRuntime` / `EffectRuntime`, you'll typically be running inside a Tokio runtime because:
+If you use `Runtime`, you'll typically be running inside a Tokio runtime because:
 
-- the runtimes use `tokio::select!` internally
+- the runtime uses `tokio::select!` internally
 - async patterns (`TaskManager`, `Subscriptions`, async effects) obviously require it
 
-If your app is fully synchronous and you don't want Tokio, you can still use the lower-level pieces (`Store`, `EffectStore`, reducers, components) and write your own loop.
+If your app is fully synchronous and you don't want Tokio, you can still use the lower-level pieces (`Store`, reducers, components) and write your own loop.
 
 ## Where should async code live?
 
@@ -48,12 +48,12 @@ For more on the layering, see:
 
 Most apps use them together:
 
-- reducer returns `Effect::FetchThing`
+- reducer returns `ReducerResult::changed_with(Effect::FetchThing)`
 - effect handler uses `ctx.tasks().spawn("fetch", async { Action::DidLoad(...) })`
 
 ## How do I do periodic ticks / background polling?
 
-Enable `subscriptions` and use `Subscriptions` (usually through `EffectRuntime`):
+Enable `subscriptions` and use `Subscriptions` (usually through `Runtime`):
 
 - `interval("tick", Duration::from_millis(100), || Action::Tick)`
 - `interval_immediate(...)` if you want an initial fire
@@ -79,7 +79,7 @@ struct AppState {
 }
 
 let debug: DebugLayer<Action> = DebugLayer::simple().active(true);
-let mut runtime = DispatchRuntime::new(AppState::default(), reducer).with_debug(debug);
+let mut runtime = Runtime::new(AppState::default(), reducer).with_debug(debug);
 ```
 
 While enabled:
@@ -95,7 +95,7 @@ Test the pieces:
 - reducer emits the right `Effect`
 - reducer handles `Did*` actions correctly
 
-`EffectStoreTestHarness` supports this well:
+`StoreTestHarness` supports this well:
 
 - dispatch intent -> drain effects
 - complete `Did*` action -> `process_emitted()`

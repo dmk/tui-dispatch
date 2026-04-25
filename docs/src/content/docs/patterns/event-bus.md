@@ -118,7 +118,7 @@ HandlerResponse::actions_passthrough(v) // Multiple actions, event continues rou
 Attach the bus and keybindings to your runtime, then `run(...)` it:
 
 ```rust
-let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
+let mut runtime = Runtime::new(AppState::default(), reducer)
     .with_event_bus(bus, keybindings);
 
 runtime
@@ -133,8 +133,8 @@ runtime
     .await?;
 ```
 
-`with_event_bus(...)` returns a `BusDispatchRuntime` (or `BusEffectRuntime` for
-effectful reducers). Both expose `bus()`, `bus_mut()`, `keybindings()`,
+`with_event_bus(...)` keeps the value as a `Runtime` with bus routing enabled.
+It exposes `bus()`, `bus_mut()`, `keybindings()`,
 `enqueue(...)`, and `action_tx()` for pre-`run` setup or outside-the-loop
 wiring.
 

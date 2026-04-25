@@ -1213,8 +1213,9 @@ pub fn buffer_rect_to_string_plain(buffer: &Buffer, rect: ratatui::layout::Rect)
 
 /// Test harness combining Store + action channel + render capabilities.
 ///
-/// Provides an integrated testing experience for applications using the
-/// standard [`Store`](crate::Store) with bool reducers.
+/// Provides an integrated testing experience for applications using
+/// [`Store`](crate::Store) with [`ReducerResult`](crate::ReducerResult)
+/// reducers.
 ///
 /// # Example
 ///
@@ -1239,22 +1240,24 @@ pub fn buffer_rect_to_string_plain(buffer: &Buffer, rect: ratatui::layout::Rect)
 /// });
 /// assert!(output.contains("expected text"));
 /// ```
-pub struct StoreTestHarness<S, A: Action> {
-    store: crate::Store<S, A>,
+pub struct StoreTestHarness<S, A: Action, E = crate::NoEffect> {
+    store: crate::Store<S, A, E>,
     tx: mpsc::UnboundedSender<A>,
     rx: mpsc::UnboundedReceiver<A>,
+    effects: Vec<E>,
     render: Option<RenderHarness>,
     default_size: (u16, u16),
 }
 
-impl<S, A: Action> StoreTestHarness<S, A> {
+impl<S, A: Action, E> StoreTestHarness<S, A, E> {
     /// Create a new harness with initial state and reducer.
-    pub fn new(state: S, reducer: crate::Reducer<S, A>) -> Self {
+    pub fn new(state: S, reducer: crate::Reducer<S, A, E>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         Self {
             store: crate::Store::new(state, reducer),
             tx,
             rx,
+            effects: Vec::new(),
             render: None,
             default_size: (80, 24),
         }
@@ -1270,16 +1273,29 @@ impl<S, A: Action> StoreTestHarness<S, A> {
 
     /// Dispatch an action to the store.
     ///
-    /// Returns `true` if the state changed.
-    pub fn dispatch(&mut self, action: A) -> bool {
+    /// Returns the full reducer result.
+    pub fn dispatch(&mut self, action: A) -> crate::ReducerResult<E> {
         self.store.dispatch(action)
+    }
+
+    /// Dispatch an action and automatically collect its effects.
+    ///
+    /// Returns `true` if state changed. Effects are collected internally
+    /// and can be retrieved with [`Self::drain_effects`].
+    pub fn dispatch_collect(&mut self, action: A) -> bool {
+        let result = self.store.dispatch(action);
+        self.effects.extend(result.effects);
+        result.changed
     }
 
     /// Dispatch multiple actions in sequence.
     ///
     /// Returns a vector of booleans indicating which dispatches changed state.
     pub fn dispatch_all(&mut self, actions: impl IntoIterator<Item = A>) -> Vec<bool> {
-        actions.into_iter().map(|a| self.dispatch(a)).collect()
+        actions
+            .into_iter()
+            .map(|a| self.dispatch_collect(a))
+            .collect()
     }
 
     /// Get a reference to the current state.
@@ -1290,6 +1306,23 @@ impl<S, A: Action> StoreTestHarness<S, A> {
     /// Get a mutable reference to the state for test setup.
     pub fn state_mut(&mut self) -> &mut S {
         self.store.state_mut()
+    }
+
+    // === Effect Operations ===
+
+    /// Drain all collected effects.
+    pub fn drain_effects(&mut self) -> Vec<E> {
+        std::mem::take(&mut self.effects)
+    }
+
+    /// Check if any effects were collected.
+    pub fn has_effects(&self) -> bool {
+        !self.effects.is_empty()
+    }
+
+    /// Get the number of collected effects.
+    pub fn effect_count(&self) -> usize {
+        self.effects.len()
     }
 
     // === Action Channel (for async simulation) ===
@@ -1339,7 +1372,7 @@ impl<S, A: Action> StoreTestHarness<S, A> {
         let total = actions.len();
         let changed = actions
             .into_iter()
-            .filter(|a| self.dispatch(a.clone()))
+            .filter(|a| self.dispatch_collect(a.clone()))
             .count();
         (changed, total)
     }
@@ -1379,7 +1412,7 @@ impl<S, A: Action> StoreTestHarness<S, A> {
         for event in events {
             let actions: Vec<A> = handler(self.store.state_mut(), event).into_iter().collect();
             for action in actions {
-                self.dispatch(action.clone());
+                self.dispatch_collect(action.clone());
                 all_actions.push(action);
             }
         }
@@ -1466,287 +1499,7 @@ impl<S, A: Action> StoreTestHarness<S, A> {
 
 impl<S: Default, A: Action> Default for StoreTestHarness<S, A> {
     fn default() -> Self {
-        Self::new(S::default(), |_, _| false)
-    }
-}
-
-// ============================================================================
-// EffectStoreTestHarness - Integrated EffectStore + Test Harness
-// ============================================================================
-
-/// Test harness for effect-based stores.
-///
-/// Similar to [`StoreTestHarness`] but for applications using
-/// [`EffectStore`](crate::EffectStore) with [`ReducerResult`](crate::ReducerResult) reducers.
-///
-/// # Example
-///
-/// ```ignore
-/// use tui_dispatch::testing::EffectStoreTestHarness;
-///
-/// let mut harness = EffectStoreTestHarness::new(AppState::default(), reducer);
-///
-/// // Dispatch and collect effects
-/// harness.dispatch_collect(Action::WeatherFetch);
-/// harness.assert_state(|s| s.is_loading);
-///
-/// // Check emitted effects
-/// let effects = harness.drain_effects();
-/// effects.assert_count(1);
-/// effects.assert_first_matches(|e| matches!(e, Effect::FetchWeather { .. }));
-///
-/// // Simulate async completion
-/// harness.complete_action(Action::WeatherDidLoad(data));
-/// harness.process_emitted();
-/// harness.assert_state(|s| s.weather.is_some());
-/// ```
-pub struct EffectStoreTestHarness<S, A: Action, E> {
-    store: crate::EffectStore<S, A, E>,
-    tx: mpsc::UnboundedSender<A>,
-    rx: mpsc::UnboundedReceiver<A>,
-    effects: Vec<E>,
-    render: Option<RenderHarness>,
-    default_size: (u16, u16),
-}
-
-impl<S, A: Action, E> EffectStoreTestHarness<S, A, E> {
-    /// Create a new harness with initial state and effect reducer.
-    pub fn new(state: S, reducer: crate::EffectReducer<S, A, E>) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
-        Self {
-            store: crate::EffectStore::new(state, reducer),
-            tx,
-            rx,
-            effects: Vec::new(),
-            render: None,
-            default_size: (80, 24),
-        }
-    }
-
-    /// Set the default terminal size for rendering.
-    pub fn with_size(mut self, width: u16, height: u16) -> Self {
-        self.default_size = (width, height);
-        self
-    }
-
-    // === Store Operations ===
-
-    /// Dispatch an action to the store.
-    ///
-    /// Returns the [`ReducerResult`](crate::ReducerResult) with change status and effects.
-    pub fn dispatch(&mut self, action: A) -> crate::ReducerResult<E> {
-        self.store.dispatch(action)
-    }
-
-    /// Dispatch an action and automatically collect its effects.
-    ///
-    /// Returns `true` if state changed. Effects are collected internally
-    /// and can be retrieved with [`Self::drain_effects`].
-    pub fn dispatch_collect(&mut self, action: A) -> bool {
-        let result = self.store.dispatch(action);
-        self.effects.extend(result.effects);
-        result.changed
-    }
-
-    /// Dispatch multiple actions, collecting all effects.
-    ///
-    /// Returns a vector of booleans indicating which dispatches changed state.
-    pub fn dispatch_all(&mut self, actions: impl IntoIterator<Item = A>) -> Vec<bool> {
-        actions
-            .into_iter()
-            .map(|a| self.dispatch_collect(a))
-            .collect()
-    }
-
-    /// Get a reference to the current state.
-    pub fn state(&self) -> &S {
-        self.store.state()
-    }
-
-    /// Get a mutable reference to the state for test setup.
-    pub fn state_mut(&mut self) -> &mut S {
-        self.store.state_mut()
-    }
-
-    // === Effect Operations ===
-
-    /// Drain all collected effects.
-    pub fn drain_effects(&mut self) -> Vec<E> {
-        std::mem::take(&mut self.effects)
-    }
-
-    /// Check if any effects were collected.
-    pub fn has_effects(&self) -> bool {
-        !self.effects.is_empty()
-    }
-
-    /// Get the number of collected effects.
-    pub fn effect_count(&self) -> usize {
-        self.effects.len()
-    }
-
-    // === Action Channel (for async simulation) ===
-
-    /// Get a sender clone for simulating async action completions.
-    pub fn sender(&self) -> mpsc::UnboundedSender<A> {
-        self.tx.clone()
-    }
-
-    /// Emit an action to the channel (simulates async completion).
-    pub fn emit(&self, action: A) {
-        let _ = self.tx.send(action);
-    }
-
-    /// Simulate async action completion (semantic alias for [`Self::emit`]).
-    pub fn complete_action(&self, action: A) {
-        self.emit(action);
-    }
-
-    /// Simulate multiple async action completions.
-    pub fn complete_actions(&self, actions: impl IntoIterator<Item = A>) {
-        for action in actions {
-            self.emit(action);
-        }
-    }
-
-    /// Drain all emitted actions from the channel.
-    pub fn drain_emitted(&mut self) -> Vec<A> {
-        let mut actions = Vec::new();
-        while let Ok(action) = self.rx.try_recv() {
-            actions.push(action);
-        }
-        actions
-    }
-
-    /// Check if any actions were emitted.
-    pub fn has_emitted(&mut self) -> bool {
-        !self.drain_emitted().is_empty()
-    }
-
-    /// Process all emitted actions through the store, collecting effects.
-    ///
-    /// Drains the channel and dispatches each action to the store.
-    /// Returns `(changed_count, total_count)`.
-    pub fn process_emitted(&mut self) -> (usize, usize) {
-        let actions = self.drain_emitted();
-        let total = actions.len();
-        let changed = actions
-            .into_iter()
-            .filter(|a| self.dispatch_collect(a.clone()))
-            .count();
-        (changed, total)
-    }
-
-    // === Key/Event Handling ===
-
-    /// Send a sequence of key events and collect actions from a handler.
-    pub fn send_keys<C, H, I>(&mut self, keys: &str, mut handler: H) -> Vec<A>
-    where
-        C: ComponentId,
-        I: IntoIterator<Item = A>,
-        H: FnMut(&mut S, Event<C>) -> I,
-    {
-        let events = key_events::<C>(keys);
-        let mut all_actions = Vec::new();
-        for event in events {
-            let actions = handler(self.store.state_mut(), event);
-            all_actions.extend(actions);
-        }
-        all_actions
-    }
-
-    /// Send keys and dispatch returned actions to the store.
-    ///
-    /// Returns the actions that were dispatched. Effects are collected.
-    pub fn send_keys_dispatch<C, H, I>(&mut self, keys: &str, mut handler: H) -> Vec<A>
-    where
-        C: ComponentId,
-        I: IntoIterator<Item = A>,
-        H: FnMut(&mut S, Event<C>) -> I,
-    {
-        let events = key_events::<C>(keys);
-        let mut all_actions = Vec::new();
-        for event in events {
-            let actions: Vec<A> = handler(self.store.state_mut(), event).into_iter().collect();
-            for action in actions {
-                self.dispatch_collect(action.clone());
-                all_actions.push(action);
-            }
-        }
-        all_actions
-    }
-
-    // === State Assertions ===
-
-    /// Assert a condition on the current state.
-    pub fn assert_state<F>(&self, predicate: F)
-    where
-        F: FnOnce(&S) -> bool,
-    {
-        assert!(predicate(self.state()), "State assertion failed");
-    }
-
-    /// Assert a condition with a custom message.
-    pub fn assert_state_msg<F>(&self, predicate: F, msg: &str)
-    where
-        F: FnOnce(&S) -> bool,
-    {
-        assert!(predicate(self.state()), "{}", msg);
-    }
-
-    // === Render Operations ===
-
-    fn ensure_render(&mut self, width: u16, height: u16) {
-        if self.render.is_none() || self.render.as_ref().map(|r| r.size()) != Some((width, height))
-        {
-            self.render = Some(RenderHarness::new(width, height));
-        }
-    }
-
-    /// Render using the provided function, returns string with ANSI codes.
-    pub fn render<F>(&mut self, width: u16, height: u16, render_fn: F) -> String
-    where
-        F: FnOnce(&mut ratatui::Frame, ratatui::layout::Rect, &S),
-    {
-        self.ensure_render(width, height);
-        let store = &self.store;
-        let render = self.render.as_mut().unwrap();
-        render.render_to_string(|frame| {
-            let area = frame.area();
-            render_fn(frame, area, store.state());
-        })
-    }
-
-    /// Render to plain string (no ANSI codes).
-    pub fn render_plain<F>(&mut self, width: u16, height: u16, render_fn: F) -> String
-    where
-        F: FnOnce(&mut ratatui::Frame, ratatui::layout::Rect, &S),
-    {
-        self.ensure_render(width, height);
-        let store = &self.store;
-        let render = self.render.as_mut().unwrap();
-        render.render_to_string_plain(|frame| {
-            let area = frame.area();
-            render_fn(frame, area, store.state());
-        })
-    }
-
-    /// Render with default terminal size.
-    pub fn render_default<F>(&mut self, render_fn: F) -> String
-    where
-        F: FnOnce(&mut ratatui::Frame, ratatui::layout::Rect, &S),
-    {
-        let (w, h) = self.default_size;
-        self.render(w, h, render_fn)
-    }
-
-    /// Render with default size to plain string.
-    pub fn render_default_plain<F>(&mut self, render_fn: F) -> String
-    where
-        F: FnOnce(&mut ratatui::Frame, ratatui::layout::Rect, &S),
-    {
-        let (w, h) = self.default_size;
-        self.render_plain(w, h, render_fn)
+        Self::new(S::default(), |_, _| crate::ReducerResult::unchanged())
     }
 }
 

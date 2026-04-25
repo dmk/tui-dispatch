@@ -17,9 +17,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 use tui_dispatch_core::bus::EventOutcome;
-use tui_dispatch_core::runtime::{
-    EffectContext, EffectDispatchStore, EffectRuntime, RenderContext,
-};
+use tui_dispatch_core::runtime::{EffectContext, RenderContext, Runtime, RuntimeStore};
 use tui_dispatch_core::store::{ComposedMiddleware, Middleware};
 use tui_dispatch_core::testing::RenderHarness;
 use tui_dispatch_core::{
@@ -409,8 +407,8 @@ impl DebugSession {
         B: Backend,
         S: Clone + DebugState + Serialize + 'static,
         A: Action + ActionParams,
-        St: EffectDispatchStore<S, A, E>,
-        FInit: FnOnce(&mut EffectRuntime<S, A, E, St>),
+        St: RuntimeStore<S, A, E>,
+        FInit: FnOnce(&mut Runtime<S, A, E, tui_dispatch_core::runtime::Direct, St>),
         FRender: FnMut(&mut ratatui::Frame, Rect, &S, RenderContext),
         FEvent: FnMut(&EventKind, &S) -> R,
         R: Into<EventOutcome<A>>,
@@ -429,7 +427,7 @@ impl DebugSession {
         if self.args.render_once {
             let final_state = if has_awaits {
                 // Need runtime for effects when replay has await markers
-                let runtime = EffectRuntime::from_store(store);
+                let runtime = Runtime::from_store(store);
                 let mut action_rx = runtime.subscribe_actions();
                 let action_tx = runtime.action_tx();
 
@@ -485,7 +483,7 @@ impl DebugSession {
                 let backend = TestBackend::new(width, height);
                 let mut test_terminal = Terminal::new(backend)?;
                 runtime
-                    .run(
+                    .run_with_effects(
                         &mut test_terminal,
                         |_frame, _area, _state, _ctx| {},
                         |_event, _state| EventOutcome::<A>::ignored(),
@@ -522,7 +520,7 @@ impl DebugSession {
         let debug_layer = debug_layer
             .with_state_snapshots::<S>()
             .active(self.args.enabled);
-        let mut runtime = EffectRuntime::from_store(store).with_debug(debug_layer);
+        let mut runtime = Runtime::from_store(store).with_debug(debug_layer);
         init_runtime(&mut runtime);
 
         for item in replay_items {
@@ -537,7 +535,7 @@ impl DebugSession {
         }
 
         let result = runtime
-            .run(
+            .run_with_effects(
                 terminal,
                 |frame, area, state, render_ctx| {
                     render(frame, area, state, render_ctx);
@@ -574,10 +572,10 @@ impl DebugSession {
         B: Backend,
         S: Clone + DebugState + Serialize + EventRoutingState<Id, Ctx> + 'static,
         A: Action + ActionParams,
-        St: EffectDispatchStore<S, A, E>,
+        St: RuntimeStore<S, A, E>,
         Id: ComponentId + 'static,
         Ctx: BindingContext + 'static,
-        FInit: FnOnce(&mut EffectRuntime<S, A, E, St>),
+        FInit: FnOnce(&mut Runtime<S, A, E, tui_dispatch_core::runtime::Direct, St>),
         FRender: FnMut(&mut ratatui::Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
         FQuit: FnMut(&A) -> bool,
         FEffect: FnMut(E, &mut EffectContext<A>),
@@ -594,7 +592,7 @@ impl DebugSession {
         if self.args.render_once {
             let final_state = if has_awaits {
                 // Need runtime for effects when replay has await markers
-                let runtime = EffectRuntime::from_store(store);
+                let runtime = Runtime::from_store(store);
                 let mut action_rx = runtime.subscribe_actions();
                 let action_tx = runtime.action_tx();
 
@@ -650,7 +648,7 @@ impl DebugSession {
                 let backend = TestBackend::new(width, height);
                 let mut test_terminal = Terminal::new(backend)?;
                 runtime
-                    .run(
+                    .run_with_effects(
                         &mut test_terminal,
                         |_frame, _area, _state, _ctx| {},
                         |_event, _state| EventOutcome::<A>::ignored(),
@@ -694,7 +692,7 @@ impl DebugSession {
         let debug_layer = debug_layer
             .with_state_snapshots::<S>()
             .active(self.args.enabled);
-        let mut runtime = EffectRuntime::from_store(store).with_debug(debug_layer);
+        let mut runtime = Runtime::from_store(store).with_debug(debug_layer);
         init_runtime(&mut runtime);
 
         for item in replay_items {
@@ -711,7 +709,7 @@ impl DebugSession {
         let mut bus_runtime = runtime.with_event_bus(bus, keybindings);
 
         let result = bus_runtime
-            .run(
+            .run_with_effects(
                 terminal,
                 |frame, area, state, render_ctx, event_ctx| {
                     render(frame, area, state, render_ctx, event_ctx);

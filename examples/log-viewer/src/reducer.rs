@@ -1,7 +1,8 @@
 use crate::action::Action;
 use crate::state::AppState;
+use tui_dispatch::ReducerResult;
 
-pub fn reducer(state: &mut AppState, action: Action) -> bool {
+pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::LogsAppended(lines) => state.append_lines(lines),
         Action::ToggleLevel(level) => state.toggle_level(&level),
@@ -12,10 +13,10 @@ pub fn reducer(state: &mut AppState, action: Action) -> bool {
         Action::FocusNext => state.focus_next(),
         Action::FocusPrev => state.focus_prev(),
         Action::ToggleFollow => state.toggle_follow(),
-        Action::Quit => return false,
+        Action::Quit => return ReducerResult::unchanged(),
     }
 
-    true
+    ReducerResult::changed()
 }
 
 #[cfg(test)]

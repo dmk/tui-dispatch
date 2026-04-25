@@ -54,22 +54,22 @@ enum Action {
 ### Reducer
 
 ```rust
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
         Action::Increment => {
             state.count += 1;
-            true  // state changed, need re-render
+            ReducerResult::changed()
         }
         Action::Decrement => {
             state.count -= 1;
-            true
+            ReducerResult::changed()
         }
-        Action::Quit => false,  // handled in main loop
+        Action::Quit => ReducerResult::unchanged(),
     }
 }
 ```
 
-The reducer returns `bool` - true means state changed and UI should re-render.
+The reducer returns `ReducerResult`; `changed()` means state changed and the UI should re-render.
 
 ### Store + Main Loop
 
@@ -91,14 +91,15 @@ loop {
             _ => continue,
         };
 
-        if !store.dispatch(action) {
+        if matches!(&action, Action::Quit) {
             break;
         }
+        store.dispatch(action);
     }
 }
 ```
 
-The loop renders, waits for a key event, maps it to an action, and dispatches. When `dispatch` returns `false` (the `Quit` arm), the loop exits.
+The loop renders, waits for a key event, maps it to an action, exits on `Quit`, and dispatches everything else.
 
 ## Next steps
 

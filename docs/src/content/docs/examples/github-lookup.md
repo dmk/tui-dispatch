@@ -52,7 +52,7 @@ This is the same pattern taught in the [async-fetch tutorial](/tui-dispatch/tuto
 ```
 examples/github-lookup/
 ├── src/
-│   ├── main.rs      # Terminal setup, EffectRuntime
+│   ├── main.rs      # Terminal setup, Runtime
 │   ├── state.rs     # AppState, GitHubUser
 │   ├── action.rs    # Action enum (intent + result)
 │   ├── effect.rs    # Effect::FetchUser

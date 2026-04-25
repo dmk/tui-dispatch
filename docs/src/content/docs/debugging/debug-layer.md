@@ -7,7 +7,7 @@ The debug layer provides powerful debugging tools for TUI applications: frame fr
 
 ## Quick Start
 
-The easiest way to add debugging is with `DispatchRuntime`:
+The easiest way to add debugging is with `Runtime`:
 
 ```rust
 use tui_dispatch::prelude::*;
@@ -16,7 +16,7 @@ use tui_dispatch::debug::DebugLayer;
 let bus = EventBus::new();
 let keybindings = Keybindings::new();
 
-let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
+let mut runtime = Runtime::new(AppState::default(), reducer)
     .with_debug(DebugLayer::simple())  // F12 to toggle
     .with_event_bus(bus, keybindings);
 

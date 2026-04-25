@@ -27,11 +27,11 @@ struct State { count: i32 }
 #[derive(Action, Clone, Debug)]
 enum Action { Inc, Dec, Quit }
 
-fn reducer(state: &mut State, action: Action) -> bool {
+fn reducer(state: &mut State, action: Action) -> ReducerResult {
     match action {
-        Action::Inc => { state.count += 1; true }
-        Action::Dec => { state.count -= 1; true }
-        Action::Quit => false,
+        Action::Inc => { state.count += 1; ReducerResult::changed() }
+        Action::Dec => { state.count -= 1; ReducerResult::changed() }
+        Action::Quit => ReducerResult::unchanged(),
     }
 }
 
@@ -56,7 +56,8 @@ fn main() -> io::Result<()> {
                 KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
                 _ => continue,
             };
-            if !store.dispatch(action) { break; }
+            if matches!(&action, Action::Quit) { break; }
+            store.dispatch(action);
         }
     }
 
@@ -83,9 +84,10 @@ If you want the bare minimum, use `tui-dispatch-core`; `tui-dispatch` is a batte
 
 ## Async and Side Effects
 
-When you need async work (HTTP, file IO, timers), switch to the effect pattern:
+When you need async work (HTTP, file IO, timers), use the same store/runtime
+model with an effect type:
 
-- Reducer returns `ReducerResult<Effect>` instead of `bool`
+- Reducer returns `ReducerResult<Effect>`
 - Reducer emits `Effect` values (data), and an effect handler executes them
 - Async completion sends a normal action back into the runtime (often named `Did*`)
 

@@ -45,11 +45,11 @@ struct AppState { count: i32 }
 #[derive(Action, Clone, Debug)]
 enum Action { Inc, Dec, Quit }
 
-fn reducer(state: &mut AppState, action: Action) -> bool {
+fn reducer(state: &mut AppState, action: Action) -> ReducerResult {
     match action {
-        Action::Inc => { state.count += 1; true }
-        Action::Dec => { state.count -= 1; true }
-        Action::Quit => false,
+        Action::Inc => { state.count += 1; ReducerResult::changed() }
+        Action::Dec => { state.count -= 1; ReducerResult::changed() }
+        Action::Quit => ReducerResult::unchanged(),
     }
 }
 
@@ -75,7 +75,8 @@ fn main() -> io::Result<()> {
                 KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
                 _ => continue,
             };
-            if !store.dispatch(action) { break; }
+            if matches!(&action, Action::Quit) { break; }
+            store.dispatch(action);
         }
     }
 
@@ -93,7 +94,7 @@ That's the core: State, Action, reducer, Store.
 
 The recommended pattern is:
 
-- Intent action (user asks for work) -> reducer returns an `Effect`
+- Intent action (user asks for work) -> reducer returns a `ReducerResult` with an effect
 - Effect handler spawns async work
 - Async completion dispatches a normal action back into the runtime
 
@@ -161,15 +162,15 @@ fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
 }
 ```
 
-Then run it with `EffectRuntime`. If you also want focus-based routing, compose
+Then run it with `Runtime`. If you also want focus-based routing, compose
 an `EventBus` + `Keybindings` via `with_event_bus(...)`:
 
 ```rust
-let mut runtime = EffectRuntime::new(State::default(), reducer)
+let mut runtime = Runtime::new(State::default(), reducer)
     .with_event_bus(bus, keybindings);
 
 runtime
-    .run(terminal, render, is_quit, handle_effect)
+    .run_with_effects(terminal, render, is_quit, handle_effect)
     .await?;
 ```
 
@@ -178,7 +179,7 @@ See [Event Bus](/tui-dispatch/patterns/event-bus/) for how to build `bus` and
 
 ## Debug Mode (F12)
 
-If you want the debug overlay via `DispatchRuntime::with_debug(...)` / `EffectRuntime::with_debug(...)`, your state type must implement `DebugState`.
+If you want the debug overlay via `Runtime::with_debug(...)`, your state type must implement `DebugState`.
 
 ```rust
 use tui_dispatch::debug::DebugLayer;
@@ -189,7 +190,7 @@ struct AppState {
 }
 
 let debug: DebugLayer<Action> = DebugLayer::simple().active(true);
-let mut runtime = DispatchRuntime::new(AppState::default(), reducer).with_debug(debug);
+let mut runtime = Runtime::new(AppState::default(), reducer).with_debug(debug);
 ```
 
 In debug mode:
@@ -202,9 +203,9 @@ In debug mode:
 Reducers and effects are easy to test because they are plain functions returning plain data.
 
 ```rust
-use tui_dispatch::testing::{EffectAssertions, EffectStoreTestHarness};
+use tui_dispatch::testing::{EffectAssertions, StoreTestHarness};
 
-let mut harness = EffectStoreTestHarness::new(State::default(), reducer);
+let mut harness = StoreTestHarness::new(State::default(), reducer);
 
 harness.dispatch_collect(Action::Fetch);
 harness.assert_state(|s| s.loading);

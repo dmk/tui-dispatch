@@ -245,7 +245,7 @@ async fn main() -> io::Result<()> {
     let replay_items = session.load_replay_items::<Action>()?;
 
     // Create store and debug layer
-    let mut store = EffectStoreWithMiddleware::new(state, reducer, middleware);
+    let mut store = StoreWithMiddleware::new(state, reducer, middleware);
     let debug_layer = if session.enabled() {
         DebugLayer::simple().active(true)
     } else {

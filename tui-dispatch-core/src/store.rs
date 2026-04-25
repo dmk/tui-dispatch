@@ -3,10 +3,112 @@
 use crate::Action;
 use std::marker::PhantomData;
 
+/// Marker effect type for reducers that do not emit effects.
+///
+/// `NoEffect` is uninhabited, so a `ReducerResult<NoEffect>` can never contain
+/// a real effect value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoEffect {}
+
+/// Result of dispatching an action to a store.
+///
+/// `changed` and `effects` are independent facts: reducers can update state
+/// without emitting effects, emit effects without updating state, or do both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReducerResult<E = NoEffect> {
+    /// Whether the state was modified by this action.
+    pub changed: bool,
+    /// Effects to be processed after dispatch.
+    pub effects: Vec<E>,
+}
+
+impl<E> Default for ReducerResult<E> {
+    fn default() -> Self {
+        Self::unchanged()
+    }
+}
+
+impl<E> ReducerResult<E> {
+    /// Create a result indicating no state change and no effects.
+    #[inline]
+    pub fn unchanged() -> Self {
+        Self {
+            changed: false,
+            effects: vec![],
+        }
+    }
+
+    /// Create a result indicating state changed but no effects.
+    #[inline]
+    pub fn changed() -> Self {
+        Self {
+            changed: true,
+            effects: vec![],
+        }
+    }
+
+    /// Create a result with a single effect but no state change.
+    #[inline]
+    pub fn effect(effect: E) -> Self {
+        Self {
+            changed: false,
+            effects: vec![effect],
+        }
+    }
+
+    /// Create a result with multiple effects but no state change.
+    #[inline]
+    pub fn effects(effects: Vec<E>) -> Self {
+        Self {
+            changed: false,
+            effects,
+        }
+    }
+
+    /// Create a result indicating state changed with a single effect.
+    #[inline]
+    pub fn changed_with(effect: E) -> Self {
+        Self {
+            changed: true,
+            effects: vec![effect],
+        }
+    }
+
+    /// Create a result indicating state changed with multiple effects.
+    #[inline]
+    pub fn changed_with_many(effects: Vec<E>) -> Self {
+        Self {
+            changed: true,
+            effects,
+        }
+    }
+
+    /// Add an effect to this result.
+    #[inline]
+    pub fn with(mut self, effect: E) -> Self {
+        self.effects.push(effect);
+        self
+    }
+
+    /// Set the changed flag to true.
+    #[inline]
+    pub fn mark_changed(mut self) -> Self {
+        self.changed = true;
+        self
+    }
+
+    /// Returns true if there are any effects to process.
+    #[inline]
+    pub fn has_effects(&self) -> bool {
+        !self.effects.is_empty()
+    }
+}
+
 /// A reducer function that handles actions and mutates state
 ///
-/// Returns `true` if the state changed and a re-render is needed.
-pub type Reducer<S, A> = fn(&mut S, A) -> bool;
+/// Returns a [`ReducerResult`] containing the state change flag and any effects
+/// emitted by the action.
+pub type Reducer<S, A, E = NoEffect> = fn(&mut S, A) -> ReducerResult<E>;
 
 /// Default maximum nested middleware dispatch depth.
 pub(crate) const DEFAULT_MAX_DISPATCH_DEPTH: usize = 16;
@@ -231,7 +333,8 @@ where
 /// ```text
 /// fn handler(state: &mut S, action: A) -> R
 /// ```
-/// Where `R` is typically `bool` or `ReducerResult<E>`.
+/// Where `R` is typically [`ReducerResult`] or another locally composed
+/// return type.
 ///
 /// # Category Inference
 ///
@@ -250,7 +353,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// fn reducer(state: &mut AppState, action: Action, mode: Mode) -> bool {
+/// fn reducer(state: &mut AppState, action: Action, mode: Mode) -> ReducerResult {
 ///     reducer_compose!(state, action, mode, {
 ///         // Command mode gets priority
 ///         context Mode::Command => handle_command,
@@ -258,17 +361,17 @@ where
 ///         category "nav" => handle_navigation,
 ///         category "search" => handle_search,
 ///         // Specific actions
-///         Action::Quit => |_, _| false,
+///         Action::Quit => |_, _| ReducerResult::unchanged(),
 ///         // Everything else
 ///         _ => handle_ui,
 ///     })
 /// }
 ///
-/// fn handle_navigation(state: &mut AppState, action: Action) -> bool {
+/// fn handle_navigation(state: &mut AppState, action: Action) -> ReducerResult {
 ///     match action {
-///         Action::NavUp => { state.cursor -= 1; true }
-///         Action::NavDown => { state.cursor += 1; true }
-///         _ => false,
+///         Action::NavUp => { state.cursor -= 1; ReducerResult::changed() }
+///         Action::NavDown => { state.cursor += 1; ReducerResult::changed() }
+///         _ => ReducerResult::unchanged(),
 ///     }
 /// }
 /// ```
@@ -380,7 +483,7 @@ macro_rules! reducer_compose {
 ///
 /// # Example
 /// ```
-/// use tui_dispatch_core::{Action, Store};
+/// use tui_dispatch_core::{Action, ReducerResult, Store};
 ///
 /// #[derive(Clone, Debug)]
 /// enum MyAction { Increment, Decrement }
@@ -397,26 +500,27 @@ macro_rules! reducer_compose {
 /// #[derive(Default)]
 /// struct AppState { counter: i32 }
 ///
-/// fn reducer(state: &mut AppState, action: MyAction) -> bool {
+/// fn reducer(state: &mut AppState, action: MyAction) -> ReducerResult {
 ///     match action {
-///         MyAction::Increment => { state.counter += 1; true }
-///         MyAction::Decrement => { state.counter -= 1; true }
+///         MyAction::Increment => { state.counter += 1; ReducerResult::changed() }
+///         MyAction::Decrement => { state.counter -= 1; ReducerResult::changed() }
 ///     }
 /// }
 ///
 /// let mut store = Store::new(AppState::default(), reducer);
-/// store.dispatch(MyAction::Increment);
+/// let result = store.dispatch(MyAction::Increment);
+/// assert!(result.changed);
 /// assert_eq!(store.state().counter, 1);
 /// ```
-pub struct Store<S, A: Action> {
+pub struct Store<S, A: Action, E = NoEffect> {
     state: S,
-    reducer: Reducer<S, A>,
-    _marker: PhantomData<A>,
+    reducer: Reducer<S, A, E>,
+    _marker: PhantomData<(A, E)>,
 }
 
-impl<S, A: Action> Store<S, A> {
+impl<S, A: Action, E> Store<S, A, E> {
     /// Create a new store with initial state and reducer
-    pub fn new(state: S, reducer: Reducer<S, A>) -> Self {
+    pub fn new(state: S, reducer: Reducer<S, A, E>) -> Self {
         Self {
             state,
             reducer,
@@ -427,8 +531,8 @@ impl<S, A: Action> Store<S, A> {
     /// Dispatch an action to the store
     ///
     /// The reducer will be called with the current state and action.
-    /// Returns `true` if the state changed and a re-render is needed.
-    pub fn dispatch(&mut self, action: A) -> bool {
+    /// Returns the reducer result.
+    pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         (self.reducer)(&mut self.state, action)
     }
 
@@ -451,15 +555,18 @@ impl<S, A: Action> Store<S, A> {
 ///
 /// Wraps a `Store` and allows middleware to intercept actions
 /// before and after they are processed by the reducer.
-pub struct StoreWithMiddleware<S, A: Action, M: Middleware<S, A>> {
-    store: Store<S, A>,
+pub struct StoreWithMiddleware<S, A: Action, E = NoEffect, M = NoopMiddleware>
+where
+    M: Middleware<S, A>,
+{
+    store: Store<S, A, E>,
     middleware: M,
     dispatch_limits: DispatchLimits,
 }
 
-impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
+impl<S, A: Action, E, M: Middleware<S, A>> StoreWithMiddleware<S, A, E, M> {
     /// Create a new store with middleware
-    pub fn new(state: S, reducer: Reducer<S, A>, middleware: M) -> Self {
+    pub fn new(state: S, reducer: Reducer<S, A, E>, middleware: M) -> Self {
         Self {
             store: Store::new(state, reducer),
             middleware,
@@ -483,7 +590,7 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     ///
     /// This wraps [`Self::try_dispatch`] and panics if dispatch limits are exceeded.
     /// Use `try_dispatch` to handle overflow as a typed error.
-    pub fn dispatch(&mut self, action: A) -> bool {
+    pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
         self.try_dispatch(action)
             .unwrap_or_else(|error| panic!("middleware dispatch failed: {error}"))
     }
@@ -501,7 +608,7 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     ///
     /// Action budget accounting includes attempted dispatches that are later cancelled by
     /// `Middleware::before`.
-    pub fn try_dispatch(&mut self, action: A) -> Result<bool, DispatchError> {
+    pub fn try_dispatch(&mut self, action: A) -> Result<ReducerResult<E>, DispatchError> {
         let mut driver = StoreDispatchDriver {
             store: &mut self.store,
             middleware: &mut self.middleware,
@@ -530,15 +637,15 @@ impl<S, A: Action, M: Middleware<S, A>> StoreWithMiddleware<S, A, M> {
     }
 }
 
-struct StoreDispatchDriver<'a, S, A: Action, M: Middleware<S, A>> {
-    store: &'a mut Store<S, A>,
+struct StoreDispatchDriver<'a, S, A: Action, E, M: Middleware<S, A>> {
+    store: &'a mut Store<S, A, E>,
     middleware: &'a mut M,
 }
 
-impl<S, A: Action, M: Middleware<S, A>> MiddlewareDispatchDriver<A>
-    for StoreDispatchDriver<'_, S, A, M>
+impl<S, A: Action, E, M: Middleware<S, A>> MiddlewareDispatchDriver<A>
+    for StoreDispatchDriver<'_, S, A, E, M>
 {
-    type Output = bool;
+    type Output = ReducerResult<E>;
 
     fn before(&mut self, action: &A) -> bool {
         self.middleware.before(action, &self.store.state)
@@ -549,15 +656,17 @@ impl<S, A: Action, M: Middleware<S, A>> MiddlewareDispatchDriver<A>
     }
 
     fn cancelled_output(&mut self) -> Self::Output {
-        false
+        ReducerResult::unchanged()
     }
 
     fn after(&mut self, action: &A, result: &Self::Output) -> Vec<A> {
-        self.middleware.after(action, *result, &self.store.state)
+        self.middleware
+            .after(action, result.changed, &self.store.state)
     }
 
     fn merge_child(&mut self, parent: &mut Self::Output, child: Self::Output) {
-        *parent |= child;
+        parent.changed |= child.changed;
+        parent.effects.extend(child.effects);
     }
 }
 
@@ -739,17 +848,17 @@ mod tests {
         }
     }
 
-    fn test_reducer(state: &mut TestState, action: TestAction) -> bool {
+    fn test_reducer(state: &mut TestState, action: TestAction) -> ReducerResult {
         match action {
             TestAction::Increment => {
                 state.counter += 1;
-                true
+                ReducerResult::changed()
             }
             TestAction::Decrement => {
                 state.counter -= 1;
-                true
+                ReducerResult::changed()
             }
-            TestAction::NoOp => false,
+            TestAction::NoOp => ReducerResult::unchanged(),
         }
     }
 
@@ -757,13 +866,13 @@ mod tests {
     fn test_store_dispatch() {
         let mut store = Store::new(TestState::default(), test_reducer);
 
-        assert!(store.dispatch(TestAction::Increment));
+        assert!(store.dispatch(TestAction::Increment).changed);
         assert_eq!(store.state().counter, 1);
 
-        assert!(store.dispatch(TestAction::Increment));
+        assert!(store.dispatch(TestAction::Increment).changed);
         assert_eq!(store.state().counter, 2);
 
-        assert!(store.dispatch(TestAction::Decrement));
+        assert!(store.dispatch(TestAction::Decrement).changed);
         assert_eq!(store.state().counter, 1);
     }
 
@@ -771,7 +880,7 @@ mod tests {
     fn test_store_noop() {
         let mut store = Store::new(TestState::default(), test_reducer);
 
-        assert!(!store.dispatch(TestAction::NoOp));
+        assert!(!store.dispatch(TestAction::NoOp).changed);
         assert_eq!(store.state().counter, 0);
     }
 
@@ -781,6 +890,88 @@ mod tests {
 
         store.state_mut().counter = 100;
         assert_eq!(store.state().counter, 100);
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum TestEffect {
+        Log(String),
+        Save,
+    }
+
+    #[derive(Clone, Debug)]
+    enum EffectAction {
+        Decrement,
+        TriggerEffect,
+    }
+
+    impl Action for EffectAction {
+        fn name(&self) -> &'static str {
+            match self {
+                EffectAction::Decrement => "Decrement",
+                EffectAction::TriggerEffect => "TriggerEffect",
+            }
+        }
+    }
+
+    fn effect_reducer(state: &mut TestState, action: EffectAction) -> ReducerResult<TestEffect> {
+        match action {
+            EffectAction::Decrement => {
+                state.counter -= 1;
+                ReducerResult::changed_with(TestEffect::Log(format!("count: {}", state.counter)))
+            }
+            EffectAction::TriggerEffect => {
+                ReducerResult::effects(vec![TestEffect::Log("triggered".into()), TestEffect::Save])
+            }
+        }
+    }
+
+    #[test]
+    fn reducer_result_builders_preserve_changed_and_effects() {
+        let r: ReducerResult<TestEffect> = ReducerResult::unchanged();
+        assert!(!r.changed);
+        assert!(r.effects.is_empty());
+
+        let r: ReducerResult<TestEffect> = ReducerResult::changed();
+        assert!(r.changed);
+        assert!(r.effects.is_empty());
+
+        let r = ReducerResult::effect(TestEffect::Save);
+        assert!(!r.changed);
+        assert_eq!(r.effects, vec![TestEffect::Save]);
+
+        let r = ReducerResult::changed_with(TestEffect::Save);
+        assert!(r.changed);
+        assert_eq!(r.effects, vec![TestEffect::Save]);
+
+        let r =
+            ReducerResult::changed_with_many(vec![TestEffect::Save, TestEffect::Log("x".into())]);
+        assert!(r.changed);
+        assert_eq!(r.effects.len(), 2);
+    }
+
+    #[test]
+    fn reducer_result_chaining_can_add_effect_and_mark_changed() {
+        let r: ReducerResult<TestEffect> = ReducerResult::unchanged()
+            .with(TestEffect::Save)
+            .mark_changed();
+        assert!(r.changed);
+        assert_eq!(r.effects, vec![TestEffect::Save]);
+    }
+
+    #[test]
+    fn store_dispatch_supports_effect_reducer_results() {
+        let mut store = Store::new(TestState::default(), effect_reducer);
+
+        let result = store.dispatch(EffectAction::Decrement);
+        assert!(result.changed);
+        assert_eq!(result.effects, vec![TestEffect::Log("count: -1".into())]);
+
+        let result = store.dispatch(EffectAction::TriggerEffect);
+        assert!(!result.changed);
+        assert_eq!(
+            result.effects,
+            vec![TestEffect::Log("triggered".into()), TestEffect::Save]
+        );
     }
 
     #[derive(Default)]
@@ -913,8 +1104,8 @@ mod tests {
             max_actions: target + 1,
         });
 
-        let changed = store.try_dispatch(TestAction::Increment).unwrap();
-        assert!(changed);
+        let result = store.try_dispatch(TestAction::Increment).unwrap();
+        assert!(result.changed);
         assert_eq!(store.state().counter, target as i32);
     }
 
@@ -942,9 +1133,9 @@ mod tests {
         }
     }
 
-    fn ordering_reducer(state: &mut OrderingState, action: OrderingAction) -> bool {
+    fn ordering_reducer(state: &mut OrderingState, action: OrderingAction) -> ReducerResult {
         state.order.push(action.name());
-        true
+        ReducerResult::changed()
     }
 
     struct OrderingMiddleware;
@@ -980,9 +1171,42 @@ mod tests {
             max_actions: 8,
         });
 
-        let changed = store.try_dispatch(OrderingAction::Root).unwrap();
-        assert!(changed);
+        let result = store.try_dispatch(OrderingAction::Root).unwrap();
+        assert!(result.changed);
         assert_eq!(store.state().order, vec!["Root", "Left", "Leaf", "Right"]);
+    }
+
+    fn ordering_effect_reducer(
+        state: &mut OrderingState,
+        action: OrderingAction,
+    ) -> ReducerResult<TestEffect> {
+        state.order.push(action.name());
+        ReducerResult::changed_with(TestEffect::Log(action.name().into()))
+    }
+
+    #[test]
+    fn test_try_dispatch_merges_child_effects_in_depth_first_order() {
+        let mut store = StoreWithMiddleware::new(
+            OrderingState::default(),
+            ordering_effect_reducer,
+            OrderingMiddleware,
+        )
+        .with_dispatch_limits(DispatchLimits {
+            max_depth: 8,
+            max_actions: 8,
+        });
+
+        let result = store.try_dispatch(OrderingAction::Root).unwrap();
+        assert!(result.changed);
+        assert_eq!(
+            result.effects,
+            vec![
+                TestEffect::Log("Root".into()),
+                TestEffect::Log("Left".into()),
+                TestEffect::Log("Leaf".into()),
+                TestEffect::Log("Right".into()),
+            ]
+        );
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -4,6 +4,7 @@
 //! the same behavior as the manual wiring shown in the examples.
 
 use std::io;
+use std::marker::PhantomData;
 use std::time::Duration;
 
 use ratatui::backend::Backend;
@@ -13,9 +14,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::bus::{process_raw_event, spawn_event_poller, EventOutcome, RawEvent};
-use crate::effect::{EffectStore, EffectStoreWithMiddleware, ReducerResult};
 use crate::event::EventKind;
-use crate::store::{DispatchError, Middleware, Reducer, Store, StoreWithMiddleware};
+use crate::store::{
+    DispatchError, Middleware, NoEffect, Reducer, ReducerResult, Store, StoreWithMiddleware,
+};
 use crate::Action;
 
 #[cfg(feature = "subscriptions")]
@@ -103,28 +105,24 @@ pub trait DebugAdapter<S, A>: 'static {
 
     fn log_action(&mut self, action: &A);
     fn is_enabled(&self) -> bool;
-}
 
-#[cfg(feature = "debug")]
-pub trait DebugHooks<A>: Sized {
     #[cfg(feature = "tasks")]
-    fn with_task_manager(self, _tasks: &TaskManager<A>) -> Self {
+    fn with_task_manager(self, _tasks: &TaskManager<A>) -> Self
+    where
+        Self: Sized,
+    {
         self
     }
 
     #[cfg(feature = "subscriptions")]
-    fn with_subscriptions(self, _subscriptions: &Subscriptions<A>) -> Self {
+    fn with_subscriptions(self, _subscriptions: &Subscriptions<A>) -> Self
+    where
+        Self: Sized,
+    {
         self
     }
 }
 
-// ---------------------------------------------------------------------------
-// Shared draw helper — renders a frame with optional debug overlay.
-//
-// Takes shell and state separately so callers can pass borrows from disjoint
-// fields without conflict. For bus variants, the caller wraps the user's
-// render closure to include EventContext before passing it in.
-// ---------------------------------------------------------------------------
 pub(crate) fn draw_frame<S: 'static, A, B, F>(
     shell: &mut RuntimeShell<S, A>,
     state: &S,
@@ -155,15 +153,6 @@ where
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// RuntimeShell — fields and helpers shared by DispatchRuntime and EffectRuntime.
-// ---------------------------------------------------------------------------
-
-/// Internal state shared by `DispatchRuntime` and `EffectRuntime`.
-///
-/// Owns everything that isn't specific to sync-vs-effect dispatch: the
-/// action channel, poller config, optional debug hook, dispatch error
-/// policy, and the render flag.
 pub(crate) struct RuntimeShell<S, A: Action> {
     pub(crate) action_tx: mpsc::UnboundedSender<A>,
     pub(crate) action_rx: mpsc::UnboundedReceiver<A>,
@@ -172,7 +161,7 @@ pub(crate) struct RuntimeShell<S, A: Action> {
     pub(crate) debug: Option<Box<dyn DebugAdapter<S, A>>>,
     pub(crate) dispatch_error_handler: Box<dyn FnMut(&DispatchError) -> DispatchErrorPolicy>,
     pub(crate) should_render: bool,
-    _state: std::marker::PhantomData<S>,
+    _state: PhantomData<S>,
 }
 
 impl<S: 'static, A: Action> RuntimeShell<S, A> {
@@ -186,7 +175,7 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
             debug: None,
             dispatch_error_handler: Box::new(|_| DispatchErrorPolicy::Stop),
             should_render: true,
-            _state: std::marker::PhantomData,
+            _state: PhantomData,
         }
     }
 
@@ -213,7 +202,6 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         }
     }
 
-    /// Returns `Some(needs_render)` if the debug layer intercepted the event.
     #[allow(unused_variables)]
     pub(crate) fn debug_intercept_event(&mut self, event: &EventKind, state: &S) -> Option<bool> {
         #[cfg(feature = "debug")]
@@ -252,8 +240,6 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         (event_rx, cancel_token)
     }
 
-    /// Apply the configured dispatch error policy. Returns `true` when the
-    /// loop should stop.
     pub(crate) fn apply_error_policy(&mut self, error: DispatchError) -> bool {
         apply_dispatch_error_policy(
             self.dispatch_error_handler.as_mut(),
@@ -262,9 +248,6 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         )
     }
 
-    /// Process a single raw event: run the debug intercept first, then the
-    /// caller-supplied event→outcome mapping. Updates `should_render` and
-    /// forwards any emitted actions through the action channel.
     pub(crate) fn process_event<FMap, R>(&mut self, raw_event: RawEvent, state: &S, map: FMap)
     where
         FMap: FnOnce(&EventKind, &S) -> R,
@@ -279,46 +262,8 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
     }
 }
 
-/// Store interface used by `DispatchRuntime`.
-pub trait DispatchStore<S, A: Action> {
-    /// Dispatch an action and return whether the state changed.
-    fn dispatch(&mut self, action: A) -> bool;
-    /// Dispatch an action and return whether the state changed.
-    ///
-    /// Default behavior wraps [`Self::dispatch`] in `Ok(...)`.
-    fn try_dispatch(&mut self, action: A) -> Result<bool, DispatchError> {
-        Ok(self.dispatch(action))
-    }
-    /// Get the current state.
-    fn state(&self) -> &S;
-}
-
-impl<S, A: Action> DispatchStore<S, A> for Store<S, A> {
-    fn dispatch(&mut self, action: A) -> bool {
-        Store::dispatch(self, action)
-    }
-
-    fn state(&self) -> &S {
-        Store::state(self)
-    }
-}
-
-impl<S, A: Action, M: Middleware<S, A>> DispatchStore<S, A> for StoreWithMiddleware<S, A, M> {
-    fn dispatch(&mut self, action: A) -> bool {
-        StoreWithMiddleware::dispatch(self, action)
-    }
-
-    fn try_dispatch(&mut self, action: A) -> Result<bool, DispatchError> {
-        StoreWithMiddleware::try_dispatch(self, action)
-    }
-
-    fn state(&self) -> &S {
-        StoreWithMiddleware::state(self)
-    }
-}
-
-/// Effect store interface used by `EffectRuntime`.
-pub trait EffectDispatchStore<S, A: Action, E> {
+/// Store interface used by [`Runtime`].
+pub trait RuntimeStore<S, A: Action, E = NoEffect> {
     /// Dispatch an action and return state changes plus effects.
     fn dispatch(&mut self, action: A) -> ReducerResult<E>;
     /// Dispatch an action and return state changes plus effects.
@@ -331,210 +276,72 @@ pub trait EffectDispatchStore<S, A: Action, E> {
     fn state(&self) -> &S;
 }
 
-impl<S, A: Action, E> EffectDispatchStore<S, A, E> for EffectStore<S, A, E> {
+impl<S, A: Action, E> RuntimeStore<S, A, E> for Store<S, A, E> {
     fn dispatch(&mut self, action: A) -> ReducerResult<E> {
-        EffectStore::dispatch(self, action)
+        Store::dispatch(self, action)
     }
 
     fn state(&self) -> &S {
-        EffectStore::state(self)
+        Store::state(self)
     }
 }
 
-impl<S, A: Action, E, M: Middleware<S, A>> EffectDispatchStore<S, A, E>
-    for EffectStoreWithMiddleware<S, A, E, M>
+impl<S, A: Action, E, M: Middleware<S, A>> RuntimeStore<S, A, E>
+    for StoreWithMiddleware<S, A, E, M>
 {
     fn dispatch(&mut self, action: A) -> ReducerResult<E> {
-        EffectStoreWithMiddleware::dispatch(self, action)
+        StoreWithMiddleware::dispatch(self, action)
     }
 
     fn try_dispatch(&mut self, action: A) -> Result<ReducerResult<E>, DispatchError> {
-        EffectStoreWithMiddleware::try_dispatch(self, action)
+        StoreWithMiddleware::try_dispatch(self, action)
     }
 
     fn state(&self) -> &S {
-        EffectStoreWithMiddleware::state(self)
+        StoreWithMiddleware::state(self)
     }
 }
 
-/// Runtime helper for simple stores (no effects).
-pub struct DispatchRuntime<S, A: Action, St: DispatchStore<S, A> = Store<S, A>> {
+/// Direct event routing mode.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Direct;
+
+/// Runtime helper for store-driven applications.
+pub struct Runtime<S, A: Action, E = NoEffect, Routing = Direct, St = Store<S, A, E>>
+where
+    St: RuntimeStore<S, A, E>,
+{
     pub(crate) store: St,
     pub(crate) shell: RuntimeShell<S, A>,
-}
-
-impl<S: 'static, A: Action> DispatchRuntime<S, A, Store<S, A>> {
-    /// Create a runtime from state + reducer.
-    pub fn new(state: S, reducer: Reducer<S, A>) -> Self {
-        Self::from_store(Store::new(state, reducer))
-    }
-}
-
-impl<S: 'static, A: Action, St: DispatchStore<S, A>> DispatchRuntime<S, A, St> {
-    /// Create a runtime from an existing store.
-    pub fn from_store(store: St) -> Self {
-        Self {
-            store,
-            shell: RuntimeShell::new(),
-        }
-    }
-
-    /// Attach a debug layer.
-    #[cfg(feature = "debug")]
-    pub fn with_debug<D>(mut self, debug: D) -> Self
-    where
-        D: DebugAdapter<S, A>,
-    {
-        self.shell.debug = Some(Box::new(debug));
-        self
-    }
-
-    /// Configure event polling behavior.
-    pub fn with_event_poller(mut self, config: PollerConfig) -> Self {
-        self.shell.poller_config = config;
-        self
-    }
-
-    /// Configure handling for recoverable dispatch errors.
-    ///
-    /// The handler receives each [`DispatchError`] and selects a
-    /// [`DispatchErrorPolicy`]. Runtimes do not log or store errors by default;
-    /// do that inside this closure when needed.
-    pub fn with_dispatch_error_handler<F>(mut self, handler: F) -> Self
-    where
-        F: FnMut(&DispatchError) -> DispatchErrorPolicy + 'static,
-    {
-        self.shell.dispatch_error_handler = Box::new(handler);
-        self
-    }
-
-    /// Send an action into the runtime queue.
-    pub fn enqueue(&self, action: A) {
-        self.shell.enqueue(action);
-    }
-
-    /// Clone the action sender.
-    pub fn action_tx(&self) -> mpsc::UnboundedSender<A> {
-        self.shell.action_tx_clone()
-    }
-
-    /// Access the current state.
-    pub fn state(&self) -> &S {
-        self.store.state()
-    }
-
-    pub(crate) fn dispatch_action(&mut self, action: A) -> bool {
-        match self.store.try_dispatch(action) {
-            Ok(changed) => {
-                self.shell.should_render = changed;
-                false
-            }
-            Err(error) => self.shell.apply_error_policy(error),
-        }
-    }
-
-    /// Run the event/action loop until quit.
-    pub async fn run<B, FRender, FEvent, FQuit, R>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-        mut render: FRender,
-        mut map_event: FEvent,
-        mut should_quit: FQuit,
-    ) -> io::Result<()>
-    where
-        B: Backend,
-        FRender: FnMut(&mut Frame, Rect, &S, RenderContext),
-        FEvent: FnMut(&EventKind, &S) -> R,
-        R: Into<EventOutcome<A>>,
-        FQuit: FnMut(&A) -> bool,
-    {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
-
-        loop {
-            if self.shell.should_render {
-                draw_frame(&mut self.shell, self.store.state(), terminal, &mut render)?;
-            }
-
-            tokio::select! {
-                Some(raw_event) = event_rx.recv() => {
-                    self.shell.process_event(raw_event, self.store.state(), &mut map_event);
-                }
-
-                Some(action) = self.shell.action_rx.recv() => {
-                    if should_quit(&action) {
-                        break;
-                    }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_action(action) {
-                        break;
-                    }
-                }
-
-                else => { break; }
-            }
-        }
-
-        cancel_token.cancel();
-        Ok(())
-    }
-}
-
-/// Context passed to effect handlers.
-pub struct EffectContext<'a, A: Action> {
-    action_tx: &'a mpsc::UnboundedSender<A>,
-    #[cfg(feature = "tasks")]
-    tasks: &'a mut TaskManager<A>,
-    #[cfg(feature = "subscriptions")]
-    subscriptions: &'a mut Subscriptions<A>,
-}
-
-impl<'a, A: Action> EffectContext<'a, A> {
-    /// Send an action directly.
-    pub fn emit(&self, action: A) {
-        let _ = self.action_tx.send(action);
-    }
-
-    /// Access the action sender.
-    pub fn action_tx(&self) -> &mpsc::UnboundedSender<A> {
-        self.action_tx
-    }
-
-    /// Access the task manager.
-    #[cfg(feature = "tasks")]
-    pub fn tasks(&mut self) -> &mut TaskManager<A> {
-        self.tasks
-    }
-
-    /// Access subscriptions.
-    #[cfg(feature = "subscriptions")]
-    pub fn subscriptions(&mut self) -> &mut Subscriptions<A> {
-        self.subscriptions
-    }
-}
-
-/// Runtime helper for effect-based stores.
-pub struct EffectRuntime<S, A: Action, E, St: EffectDispatchStore<S, A, E> = EffectStore<S, A, E>> {
-    pub(crate) store: St,
-    pub(crate) shell: RuntimeShell<S, A>,
+    pub(crate) routing: Routing,
     #[cfg(feature = "tasks")]
     pub(crate) tasks: TaskManager<A>,
     #[cfg(feature = "subscriptions")]
     pub(crate) subscriptions: Subscriptions<A>,
-    /// Broadcasts action names when dispatched (for replay await functionality).
     pub(crate) action_broadcast: tokio::sync::broadcast::Sender<String>,
-    _effect: std::marker::PhantomData<E>,
+    pub(crate) _effect: PhantomData<E>,
 }
 
-impl<S: 'static, A: Action, E> EffectRuntime<S, A, E, EffectStore<S, A, E>> {
-    /// Create a runtime from state + effect reducer.
-    pub fn new(state: S, reducer: crate::effect::EffectReducer<S, A, E>) -> Self {
-        Self::from_store(EffectStore::new(state, reducer))
+impl<S: 'static, A: Action, E> Runtime<S, A, E, Direct, Store<S, A, E>> {
+    /// Create a runtime from state + reducer.
+    pub fn new(state: S, reducer: Reducer<S, A, E>) -> Self {
+        Self::from_store(Store::new(state, reducer))
     }
 }
 
-impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S, A, E, St> {
-    /// Create a runtime from an existing effect store.
+impl<S: 'static, A: Action, E, St: RuntimeStore<S, A, E>> Runtime<S, A, E, Direct, St> {
+    /// Create a runtime from an existing store.
     pub fn from_store(store: St) -> Self {
+        Self::from_store_with_routing(store, Direct)
+    }
+}
+
+impl<S: 'static, A: Action, E, Routing, St> Runtime<S, A, E, Routing, St>
+where
+    St: RuntimeStore<S, A, E>,
+{
+    pub(crate) fn from_store_with_routing(store: St, routing: Routing) -> Self {
         let shell = RuntimeShell::new();
         let (action_broadcast, _) = tokio::sync::broadcast::channel(64);
 
@@ -546,20 +353,21 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
         Self {
             store,
             shell,
+            routing,
             #[cfg(feature = "tasks")]
             tasks,
             #[cfg(feature = "subscriptions")]
             subscriptions,
             action_broadcast,
-            _effect: std::marker::PhantomData,
+            _effect: PhantomData,
         }
     }
 
-    /// Attach a debug layer (auto-wires tasks/subscriptions when available).
+    /// Attach a debug layer.
     #[cfg(feature = "debug")]
     pub fn with_debug<D>(mut self, debug: D) -> Self
     where
-        D: DebugAdapter<S, A> + DebugHooks<A>,
+        D: DebugAdapter<S, A>,
     {
         let debug = {
             let debug = debug;
@@ -593,9 +401,6 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
     }
 
     /// Subscribe to action name broadcasts.
-    ///
-    /// Returns a receiver that will receive action names (from `action.name()`)
-    /// whenever an action is dispatched. Useful for replay await functionality.
     pub fn subscribe_actions(&self) -> tokio::sync::broadcast::Receiver<String> {
         self.action_broadcast.subscribe()
     }
@@ -693,9 +498,81 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
             Err(error) => self.shell.apply_error_policy(error),
         }
     }
+}
 
+impl<S: 'static, A: Action, Routing, St> Runtime<S, A, NoEffect, Routing, St>
+where
+    St: RuntimeStore<S, A, NoEffect>,
+{
+    pub(crate) fn dispatch_action(&mut self, action: A) -> bool {
+        self.broadcast_action(&action);
+        match self.store.try_dispatch(action) {
+            Ok(result) => {
+                self.shell.should_render = result.changed;
+                false
+            }
+            Err(error) => self.shell.apply_error_policy(error),
+        }
+    }
+}
+
+impl<S: 'static, A: Action, St> Runtime<S, A, NoEffect, Direct, St>
+where
+    St: RuntimeStore<S, A, NoEffect>,
+{
     /// Run the event/action loop until quit.
-    pub async fn run<B, FRender, FEvent, FQuit, FEffect, R>(
+    pub async fn run<B, FRender, FEvent, FQuit, R>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        mut render: FRender,
+        mut map_event: FEvent,
+        mut should_quit: FQuit,
+    ) -> io::Result<()>
+    where
+        B: Backend,
+        FRender: FnMut(&mut Frame, Rect, &S, RenderContext),
+        FEvent: FnMut(&EventKind, &S) -> R,
+        R: Into<EventOutcome<A>>,
+        FQuit: FnMut(&A) -> bool,
+    {
+        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+
+        loop {
+            if self.shell.should_render {
+                draw_frame(&mut self.shell, self.store.state(), terminal, &mut render)?;
+            }
+
+            tokio::select! {
+                Some(raw_event) = event_rx.recv() => {
+                    self.shell.process_event(raw_event, self.store.state(), &mut map_event);
+                }
+
+                Some(action) = self.shell.action_rx.recv() => {
+                    if should_quit(&action) {
+                        break;
+                    }
+                    self.shell.debug_log_action(&action);
+                    if self.dispatch_action(action) {
+                        break;
+                    }
+                }
+
+                else => { break; }
+            }
+        }
+
+        self.cleanup(cancel_token);
+        Ok(())
+    }
+}
+
+impl<S: 'static, A: Action, E, St> Runtime<S, A, E, Direct, St>
+where
+    St: RuntimeStore<S, A, E>,
+{
+    /// Run the event/action loop until quit, handling emitted effects at the
+    /// run boundary.
+    pub async fn run_with_effects<B, FRender, FEvent, FQuit, FEffect, R>(
         &mut self,
         terminal: &mut Terminal<B>,
         mut render: FRender,
@@ -742,6 +619,39 @@ impl<S: 'static, A: Action, E, St: EffectDispatchStore<S, A, E>> EffectRuntime<S
     }
 }
 
+/// Context passed to effect handlers.
+pub struct EffectContext<'a, A: Action> {
+    action_tx: &'a mpsc::UnboundedSender<A>,
+    #[cfg(feature = "tasks")]
+    tasks: &'a mut TaskManager<A>,
+    #[cfg(feature = "subscriptions")]
+    subscriptions: &'a mut Subscriptions<A>,
+}
+
+impl<'a, A: Action> EffectContext<'a, A> {
+    /// Send an action directly.
+    pub fn emit(&self, action: A) {
+        let _ = self.action_tx.send(action);
+    }
+
+    /// Access the action sender.
+    pub fn action_tx(&self) -> &mpsc::UnboundedSender<A> {
+        self.action_tx
+    }
+
+    /// Access the task manager.
+    #[cfg(feature = "tasks")]
+    pub fn tasks(&mut self) -> &mut TaskManager<A> {
+        self.tasks
+    }
+
+    /// Access subscriptions.
+    #[cfg(feature = "subscriptions")]
+    pub fn subscriptions(&mut self) -> &mut Subscriptions<A> {
+        self.subscriptions
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -766,9 +676,9 @@ mod tests {
         count: usize,
     }
 
-    fn reducer(state: &mut TestState, _action: TestAction) -> bool {
+    fn reducer(state: &mut TestState, _action: TestAction) -> ReducerResult {
         state.count += 1;
-        true
+        ReducerResult::changed()
     }
 
     fn effect_reducer(state: &mut TestState, _action: TestAction) -> ReducerResult<()> {
@@ -793,44 +703,14 @@ mod tests {
         }
     }
 
-    struct MockDispatchStore {
+    struct MockStore<E> {
         state: TestState,
-        queued_results: VecDeque<Result<bool, DispatchError>>,
+        queued_results: VecDeque<Result<ReducerResult<E>, DispatchError>>,
     }
 
-    impl MockDispatchStore {
-        fn from_results(results: impl IntoIterator<Item = Result<bool, DispatchError>>) -> Self {
-            Self {
-                state: TestState::default(),
-                queued_results: results.into_iter().collect(),
-            }
-        }
-    }
-
-    impl DispatchStore<TestState, TestAction> for MockDispatchStore {
-        fn dispatch(&mut self, _action: TestAction) -> bool {
-            true
-        }
-
-        fn try_dispatch(&mut self, _action: TestAction) -> Result<bool, DispatchError> {
-            self.queued_results
-                .pop_front()
-                .expect("test configured with at least one dispatch result")
-        }
-
-        fn state(&self) -> &TestState {
-            &self.state
-        }
-    }
-
-    struct MockEffectStore {
-        state: TestState,
-        queued_results: VecDeque<Result<ReducerResult<()>, DispatchError>>,
-    }
-
-    impl MockEffectStore {
+    impl<E> MockStore<E> {
         fn from_results(
-            results: impl IntoIterator<Item = Result<ReducerResult<()>, DispatchError>>,
+            results: impl IntoIterator<Item = Result<ReducerResult<E>, DispatchError>>,
         ) -> Self {
             Self {
                 state: TestState::default(),
@@ -839,15 +719,12 @@ mod tests {
         }
     }
 
-    impl EffectDispatchStore<TestState, TestAction, ()> for MockEffectStore {
-        fn dispatch(&mut self, _action: TestAction) -> ReducerResult<()> {
-            ReducerResult::changed()
+    impl<E> RuntimeStore<TestState, TestAction, E> for MockStore<E> {
+        fn dispatch(&mut self, _action: TestAction) -> ReducerResult<E> {
+            ReducerResult::unchanged()
         }
 
-        fn try_dispatch(
-            &mut self,
-            _action: TestAction,
-        ) -> Result<ReducerResult<()>, DispatchError> {
+        fn try_dispatch(&mut self, _action: TestAction) -> Result<ReducerResult<E>, DispatchError> {
             self.queued_results
                 .pop_front()
                 .expect("test configured with at least one dispatch result")
@@ -866,9 +743,9 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_runtime_continue_policy_keeps_running_without_render() {
-        let store = MockDispatchStore::from_results([Err(test_error())]);
-        let mut runtime = DispatchRuntime::from_store(store)
+    fn runtime_continue_policy_keeps_running_without_render() {
+        let store: MockStore<NoEffect> = MockStore::from_results([Err(test_error())]);
+        let mut runtime = Runtime::from_store(store)
             .with_dispatch_error_handler(|_| DispatchErrorPolicy::Continue);
         runtime.shell.should_render = false;
 
@@ -879,10 +756,10 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_runtime_render_policy_forces_render() {
-        let store = MockDispatchStore::from_results([Err(test_error())]);
-        let mut runtime = DispatchRuntime::from_store(store)
-            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Render);
+    fn runtime_render_policy_forces_render() {
+        let store: MockStore<NoEffect> = MockStore::from_results([Err(test_error())]);
+        let mut runtime =
+            Runtime::from_store(store).with_dispatch_error_handler(|_| DispatchErrorPolicy::Render);
         runtime.shell.should_render = false;
 
         let should_stop = runtime.dispatch_action(TestAction::Increment);
@@ -892,10 +769,10 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_runtime_stop_policy_breaks_loop() {
-        let store = MockDispatchStore::from_results([Err(test_error())]);
-        let mut runtime = DispatchRuntime::from_store(store)
-            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+    fn runtime_stop_policy_breaks_loop() {
+        let store: MockStore<NoEffect> = MockStore::from_results([Err(test_error())]);
+        let mut runtime =
+            Runtime::from_store(store).with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
         runtime.shell.should_render = false;
 
         let should_stop = runtime.dispatch_action(TestAction::Increment);
@@ -905,9 +782,9 @@ mod tests {
     }
 
     #[test]
-    fn effect_runtime_continue_policy_keeps_running_without_render() {
-        let store = MockEffectStore::from_results([Err(test_error())]);
-        let mut runtime = EffectRuntime::from_store(store)
+    fn runtime_effect_continue_policy_keeps_running_without_render() {
+        let store: MockStore<()> = MockStore::from_results([Err(test_error())]);
+        let mut runtime = Runtime::from_store(store)
             .with_dispatch_error_handler(|_| DispatchErrorPolicy::Continue);
         runtime.shell.should_render = false;
 
@@ -919,10 +796,10 @@ mod tests {
     }
 
     #[test]
-    fn effect_runtime_render_policy_forces_render() {
-        let store = MockEffectStore::from_results([Err(test_error())]);
-        let mut runtime = EffectRuntime::from_store(store)
-            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Render);
+    fn runtime_effect_render_policy_forces_render() {
+        let store: MockStore<()> = MockStore::from_results([Err(test_error())]);
+        let mut runtime =
+            Runtime::from_store(store).with_dispatch_error_handler(|_| DispatchErrorPolicy::Render);
         runtime.shell.should_render = false;
 
         let should_stop =
@@ -933,10 +810,10 @@ mod tests {
     }
 
     #[test]
-    fn effect_runtime_stop_policy_breaks_loop() {
-        let store = MockEffectStore::from_results([Err(test_error())]);
-        let mut runtime = EffectRuntime::from_store(store)
-            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+    fn runtime_effect_stop_policy_breaks_loop() {
+        let store: MockStore<()> = MockStore::from_results([Err(test_error())]);
+        let mut runtime =
+            Runtime::from_store(store).with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
         runtime.shell.should_render = false;
 
         let should_stop =
@@ -947,14 +824,14 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_runtime_uses_try_dispatch_for_middleware_overflow() {
+    fn runtime_uses_try_dispatch_for_middleware_overflow() {
         let store = StoreWithMiddleware::new(TestState::default(), reducer, LoopMiddleware)
             .with_dispatch_limits(DispatchLimits {
                 max_depth: 1,
                 max_actions: 100,
             });
-        let mut runtime = DispatchRuntime::from_store(store)
-            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+        let mut runtime =
+            Runtime::from_store(store).with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
         runtime.shell.should_render = false;
 
         let should_stop = runtime.dispatch_action(TestAction::Increment);
@@ -964,15 +841,14 @@ mod tests {
     }
 
     #[test]
-    fn effect_runtime_uses_try_dispatch_for_middleware_overflow() {
-        let store =
-            EffectStoreWithMiddleware::new(TestState::default(), effect_reducer, LoopMiddleware)
-                .with_dispatch_limits(DispatchLimits {
-                    max_depth: 1,
-                    max_actions: 100,
-                });
-        let mut runtime = EffectRuntime::from_store(store)
-            .with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
+    fn runtime_effect_uses_try_dispatch_for_middleware_overflow() {
+        let store = StoreWithMiddleware::new(TestState::default(), effect_reducer, LoopMiddleware)
+            .with_dispatch_limits(DispatchLimits {
+                max_depth: 1,
+                max_actions: 100,
+            });
+        let mut runtime =
+            Runtime::from_store(store).with_dispatch_error_handler(|_| DispatchErrorPolicy::Stop);
         runtime.shell.should_render = false;
 
         let should_stop =
