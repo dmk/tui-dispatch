@@ -54,7 +54,7 @@ clippy:
 	cargo clippy --all-targets --all-features -- -D warnings
 
 # Full verification (for CI/pre-commit)
-verify: fmt-check check clippy test doc
+verify: fmt-check check clippy test test-feature-matrix doc
 
 # Build documentation (library crates only, excludes examples)
 doc:
