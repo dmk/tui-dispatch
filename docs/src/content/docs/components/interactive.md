@@ -80,6 +80,7 @@ use tui_dispatch_components::{
     ComponentInput, InteractiveComponent, TextInput, TextInputProps, TextInputRenderProps,
     TextInputStyle,
 };
+use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 enum Action {
@@ -97,8 +98,8 @@ let response = <TextInput as InteractiveComponent<Action>>::update(
         placeholder: "Type to search",
         is_focused: true,
         style: TextInputStyle::default(),
-        on_change: Action::QueryChanged,
-        on_submit: |_| Action::Submit,
+        on_change: Rc::new(Action::QueryChanged),
+        on_submit: Rc::new(|_| Action::Submit),
         on_cursor_move: None,
     },
 );

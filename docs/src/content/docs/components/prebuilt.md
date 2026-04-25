@@ -160,6 +160,7 @@ input.render_widget(
 Interactive usage uses `TextInputProps`:
 
 ```rust
+use std::rc::Rc;
 use tui_dispatch_components::{InteractiveComponent, ComponentInput, TextInput, TextInputProps};
 
 let response = <TextInput as InteractiveComponent<Action>>::update(
@@ -170,8 +171,8 @@ let response = <TextInput as InteractiveComponent<Action>>::update(
         placeholder: "Type to search",
         is_focused: true,
         style: TextInputStyle::default(),
-        on_change: Action::QueryChanged,
-        on_submit: |_| Action::Submit,
+        on_change: Rc::new(Action::QueryChanged),
+        on_submit: Rc::new(|_| Action::Submit),
         on_cursor_move: None,
     },
 );
@@ -264,6 +265,7 @@ let mut status = StatusBar::new();
 `Modal` dims the background and renders a child view into a modal area. It currently uses the plain `Component<A>` contract.
 
 ```rust
+use std::rc::Rc;
 use ratatui::{layout::Rect, Frame};
 use tui_dispatch::Component;
 use tui_dispatch_components::{
@@ -286,7 +288,7 @@ let mut modal = Modal::new();
         area: modal_area,
         style: ModalStyle::default(),
         behavior: ModalBehavior::default(),
-        on_close: || Action::CloseModal,
+        on_close: Rc::new(|| Action::CloseModal),
         render_content: &mut render_content,
     },
 );

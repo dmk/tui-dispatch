@@ -5,6 +5,8 @@
 //!
 //! For simple use cases with pre-rendered lines, use [`LinesScroller`].
 
+use std::rc::Rc;
+
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
@@ -96,6 +98,9 @@ impl Default for ScrollViewBehavior {
     }
 }
 
+/// Callback to create an action when the scroll offset changes.
+pub type ScrollViewCallback<A> = Rc<dyn Fn(usize) -> A>;
+
 /// Props for ScrollView component
 pub struct ScrollViewProps<'a, A> {
     /// Total height of the content in lines
@@ -109,7 +114,7 @@ pub struct ScrollViewProps<'a, A> {
     /// Behavior configuration
     pub behavior: ScrollViewBehavior,
     /// Callback to create action when scroll offset changes
-    pub on_scroll: fn(usize) -> A,
+    pub on_scroll: ScrollViewCallback<A>,
     /// Callback to render visible content
     ///
     /// Called with the content area and visible range. The callback should
@@ -322,7 +327,9 @@ impl<A> Component<A> for ScrollView {
         };
 
         match next_offset {
-            Some(offset) if offset != props.scroll_offset => Some((props.on_scroll)(offset)),
+            Some(offset) if offset != props.scroll_offset => {
+                Some((props.on_scroll.as_ref())(offset))
+            }
             _ => None,
         }
     }
@@ -388,7 +395,7 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for ScrollView {
 
                     match next_offset {
                         Some(offset) if offset != props.scroll_offset => {
-                            Some((props.on_scroll)(offset))
+                            Some((props.on_scroll.as_ref())(offset))
                         }
                         _ => None,
                     }
@@ -439,6 +446,8 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for ScrollView {
 /// # Example
 ///
 /// ```ignore
+/// use std::rc::Rc;
+///
 /// let lines: Vec<Line> = content.iter().map(|s| Line::raw(s)).collect();
 /// let scroller = LinesScroller::new(&lines);
 ///
@@ -449,7 +458,7 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for ScrollView {
 ///     is_focused: true,
 ///     style: ScrollViewStyle::default(),
 ///     behavior: ScrollViewBehavior::default(),
-///     on_scroll: Action::Scroll,
+///     on_scroll: Rc::new(Action::Scroll),
 ///     render_content: &mut scroller.renderer(),
 /// });
 /// ```
@@ -531,7 +540,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut scroller.renderer(),
                 },
             );
@@ -547,7 +556,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut noop_render,
                 },
             )
@@ -575,7 +584,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut scroller.renderer(),
                 },
             );
@@ -592,7 +601,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut noop_render,
                 },
             )
@@ -620,7 +629,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut scroller.renderer(),
                 },
             );
@@ -641,7 +650,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut noop_render,
                 },
             )
@@ -669,7 +678,7 @@ mod tests {
                     is_focused: true,
                     style: ScrollViewStyle::borderless(),
                     behavior: ScrollViewBehavior::default(),
-                    on_scroll: TestAction::ScrollTo,
+                    on_scroll: Rc::new(TestAction::ScrollTo),
                     render_content: &mut scroller.renderer(),
                 },
             );

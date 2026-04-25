@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use ratatui::{
     layout::Rect,
@@ -111,7 +112,7 @@ impl LogDetails {
                     page_step: 8,
                     ..Default::default()
                 },
-                on_scroll: LocalAction::ScrollTo,
+                on_scroll: Rc::new(LocalAction::ScrollTo),
                 render_content: &mut render_content,
             },
         );
@@ -170,8 +171,8 @@ impl LogDetails {
                 },
                 measure_node: None,
                 column_padding: 1,
-                on_select,
-                on_toggle,
+                on_select: Rc::new(on_select),
+                on_toggle: Rc::new(on_toggle),
                 render_node: &render_tree_node,
             },
         );

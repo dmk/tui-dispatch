@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -15,12 +16,14 @@ use tui_dispatch_components::{
     SelectListStyle, TextInput, TextInputProps, TextInputRenderProps, TextInputStyle,
 };
 
+pub type FilterToggleCallback<A> = Rc<dyn Fn(String) -> A>;
+
 pub struct FilterPaneProps<'a, A> {
     pub title: &'a str,
     pub options: &'a [String],
     pub active: &'a BTreeSet<String>,
     pub is_focused: bool,
-    pub on_toggle: fn(String) -> A,
+    pub on_toggle: FilterToggleCallback<A>,
 }
 
 #[derive(Default)]
@@ -59,7 +62,7 @@ impl FilterPane {
     fn toggle_current<A>(&self, props: &FilterPaneProps<'_, A>) -> Option<A> {
         let filtered = self.filtered_options(props.options);
         let current = filtered.get(self.highlighted)?;
-        Some((props.on_toggle)((*current).clone()))
+        Some((props.on_toggle.as_ref())((*current).clone()))
     }
 
     fn render_lines<A>(&self, props: &FilterPaneProps<'_, A>) -> Vec<Line<'static>> {
@@ -87,8 +90,8 @@ impl FilterPane {
                 placeholder: "type to narrow",
                 is_focused: true,
                 style: input_style(),
-                on_change: LocalAction::QueryChanged,
-                on_submit: LocalAction::QueryChanged,
+                on_change: Rc::new(LocalAction::QueryChanged),
+                on_submit: Rc::new(LocalAction::QueryChanged),
                 on_cursor_move: None,
             },
         );
@@ -131,7 +134,7 @@ impl FilterPane {
                 is_focused: true,
                 style: list_style(),
                 behavior: SelectListBehavior::default(),
-                on_select: LocalAction::Highlight,
+                on_select: Rc::new(LocalAction::Highlight),
                 render_item: &clone_line,
             },
         );
@@ -323,7 +326,7 @@ mod tests {
             options: &state.level_options,
             active: &state.active_levels,
             is_focused: true,
-            on_toggle: Action::ToggleLevel,
+            on_toggle: Rc::new(Action::ToggleLevel),
         }
     }
 
@@ -333,7 +336,7 @@ mod tests {
             options: &state.tag_options,
             active: &state.active_tags,
             is_focused: true,
-            on_toggle: Action::ToggleTag,
+            on_toggle: Rc::new(Action::ToggleTag),
         }
     }
 
@@ -351,7 +354,7 @@ mod tests {
                 options: &options,
                 active: &active,
                 is_focused: true,
-                on_toggle: Action::ToggleLevel,
+                on_toggle: Rc::new(Action::ToggleLevel),
             },
         );
 

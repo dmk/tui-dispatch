@@ -3,6 +3,8 @@
 //! Dims the background on each frame (keeping animations live) and renders
 //! modal content on top.
 
+use std::rc::Rc;
+
 use crossterm::event::KeyCode;
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget, Frame};
 use tui_dispatch_core::{Component, EventKind};
@@ -73,6 +75,9 @@ impl Default for ModalBehavior {
     }
 }
 
+/// Callback to create an action when the modal should close.
+pub type ModalCloseCallback<A> = Rc<dyn Fn() -> A>;
+
 /// Props for Modal component
 pub struct ModalProps<'a, A> {
     /// Whether the modal is open
@@ -86,7 +91,7 @@ pub struct ModalProps<'a, A> {
     /// Behavior configuration
     pub behavior: ModalBehavior,
     /// Callback when the modal should close
-    pub on_close: fn() -> A,
+    pub on_close: ModalCloseCallback<A>,
     /// Render modal content into the inner area
     pub render_content: &'a mut dyn FnMut(&mut Frame, Rect),
 }
@@ -116,11 +121,11 @@ impl<A> Component<A> for Modal {
 
         match event {
             EventKind::Key(key) if props.behavior.close_on_esc && key.code == KeyCode::Esc => {
-                Some((props.on_close)())
+                Some((props.on_close.as_ref())())
             }
             EventKind::Mouse(mouse) if props.behavior.close_on_backdrop => {
                 if !point_in_rect(props.area, mouse.column, mouse.row) {
-                    Some((props.on_close)())
+                    Some((props.on_close.as_ref())())
                 } else {
                     None
                 }

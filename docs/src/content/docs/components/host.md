@@ -28,17 +28,36 @@ If you do not have that pressure yet, stay with direct `InteractiveComponent::up
 Mount a widget once:
 
 ```rust
-let host = ComponentHost::<AppState, Action, RouteId, AppBindingContext>::new();
+use std::rc::Rc;
+use tui_dispatch_components::{PropsFactory, TextInputCallback};
 
-let search = host.mount(TextInput::new, |state| TextInputProps {
-    value: &state.query,
-    placeholder: "Search",
-    is_focused: state.focus == Focus::Search,
-    style: TextInputStyle::default(),
-    on_change: Action::QueryChanged,
-    on_submit: |_| Action::SubmitSearch,
-    on_cursor_move: None,
-});
+struct SearchPropsFactory {
+    on_change: TextInputCallback<Action>,
+    on_submit: TextInputCallback<Action>,
+}
+
+impl PropsFactory<AppState, TextInput, Action, AppBindingContext> for SearchPropsFactory {
+    fn props<'a>(&self, state: &'a AppState) -> TextInputProps<'a, Action> {
+        TextInputProps {
+            value: &state.query,
+            placeholder: "Search",
+            is_focused: state.focus == Focus::Search,
+            style: TextInputStyle::default(),
+            on_change: self.on_change.clone(),
+            on_submit: self.on_submit.clone(),
+            on_cursor_move: None,
+        }
+    }
+}
+
+let host = ComponentHost::<AppState, Action, RouteId, AppBindingContext>::new();
+let search = host.mount(
+    TextInput::new,
+    SearchPropsFactory {
+        on_change: Rc::new(Action::QueryChanged),
+        on_submit: Rc::new(|_| Action::SubmitSearch),
+    },
+);
 ```
 
 After that, the same stored props factory is reused for:

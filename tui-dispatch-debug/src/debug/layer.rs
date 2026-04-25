@@ -7,6 +7,7 @@ use std::any::Any;
 use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
@@ -1364,8 +1365,8 @@ impl<A: Action> DebugLayer<A> {
             behavior: TreeViewBehavior::default(),
             measure_node: None,
             column_padding: 0,
-            on_select: |id| state_tree_select(id),
-            on_toggle: |id, expanded| state_tree_toggle(id, expanded),
+            on_select: Rc::new(|id| state_tree_select(id)),
+            on_toggle: Rc::new(|id, expanded| state_tree_toggle(id, expanded)),
             render_node,
         }
     }
@@ -1525,7 +1526,7 @@ impl<A: Action> DebugLayer<A> {
                 area: modal_area,
                 style: self.overlay_modal_style(),
                 behavior: ModalBehavior::default(),
-                on_close: || (),
+                on_close: Rc::new(|| ()),
                 render_content: &mut render_content,
             },
         );
@@ -3338,7 +3339,7 @@ fn render_scroll_view(
             is_focused: true,
             style: scroll_style,
             behavior: ScrollViewBehavior::default(),
-            on_scroll: |_| (),
+            on_scroll: Rc::new(|_| ()),
             render_content: &mut scroller.renderer(),
         },
     );

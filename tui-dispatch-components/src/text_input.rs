@@ -1,5 +1,7 @@
 //! Single-line text input component
 
+use std::rc::Rc;
+
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::{
     layout::Rect,
@@ -59,7 +61,14 @@ impl ComponentStyle for TextInputStyle {
     }
 }
 
+/// Callback to create an action when text changes or is submitted.
+pub type TextInputCallback<A> = Rc<dyn Fn(String) -> A>;
+
+/// Callback to create an action when the cursor moves.
+pub type TextInputCursorCallback<A> = Rc<dyn Fn(usize) -> A>;
+
 /// Props for TextInput component
+#[derive(Clone)]
 pub struct TextInputProps<'a, A> {
     /// Current input value
     pub value: &'a str,
@@ -70,11 +79,11 @@ pub struct TextInputProps<'a, A> {
     /// Unified styling
     pub style: TextInputStyle,
     /// Callback when value changes
-    pub on_change: fn(String) -> A,
+    pub on_change: TextInputCallback<A>,
     /// Callback when user submits (Enter)
-    pub on_submit: fn(String) -> A,
+    pub on_submit: TextInputCallback<A>,
     /// Callback when cursor moves without content change
-    pub on_cursor_move: Option<fn(usize) -> A>,
+    pub on_cursor_move: Option<TextInputCursorCallback<A>>,
 }
 
 /// Render-only props for TextInput
@@ -388,7 +397,7 @@ impl TextInput {
     fn handle_key<A>(
         &mut self,
         key: crossterm::event::KeyEvent,
-        props: TextInputProps<'_, A>,
+        props: &TextInputProps<'_, A>,
     ) -> (Option<A>, bool) {
         // Ensure cursor is valid for current value
         self.clamp_cursor(props.value);
@@ -440,23 +449,25 @@ impl TextInput {
             // Deletion
             (KeyCode::Char('u'), true, false) => {
                 self.cursor = 0;
-                Some((props.on_change)(String::new()))
+                Some((props.on_change.as_ref())(String::new()))
             }
-            (KeyCode::Char('k'), true, false) => self.kill_line(props.value).map(props.on_change),
-            (KeyCode::Char('w'), true, false) => {
-                self.kill_word_backward(props.value).map(props.on_change)
-            }
-            (KeyCode::Char('d'), true, false) => {
-                self.delete_char_at(props.value).map(props.on_change)
-            }
-            (KeyCode::Char('h'), true, false) => {
-                self.delete_char_before(props.value).map(props.on_change)
-            }
+            (KeyCode::Char('k'), true, false) => self
+                .kill_line(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            (KeyCode::Char('w'), true, false) => self
+                .kill_word_backward(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            (KeyCode::Char('d'), true, false) => self
+                .delete_char_at(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            (KeyCode::Char('h'), true, false) => self
+                .delete_char_before(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
 
             // Transpose
-            (KeyCode::Char('t'), true, false) => {
-                self.transpose_chars(props.value).map(props.on_change)
-            }
+            (KeyCode::Char('t'), true, false) => self
+                .transpose_chars(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
 
             // ============================================================
             // Alt+key shortcuts (when terminal sends escape sequences)
@@ -475,24 +486,26 @@ impl TextInput {
             }
 
             // Word deletion
-            (KeyCode::Char('d'), false, true) => {
-                self.kill_word_forward(props.value).map(props.on_change)
-            }
-            (KeyCode::Backspace, false, true) => {
-                self.kill_word_backward(props.value).map(props.on_change)
-            }
+            (KeyCode::Char('d'), false, true) => self
+                .kill_word_forward(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            (KeyCode::Backspace, false, true) => self
+                .kill_word_backward(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
 
             // ============================================================
             // Basic keys
             // ============================================================
 
             // Backspace (no modifiers - Alt+Backspace handled above)
-            (KeyCode::Backspace, false, false) => {
-                self.delete_char_before(props.value).map(props.on_change)
-            }
+            (KeyCode::Backspace, false, false) => self
+                .delete_char_before(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
 
             // Delete
-            (KeyCode::Delete, _, _) => self.delete_char_at(props.value).map(props.on_change),
+            (KeyCode::Delete, _, _) => self
+                .delete_char_at(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
 
             // Cursor movement (no Ctrl - Ctrl+Arrow handled above)
             (KeyCode::Left, false, _) => {
@@ -517,7 +530,7 @@ impl TextInput {
             }
 
             // Submit
-            (KeyCode::Enter, _, _) => Some((props.on_submit)(props.value.to_string())),
+            (KeyCode::Enter, _, _) => Some((props.on_submit.as_ref())(props.value.to_string())),
 
             // ============================================================
             // Character input - MUST be last to catch all printable chars
@@ -525,14 +538,17 @@ impl TextInput {
             // Any character not handled above gets inserted (space, etc.)
             (KeyCode::Char(c), _, _) => {
                 let new_value = self.insert_char(props.value, c);
-                Some((props.on_change)(new_value))
+                Some((props.on_change.as_ref())(new_value))
             }
 
             _ => None,
         };
 
         let action = if action.is_none() && did_move {
-            props.on_cursor_move.map(|callback| callback(self.cursor))
+            props
+                .on_cursor_move
+                .as_ref()
+                .map(|callback| callback(self.cursor))
         } else {
             action
         };
@@ -641,7 +657,7 @@ impl<A> Component<A> for TextInput {
         }
 
         match event {
-            EventKind::Key(key) => self.handle_key(*key, props).0,
+            EventKind::Key(key) => self.handle_key(*key, &props).0,
             _ => None,
         }
     }
@@ -678,7 +694,7 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for TextInput {
 
         match input {
             ComponentInput::Key(key) => {
-                let (action, local_changed) = self.handle_key(key, props);
+                let (action, local_changed) = self.handle_key(key, &props);
                 let mut response = match action {
                     Some(action) => HandlerResponse::action(action),
                     None if local_changed => HandlerResponse::ignored().with_consumed(true),
@@ -719,8 +735,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -742,8 +758,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -768,8 +784,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -791,8 +807,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -815,8 +831,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -837,8 +853,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -859,8 +875,8 @@ mod tests {
             placeholder: "",
             is_focused: false,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -883,8 +899,8 @@ mod tests {
                 placeholder: "Type here...",
                 is_focused: true,
                 style: TextInputStyle::default(),
-                on_change: |_| (),
-                on_submit: |_| (),
+                on_change: Rc::new(|_| ()),
+                on_submit: Rc::new(|_| ()),
                 on_cursor_move: None,
             };
             <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
@@ -904,8 +920,8 @@ mod tests {
                 placeholder: "Type here...",
                 is_focused: true,
                 style: TextInputStyle::default(),
-                on_change: |_| (),
-                on_submit: |_| (),
+                on_change: Rc::new(|_| ()),
+                on_submit: Rc::new(|_| ()),
                 on_cursor_move: None,
             };
             <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
@@ -934,8 +950,8 @@ mod tests {
                     placeholder_style: None,
                     cursor_style: None,
                 },
-                on_change: |_| (),
-                on_submit: |_| (),
+                on_change: Rc::new(|_| ()),
+                on_submit: Rc::new(|_| ()),
                 on_cursor_move: None,
             };
             <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
@@ -970,8 +986,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -993,8 +1009,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -1017,8 +1033,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -1041,8 +1057,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -1065,8 +1081,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -1088,8 +1104,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -1111,8 +1127,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 
@@ -1129,8 +1145,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
         let _: Vec<_> = input
@@ -1151,8 +1167,8 @@ mod tests {
             placeholder: "",
             is_focused: true,
             style: TextInputStyle::default(),
-            on_change: TestAction::Change,
-            on_submit: TestAction::Submit,
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
         };
 

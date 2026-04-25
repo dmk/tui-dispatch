@@ -31,6 +31,7 @@
 //! use tui_dispatch_components::{
 //!     Line, SelectList, SelectListBehavior, SelectListProps, SelectListStyle,
 //! };
+//! use std::rc::Rc;
 //!
 //! // In your render function:
 //! let items: Vec<Line> = state.items.iter().map(|s| Line::raw(s)).collect();
@@ -43,7 +44,7 @@
 //!     is_focused: state.focus == Focus::List,
 //!     style: SelectListStyle::default(),
 //!     behavior: SelectListBehavior::default(),
-//!     on_select: |i| Action::Select(i),
+//!     on_select: Rc::new(|i| Action::Select(i)),
 //!     render_item: &render_item,
 //! });
 //! ```
@@ -65,15 +66,16 @@ pub use host::{
     ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentInput, HostLifecycleError,
     InteractiveComponent, Mounted, MountedComponentInfo, PropsFactory,
 };
-pub use modal::{centered_rect, Modal, ModalBehavior, ModalProps, ModalStyle};
+pub use modal::{centered_rect, Modal, ModalBehavior, ModalCloseCallback, ModalProps, ModalStyle};
 pub use ratatui::text::Line;
 pub use runtime::{ComponentHostRuntime, HostedRuntime, HostedRuntimeParts, RuntimeHostExt};
 pub use scroll_view::{
-    LinesScroller, ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewRenderProps,
-    ScrollViewStyle, VisibleRange,
+    LinesScroller, ScrollView, ScrollViewBehavior, ScrollViewCallback, ScrollViewProps,
+    ScrollViewRenderProps, ScrollViewStyle, VisibleRange,
 };
 pub use select_list::{
-    SelectList, SelectListBehavior, SelectListProps, SelectListRenderProps, SelectListStyle,
+    SelectList, SelectListBehavior, SelectListCallback, SelectListProps, SelectListRenderProps,
+    SelectListStyle,
 };
 pub use status_bar::{
     StatusBar, StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle,
@@ -82,23 +84,29 @@ pub use style::{
     highlight_substring, BaseStyle, BorderStyle, Color, ComponentStyle, Modifier, Padding,
     ScrollbarStyle, SelectionStyle, Style,
 };
-pub use text_input::{TextInput, TextInputProps, TextInputRenderProps, TextInputStyle};
+pub use text_input::{
+    TextInput, TextInputCallback, TextInputCursorCallback, TextInputProps, TextInputRenderProps,
+    TextInputStyle,
+};
 pub use tree_view::{
-    TreeBranchMode, TreeBranchStyle, TreeNode, TreeNodeRender, TreeView, TreeViewBehavior,
-    TreeViewProps, TreeViewRenderProps, TreeViewStyle,
+    TreeBranchMode, TreeBranchStyle, TreeNode, TreeNodeRender, TreeSelectCallback,
+    TreeToggleCallback, TreeView, TreeViewBehavior, TreeViewProps, TreeViewRenderProps,
+    TreeViewStyle,
 };
 
 /// Prelude for convenient imports
 pub mod prelude {
     pub use crate::{
         centered_rect, BaseStyle, BorderStyle, ComponentStyle, LinesScroller, Modal, ModalBehavior,
-        ModalProps, ModalStyle, Padding, ScrollView, ScrollViewBehavior, ScrollViewProps,
-        ScrollViewRenderProps, ScrollViewStyle, ScrollbarStyle, SelectList, SelectListBehavior,
-        SelectListProps, SelectListRenderProps, SelectListStyle, SelectionStyle, StatusBar,
-        StatusBarHint, StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle, TextInput,
-        TextInputProps, TextInputRenderProps, TextInputStyle, TreeBranchMode, TreeBranchStyle,
-        TreeNode, TreeNodeRender, TreeView, TreeViewBehavior, TreeViewProps, TreeViewRenderProps,
-        TreeViewStyle, VisibleRange,
+        ModalCloseCallback, ModalProps, ModalStyle, Padding, ScrollView, ScrollViewBehavior,
+        ScrollViewCallback, ScrollViewProps, ScrollViewRenderProps, ScrollViewStyle,
+        ScrollbarStyle, SelectList, SelectListBehavior, SelectListCallback, SelectListProps,
+        SelectListRenderProps, SelectListStyle, SelectionStyle, StatusBar, StatusBarHint,
+        StatusBarItem, StatusBarProps, StatusBarSection, StatusBarStyle, TextInput,
+        TextInputCallback, TextInputCursorCallback, TextInputProps, TextInputRenderProps,
+        TextInputStyle, TreeBranchMode, TreeBranchStyle, TreeNode, TreeNodeRender,
+        TreeSelectCallback, TreeToggleCallback, TreeView, TreeViewBehavior, TreeViewProps,
+        TreeViewRenderProps, TreeViewStyle, VisibleRange,
     };
 
     pub use crate::{

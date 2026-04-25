@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -166,6 +167,12 @@ pub struct TreeNodeRender<'a, Id, T> {
     pub tree_column_width: usize,
 }
 
+/// Callback to create an action when selection changes.
+pub type TreeSelectCallback<Id, A> = Rc<dyn Fn(&Id) -> A>;
+
+/// Callback to create an action when expansion changes.
+pub type TreeToggleCallback<Id, A> = Rc<dyn Fn(&Id, bool) -> A>;
+
 /// Props for TreeView component
 pub struct TreeViewProps<'a, Id, T, A>
 where
@@ -189,9 +196,9 @@ where
     /// Padding to add to the widest tree column
     pub column_padding: usize,
     /// Callback to create action when selection changes
-    pub on_select: fn(&Id) -> A,
+    pub on_select: TreeSelectCallback<Id, A>,
     /// Callback to create action when expansion changes
-    pub on_toggle: fn(&Id, bool) -> A,
+    pub on_toggle: TreeToggleCallback<Id, A>,
     /// Render a node into a Line
     pub render_node: &'a dyn Fn(TreeNodeRender<'_, Id, T>) -> Line<'static>,
 }
@@ -652,9 +659,10 @@ where
         let current_idx = selected_idx.unwrap_or(0);
         let last_idx = visible.len().saturating_sub(1);
 
-        let move_selection = |idx: usize| Some((props.on_select)(&visible[idx].node.id));
-        let toggle_node =
-            |idx: usize, expand: bool| Some((props.on_toggle)(&visible[idx].node.id, expand));
+        let move_selection = |idx: usize| Some((props.on_select.as_ref())(&visible[idx].node.id));
+        let toggle_node = |idx: usize, expand: bool| {
+            Some((props.on_toggle.as_ref())(&visible[idx].node.id, expand))
+        };
 
         match event {
             EventKind::Key(key) => match key.code {
@@ -829,9 +837,9 @@ where
                         let last_idx = visible.len().saturating_sub(1);
 
                         let move_selection =
-                            |idx: usize| Some((props.on_select)(&visible[idx].node.id));
+                            |idx: usize| Some((props.on_select.as_ref())(&visible[idx].node.id));
                         let toggle_node = |idx: usize, expand: bool| {
-                            Some((props.on_toggle)(&visible[idx].node.id, expand))
+                            Some((props.on_toggle.as_ref())(&visible[idx].node.id, expand))
                         };
 
                         match name {
@@ -847,7 +855,7 @@ where
                                         (current_idx + 1).min(last_idx)
                                     };
                                     (next != current_idx)
-                                        .then(|| (props.on_select)(&visible[next].node.id))
+                                        .then(|| (props.on_select.as_ref())(&visible[next].node.id))
                                 }
                             }
                             "prev" | "up" => {
@@ -861,7 +869,7 @@ where
                                         current_idx.saturating_sub(1)
                                     };
                                     (next != current_idx)
-                                        .then(|| (props.on_select)(&visible[next].node.id))
+                                        .then(|| (props.on_select.as_ref())(&visible[next].node.id))
                                 }
                             }
                             "first" | "home" => {
@@ -1008,8 +1016,8 @@ mod tests {
             behavior: TreeViewBehavior::default(),
             measure_node: None,
             column_padding: 0,
-            on_select: |id| select_action(id),
-            on_toggle: |id, expanded| toggle_action(id, expanded),
+            on_select: Rc::new(|id| select_action(id)),
+            on_toggle: Rc::new(|id, expanded| toggle_action(id, expanded)),
             render_node: &render_node,
         }
     }

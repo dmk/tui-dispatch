@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, rc::Rc};
 
 use clap::Parser;
 use crossterm::{
@@ -8,7 +8,7 @@ use crossterm::{
 };
 use log_viewer_example::ingest::{resolve_input_mode, spawn_ingest, usage, InputMode};
 use log_viewer_example::ui::components::{
-    FilterPane, FilterPaneProps, LogDetails, LogDetailsProps,
+    FilterPane, FilterPaneProps, FilterToggleCallback, LogDetails, LogDetailsProps,
 };
 use log_viewer_example::ui::{render_app, MountedViews};
 use log_viewer_example::{
@@ -18,8 +18,8 @@ use ratatui::{backend::CrosstermBackend, text::Line, Terminal};
 use tokio::sync::mpsc;
 use tui_dispatch::prelude::{EventBus, Runtime};
 use tui_dispatch_components::{
-    ComponentHost, RuntimeHostExt, SelectList, SelectListBehavior, SelectListProps,
-    SelectListStyle, StatusBar,
+    ComponentHost, PropsFactory, RuntimeHostExt, SelectList, SelectListBehavior,
+    SelectListCallback, SelectListProps, SelectListStyle, StatusBar,
 };
 use tui_dispatch_debug::debug::DebugLayer;
 use tui_dispatch_debug::DebugCliArgs;
@@ -78,10 +78,28 @@ async fn run_app<B: ratatui::backend::Backend>(
     debug_args: &DebugCliArgs,
 ) -> io::Result<()> {
     let host = ComponentHost::<AppState, Action, RouteId, AppBindingContext>::new();
+    let level_toggle = Rc::new(Action::ToggleLevel);
+    let tag_toggle = Rc::new(Action::ToggleTag);
+    let log_select = Rc::new(Action::SelectLog);
     let mounted = MountedViews {
-        levels: host.mount(FilterPane::new, level_filter_props),
-        tags: host.mount(FilterPane::new, tag_filter_props),
-        logs: host.mount(SelectList::new, log_list_props),
+        levels: host.mount(
+            FilterPane::new,
+            LevelFilterPropsFactory {
+                on_toggle: level_toggle,
+            },
+        ),
+        tags: host.mount(
+            FilterPane::new,
+            TagFilterPropsFactory {
+                on_toggle: tag_toggle,
+            },
+        ),
+        logs: host.mount(
+            SelectList::new,
+            LogListPropsFactory {
+                on_select: log_select,
+            },
+        ),
         details: host.mount(LogDetails::new, details_props),
     };
 
@@ -137,27 +155,68 @@ async fn run_app<B: ratatui::backend::Backend>(
         .await
 }
 
-fn level_filter_props(state: &AppState) -> FilterPaneProps<'_, Action> {
+struct LevelFilterPropsFactory {
+    on_toggle: FilterToggleCallback<Action>,
+}
+
+impl PropsFactory<AppState, FilterPane, Action, AppBindingContext> for LevelFilterPropsFactory {
+    fn props<'a>(&self, state: &'a AppState) -> FilterPaneProps<'a, Action> {
+        level_filter_props(state, self.on_toggle.clone())
+    }
+}
+
+struct TagFilterPropsFactory {
+    on_toggle: FilterToggleCallback<Action>,
+}
+
+impl PropsFactory<AppState, FilterPane, Action, AppBindingContext> for TagFilterPropsFactory {
+    fn props<'a>(&self, state: &'a AppState) -> FilterPaneProps<'a, Action> {
+        tag_filter_props(state, self.on_toggle.clone())
+    }
+}
+
+struct LogListPropsFactory {
+    on_select: SelectListCallback<Action>,
+}
+
+impl PropsFactory<AppState, SelectList<Line<'static>>, Action, AppBindingContext>
+    for LogListPropsFactory
+{
+    fn props<'a>(&self, state: &'a AppState) -> SelectListProps<'a, Line<'static>, Action> {
+        log_list_props(state, self.on_select.clone())
+    }
+}
+
+fn level_filter_props<'a>(
+    state: &'a AppState,
+    on_toggle: FilterToggleCallback<Action>,
+) -> FilterPaneProps<'a, Action> {
     FilterPaneProps {
         title: "Levels",
         options: &state.level_options,
         active: &state.active_levels,
         is_focused: state.focus == log_viewer_example::Focus::Levels,
-        on_toggle: Action::ToggleLevel,
+        on_toggle,
     }
 }
 
-fn tag_filter_props(state: &AppState) -> FilterPaneProps<'_, Action> {
+fn tag_filter_props<'a>(
+    state: &'a AppState,
+    on_toggle: FilterToggleCallback<Action>,
+) -> FilterPaneProps<'a, Action> {
     FilterPaneProps {
         title: "Tags",
         options: &state.tag_options,
         active: &state.active_tags,
         is_focused: state.focus == log_viewer_example::Focus::Tags,
-        on_toggle: Action::ToggleTag,
+        on_toggle,
     }
 }
 
-fn log_list_props(state: &AppState) -> SelectListProps<'_, Line<'static>, Action> {
+fn log_list_props<'a>(
+    state: &'a AppState,
+    on_select: SelectListCallback<Action>,
+) -> SelectListProps<'a, Line<'static>, Action> {
     SelectListProps {
         items: &state.visible_lines,
         count: state.visible_lines.len(),
@@ -168,7 +227,7 @@ fn log_list_props(state: &AppState) -> SelectListProps<'_, Line<'static>, Action
             wrap_navigation: false,
             ..Default::default()
         },
-        on_select: Action::SelectLog,
+        on_select,
         render_item: &clone_line,
     }
 }

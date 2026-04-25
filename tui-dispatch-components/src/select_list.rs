@@ -1,6 +1,7 @@
 //! Scrollable selection list component
 
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 use crossterm::event::KeyCode;
 use ratatui::{
@@ -80,7 +81,11 @@ impl Default for SelectListBehavior {
     }
 }
 
+/// Callback to create an action when the selected index changes.
+pub type SelectListCallback<A> = Rc<dyn Fn(usize) -> A>;
+
 /// Props for SelectList component
+#[derive(Clone)]
 pub struct SelectListProps<'a, T, A> {
     /// Items to render
     pub items: &'a [T],
@@ -95,7 +100,7 @@ pub struct SelectListProps<'a, T, A> {
     /// Behavior configuration
     pub behavior: SelectListBehavior,
     /// Callback to create action when selection changes
-    pub on_select: fn(usize) -> A,
+    pub on_select: SelectListCallback<A>,
     /// Render a single item into a Line
     pub render_item: &'a dyn Fn(&T) -> Line<'static>,
 }
@@ -125,7 +130,7 @@ impl<'a, T, A> SelectListProps<'a, T, A> {
     pub fn new(
         items: &'a [T],
         selected: usize,
-        on_select: fn(usize) -> A,
+        on_select: SelectListCallback<A>,
         render_item: &'a dyn Fn(&T) -> Line<'static>,
     ) -> Self {
         Self {
@@ -209,7 +214,7 @@ impl<Item> SelectList<Item> {
         &self,
         selected: usize,
         next: usize,
-        on_select: fn(usize) -> A,
+        on_select: &dyn Fn(usize) -> A,
     ) -> Option<A> {
         (next != selected).then(|| on_select(next))
     }
@@ -217,7 +222,7 @@ impl<Item> SelectList<Item> {
     fn handle_navigation<A>(
         &mut self,
         command: NavigationCommand,
-        props: SelectListProps<'_, Item, A>,
+        props: &SelectListProps<'_, Item, A>,
     ) -> Option<A> {
         if !props.is_focused || props.count == 0 {
             return None;
@@ -229,18 +234,22 @@ impl<Item> SelectList<Item> {
             NavigationCommand::Next => self.select_action(
                 props.selected,
                 self.next_index(props.selected, len, props.behavior.wrap_navigation),
-                props.on_select,
+                props.on_select.as_ref(),
             ),
             NavigationCommand::Prev => self.select_action(
                 props.selected,
                 self.prev_index(props.selected, len, props.behavior.wrap_navigation),
-                props.on_select,
+                props.on_select.as_ref(),
             ),
-            NavigationCommand::First => self.select_action(props.selected, 0, props.on_select),
-            NavigationCommand::Last => {
-                self.select_action(props.selected, len.saturating_sub(1), props.on_select)
+            NavigationCommand::First => {
+                self.select_action(props.selected, 0, props.on_select.as_ref())
             }
-            NavigationCommand::Select => Some((props.on_select)(props.selected)),
+            NavigationCommand::Last => self.select_action(
+                props.selected,
+                len.saturating_sub(1),
+                props.on_select.as_ref(),
+            ),
+            NavigationCommand::Select => Some((props.on_select.as_ref())(props.selected)),
         }
     }
 
@@ -408,18 +417,18 @@ impl<Item, A> Component<A> for SelectList<Item> {
         match event {
             EventKind::Key(key) => match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
-                    self.handle_navigation(NavigationCommand::Next, props)
+                    self.handle_navigation(NavigationCommand::Next, &props)
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
-                    self.handle_navigation(NavigationCommand::Prev, props)
+                    self.handle_navigation(NavigationCommand::Prev, &props)
                 }
                 KeyCode::Char('g') | KeyCode::Home => {
-                    self.handle_navigation(NavigationCommand::First, props)
+                    self.handle_navigation(NavigationCommand::First, &props)
                 }
                 KeyCode::Char('G') | KeyCode::End => {
-                    self.handle_navigation(NavigationCommand::Last, props)
+                    self.handle_navigation(NavigationCommand::Last, &props)
                 }
-                KeyCode::Enter => self.handle_navigation(NavigationCommand::Select, props),
+                KeyCode::Enter => self.handle_navigation(NavigationCommand::Select, &props),
                 _ => None,
             },
             _ => None,
@@ -465,27 +474,27 @@ impl<Item, A, Ctx> InteractiveComponent<A, Ctx> for SelectList<Item> {
     ) -> HandlerResponse<A> {
         let action = match input {
             ComponentInput::Command { name, .. } => match name {
-                "next" | "down" => self.handle_navigation(NavigationCommand::Next, props),
-                "prev" | "up" => self.handle_navigation(NavigationCommand::Prev, props),
-                "first" | "home" => self.handle_navigation(NavigationCommand::First, props),
-                "last" | "end" => self.handle_navigation(NavigationCommand::Last, props),
-                "select" | "confirm" => self.handle_navigation(NavigationCommand::Select, props),
+                "next" | "down" => self.handle_navigation(NavigationCommand::Next, &props),
+                "prev" | "up" => self.handle_navigation(NavigationCommand::Prev, &props),
+                "first" | "home" => self.handle_navigation(NavigationCommand::First, &props),
+                "last" | "end" => self.handle_navigation(NavigationCommand::Last, &props),
+                "select" | "confirm" => self.handle_navigation(NavigationCommand::Select, &props),
                 _ => None,
             },
             ComponentInput::Key(key) => match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
-                    self.handle_navigation(NavigationCommand::Next, props)
+                    self.handle_navigation(NavigationCommand::Next, &props)
                 }
                 KeyCode::Char('k') | KeyCode::Up => {
-                    self.handle_navigation(NavigationCommand::Prev, props)
+                    self.handle_navigation(NavigationCommand::Prev, &props)
                 }
                 KeyCode::Char('g') | KeyCode::Home => {
-                    self.handle_navigation(NavigationCommand::First, props)
+                    self.handle_navigation(NavigationCommand::First, &props)
                 }
                 KeyCode::Char('G') | KeyCode::End => {
-                    self.handle_navigation(NavigationCommand::Last, props)
+                    self.handle_navigation(NavigationCommand::Last, &props)
                 }
-                KeyCode::Enter => self.handle_navigation(NavigationCommand::Select, props),
+                KeyCode::Enter => self.handle_navigation(NavigationCommand::Select, &props),
                 _ => None,
             },
             _ => None,
@@ -535,7 +544,7 @@ mod tests {
             is_focused: true,
             style: SelectListStyle::default(),
             behavior: SelectListBehavior::default(),
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
 
@@ -558,7 +567,7 @@ mod tests {
             is_focused: true,
             style: SelectListStyle::default(),
             behavior: SelectListBehavior::default(),
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
 
@@ -583,7 +592,7 @@ mod tests {
             is_focused: true,
             style: SelectListStyle::default(),
             behavior: SelectListBehavior::default(),
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
         let actions: Vec<_> = list
@@ -600,7 +609,7 @@ mod tests {
             is_focused: true,
             style: SelectListStyle::default(),
             behavior: SelectListBehavior::default(),
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
         let actions: Vec<_> = list
@@ -626,7 +635,7 @@ mod tests {
                 wrap_navigation: true,
                 ..Default::default()
             },
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
         let actions: Vec<_> = list
@@ -646,7 +655,7 @@ mod tests {
                 wrap_navigation: true,
                 ..Default::default()
             },
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
         let actions: Vec<_> = list
@@ -667,7 +676,7 @@ mod tests {
             is_focused: false,
             style: SelectListStyle::default(),
             behavior: SelectListBehavior::default(),
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
 
@@ -690,7 +699,7 @@ mod tests {
             is_focused: true,
             style: SelectListStyle::default(),
             behavior: SelectListBehavior::default(),
-            on_select: TestAction::Select,
+            on_select: Rc::new(TestAction::Select),
             render_item: &render_item,
         };
 
@@ -716,7 +725,7 @@ mod tests {
                 is_focused: true,
                 style: SelectListStyle::default(),
                 behavior: SelectListBehavior::default(),
-                on_select: |_| (),
+                on_select: Rc::new(|_| ()),
                 render_item: &render_item,
             };
             <SelectList as Component<()>>::render(&mut list, frame, frame.area(), props);
@@ -744,7 +753,7 @@ mod tests {
                     ..Default::default()
                 },
                 behavior: SelectListBehavior::default(),
-                on_select: |_| (),
+                on_select: Rc::new(|_| ()),
                 render_item: &render_item,
             };
             <SelectList as Component<()>>::render(&mut list, frame, frame.area(), props);
