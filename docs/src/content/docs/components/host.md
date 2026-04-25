@@ -3,7 +3,7 @@ title: Component Host
 description: Mount long-lived widgets and optionally bind them into EventBus
 ---
 
-`ComponentHost<S, A, Id, Ctx>` is an optional runtime helper for long-lived interactive widgets.
+`ComponentHost<S, A, Id, Ctx>` is an optional Layer 2 helper for long-lived interactive widgets. It wraps the Layer 1 runtime additively through `run_with_hooks(...)` — `tui-dispatch-core` stays component-agnostic.
 
 It solves two related problems:
 
@@ -82,6 +82,31 @@ host.sync_areas(&mut bus);
 ```
 
 `sync_areas(...)` keeps EventBus hit-testing and routing context aligned with the widgets rendered this frame.
+
+### Wiring into the runtime
+
+When the runtime owns the main loop, `sync_areas(...)` is the post-render hook
+to pass into `run_with_hooks(...)`:
+
+```rust
+let host_for_hook = host.clone();
+
+let mut runtime = DispatchRuntime::new(state, reducer)
+    .with_event_bus(bus, keybindings);
+
+runtime
+    .run_with_hooks(
+        terminal,
+        render,
+        is_quit,
+        |bus, _state| host_for_hook.sync_areas(bus),
+    )
+    .await?;
+```
+
+This is the recommended Layer 2 integration path: `ComponentHost` lives in
+`tui-dispatch-components` and consumes the Layer 1 `run_with_hooks` seam, so
+`tui-dispatch-core` stays component-agnostic.
 
 ## Without EventBus
 

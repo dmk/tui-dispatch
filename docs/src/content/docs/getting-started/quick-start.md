@@ -161,14 +161,20 @@ fn handle_effect(effect: Effect, ctx: &mut EffectContext<Action>) {
 }
 ```
 
-Then run it with `EffectRuntime` (using the same EventBus setup as above):
+Then run it with `EffectRuntime`. If you also want focus-based routing, compose
+an `EventBus` + `Keybindings` via `with_event_bus(...)`:
 
 ```rust
-let mut runtime = EffectRuntime::new(State::default(), reducer);
+let mut runtime = EffectRuntime::new(State::default(), reducer)
+    .with_event_bus(bus, keybindings);
+
 runtime
-    .run_with_bus(terminal, &mut bus, &keybindings, render, is_quit, handle_effect)
+    .run(terminal, render, is_quit, handle_effect)
     .await?;
 ```
+
+See [Event Bus](/tui-dispatch/patterns/event-bus/) for how to build `bus` and
+`keybindings`.
 
 ## Debug Mode (F12)
 

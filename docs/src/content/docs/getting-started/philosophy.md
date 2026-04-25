@@ -49,21 +49,29 @@ The bare minimum for state management:
 
 This is all you need to get started. Everything below is optional.
 
-### Layer 1: Extensions
+### Layer 1: Runtime and optional extensions
 
 Plug in what your app needs:
 
 | Extension | Purpose |
 |-----------|---------|
+| **Runtime** | Event/action/render loop (`DispatchRuntime`, `EffectRuntime`) |
 | **Effects** | Declare async work as data (`ReducerResult`, `EffectStore`, `EffectRuntime`) |
 | **EventBus** | Event routing (modal → hovered → focused → subscribers → global) |
 | **DataResource** | Typed async lifecycle (Empty/Loading/Loaded/Failed) |
 | **TaskManager** | Async task lifecycle |
 | **Subscriptions** | Stream management |
+| **Debug layer** | Frame freeze, state inspection, action log, replay |
 
 Each extension has a consistent pattern: create it and wire it where needed.
 State-centric pieces like `DataResource` live in `AppState`, while runtime helpers like `TaskManager` and `Subscriptions`
 live in the runtime and are accessed via `EffectContext`.
+
+The runtime composes additively. A base `DispatchRuntime` / `EffectRuntime` can
+be extended with `.with_debug(...)` and `.with_event_bus(bus, keybindings)` to
+produce a `BusDispatchRuntime` / `BusEffectRuntime` with a fluent `run(...)` /
+`run_with_hooks(...)` loop. Apps can still stop at `Layer 0` and write their
+own loop when runtime helpers are not wanted.
 
 ### Layer 2: Components
 
@@ -74,5 +82,9 @@ Think of Layer 2 as three progressively richer tools:
 - **View components** via `Component<A>` for minimal props-driven reusable views
 - **Interactive widgets** via `InteractiveComponent<A, Ctx>` when local UI state needs routed input and `needs_render`
 - **Component host** via `ComponentHost<S, A, Id, Ctx>` when you want long-lived mounted widgets and optional EventBus binding
+
+`ComponentHost` sits at Layer 2 rather than inside the runtime: it wraps the
+Layer 1 runtime by consuming the `run_with_hooks(...)` post-render seam to
+keep bus areas in sync. That keeps `tui-dispatch-core` component-agnostic.
 
 You can stop at any layer. Many apps never need more than render functions or a few plain view components.

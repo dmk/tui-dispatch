@@ -451,8 +451,6 @@ async fn main() -> io::Result<()> {
 }
 
 async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
-    let mut runtime: EffectRuntime<AppState, Action, Effect> =
-        EffectRuntime::new(AppState::new(), reducer);
     let mut bus: SimpleEventBus<AppState, Action, AppComponentId> = SimpleEventBus::new();
     let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
 
@@ -468,11 +466,12 @@ async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io
         }
     });
 
+    let mut runtime = EffectRuntime::<AppState, Action, Effect>::new(AppState::new(), reducer)
+        .with_event_bus(bus, keybindings);
+
     runtime
-        .run_with_bus(
+        .run(
             terminal,
-            &mut bus,
-            &keybindings,
             |frame, area, state, _ctx: RenderContext, event_ctx| {
                 event_ctx.set_component_area(AppComponentId::Main, area);
                 ui::render_area(frame, area, state);

@@ -113,14 +113,17 @@ HandlerResponse::actions_passthrough(v) // Multiple actions, event continues rou
     .with_consumed(true)                // Explicitly set consumed flag
 ```
 
-### 4) Use run_with_bus
+### 4) Compose the runtime with `with_event_bus`
+
+Attach the bus and keybindings to your runtime, then `run(...)` it:
 
 ```rust
+let mut runtime = DispatchRuntime::new(AppState::default(), reducer)
+    .with_event_bus(bus, keybindings);
+
 runtime
-    .run_with_bus(
+    .run(
         terminal,
-        &mut bus,
-        &keybindings,
         |frame, area, state, render_ctx, event_ctx| {
             event_ctx.set_component_area(AppComponentId::Main, area);
             render_app(frame, area, state, render_ctx);
@@ -129,6 +132,30 @@ runtime
     )
     .await?;
 ```
+
+`with_event_bus(...)` returns a `BusDispatchRuntime` (or `BusEffectRuntime` for
+effectful reducers). Both expose `bus()`, `bus_mut()`, `keybindings()`,
+`enqueue(...)`, and `action_tx()` for pre-`run` setup or outside-the-loop
+wiring.
+
+#### `run_with_hooks` for post-render wiring
+
+When a wrapper needs to touch the bus after each frame (e.g. syncing component
+areas from a `ComponentHost`), use `run_with_hooks(...)` instead:
+
+```rust
+runtime
+    .run_with_hooks(
+        terminal,
+        render,
+        is_quit,
+        |bus, state| host.sync_areas(bus),
+    )
+    .await?;
+```
+
+This is the stable Layer 2 integration seam — component-host wrappers in
+`tui-dispatch-components` consume it without any changes in core.
 
 ## Configuring Global Keys
 

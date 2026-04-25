@@ -88,6 +88,26 @@ action_tx.send(action);        // Async dispatch via channel
 
 Add these when your app needs them. None are required.
 
+### Runtime
+Event/action/render loop helper so apps don't have to hand-write the loop. Two base variants match the two reducer shapes:
+
+- `DispatchRuntime<S, A>` — for reducers returning `bool`
+- `EffectRuntime<S, A, E>` — for reducers returning `ReducerResult<E>`
+
+Optional capabilities are attached additively with `with_*` builders. `with_event_bus(bus, keybindings)` returns a `BusDispatchRuntime` / `BusEffectRuntime` whose `run(...)` routes events through the bus.
+
+```rust
+let mut runtime = DispatchRuntime::new(state, reducer)
+    .with_debug(debug)
+    .with_event_bus(bus, keybindings);
+
+runtime.run(terminal, render, is_quit).await?;
+```
+
+`run_with_hooks(...)` is the post-render integration seam wrappers consume when they need to touch the bus after each frame (e.g. syncing `ComponentHost` areas).
+
+Apps can skip the runtime helpers entirely and drive `Store` / `EffectStore` from a custom loop — Layer 0 stays fully usable on its own.
+
 ### Effect
 For apps with async operations. A declarative description of a side effect, returned from the reducer as data. The main loop executes effects outside the reducer. This pattern comes from [The Elm Architecture](https://guide.elm-lang.org/effects/) where commands describe what to do without doing it.
 
