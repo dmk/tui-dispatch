@@ -18,7 +18,8 @@ use ratatui::{backend::CrosstermBackend, text::Line, Terminal};
 use tokio::sync::mpsc;
 use tui_dispatch::prelude::{EventBus, Runtime};
 use tui_dispatch_components::{
-    ComponentHost, SelectList, SelectListBehavior, SelectListProps, SelectListStyle, StatusBar,
+    ComponentHost, RuntimeHostExt, SelectList, SelectListBehavior, SelectListProps,
+    SelectListStyle, StatusBar,
 };
 use tui_dispatch_debug::debug::DebugLayer;
 use tui_dispatch_debug::DebugCliArgs;
@@ -100,7 +101,8 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     let mut runtime = Runtime::new(AppState::new(mode.source_label()), reducer)
         .with_debug(debug_layer)
-        .with_event_bus(bus, bindings);
+        .with_event_bus(bus, bindings)
+        .with_component_host(host.clone());
 
     // Forward ingested log batches into the action queue.
     let (ingest_tx, mut ingest_rx) = mpsc::unbounded_channel::<Vec<String>>();
@@ -116,10 +118,9 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     let mut status_bar = StatusBar::new();
     let host_for_render = host.clone();
-    let host_for_hook = host.clone();
 
     runtime
-        .run_with_hooks(
+        .run(
             terminal,
             |frame, area, state, _render_ctx, _event_ctx| {
                 render_app(
@@ -132,7 +133,6 @@ async fn run_app<B: ratatui::backend::Backend>(
                 );
             },
             |action| matches!(action, Action::Quit),
-            |bus, _state| host_for_hook.sync_areas(bus),
         )
         .await
 }

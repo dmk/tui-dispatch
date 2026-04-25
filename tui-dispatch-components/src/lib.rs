@@ -53,6 +53,7 @@ extern crate tinycrossterm as crossterm;
 
 mod host;
 mod modal;
+mod runtime;
 mod scroll_view;
 mod select_list;
 mod status_bar;
@@ -66,6 +67,7 @@ pub use host::{
 };
 pub use modal::{centered_rect, Modal, ModalBehavior, ModalProps, ModalStyle};
 pub use ratatui::text::Line;
+pub use runtime::{ComponentHostRuntime, HostedRuntime, HostedRuntimeParts, RuntimeHostExt};
 pub use scroll_view::{
     LinesScroller, ScrollView, ScrollViewBehavior, ScrollViewProps, ScrollViewRenderProps,
     ScrollViewStyle, VisibleRange,
@@ -100,8 +102,9 @@ pub mod prelude {
     };
 
     pub use crate::{
-        ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentInput,
-        HostLifecycleError, InteractiveComponent, Mounted, MountedComponentInfo, PropsFactory,
+        ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentHostRuntime,
+        ComponentInput, HostLifecycleError, HostedRuntime, HostedRuntimeParts,
+        InteractiveComponent, Mounted, MountedComponentInfo, PropsFactory, RuntimeHostExt,
     };
 
     pub use ratatui::style::{Color, Modifier, Style};

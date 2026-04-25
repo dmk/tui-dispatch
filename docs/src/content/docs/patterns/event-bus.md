@@ -140,8 +140,8 @@ wiring.
 
 #### `run_with_hooks` for post-render wiring
 
-When a wrapper needs to touch the bus after each frame (e.g. syncing component
-areas from a `ComponentHost`), use `run_with_hooks(...)` instead:
+When a wrapper needs to touch the bus after each frame, use
+`run_with_hooks(...)` instead:
 
 ```rust
 runtime
@@ -154,8 +154,24 @@ runtime
     .await?;
 ```
 
-This is the stable Layer 2 integration seam — component-host wrappers in
-`tui-dispatch-components` consume it without any changes in core.
+This is the stable Layer 2 integration seam.
+
+For `ComponentHost`, prefer the components-layer runtime adapter:
+
+```rust
+use tui_dispatch_components::RuntimeHostExt;
+
+let mut runtime = Runtime::new(state, reducer)
+    .with_event_bus(bus, keybindings)
+    .with_component_host(host.clone());
+
+runtime
+    .run(terminal, render, is_quit)
+    .await?;
+```
+
+The hosted runtime consumes the same hook internally without any changes in
+core.
 
 ## Configuring Global Keys
 

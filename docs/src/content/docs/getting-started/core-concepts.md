@@ -105,7 +105,7 @@ let mut runtime = Runtime::new(state, reducer)
 runtime.run(terminal, render, is_quit).await?;
 ```
 
-`run_with_hooks(...)` is the post-render integration seam wrappers consume when they need to touch the bus after each frame (e.g. syncing `ComponentHost` areas).
+`run_with_hooks(...)` is the post-render integration seam wrappers consume when they need to touch the bus after each frame. `ComponentHost` users normally get this through `RuntimeHostExt::with_component_host(...)`.
 
 Apps can skip the runtime helpers entirely and drive `Store` from a custom loop — Layer 0 stays fully usable on its own.
 

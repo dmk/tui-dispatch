@@ -9,15 +9,22 @@ rust-version.workspace = true
 keywords = ["tui", "components", "ratatui", "terminal"]
 categories = ["command-line-interface"]
 
+[features]
+default = []
+tasks = ["tui-dispatch-core/tasks"]
+subscriptions = ["tui-dispatch-core/subscriptions"]
+
 [dependencies]
 tui-dispatch-core.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ratatui.workspace = true
 crossterm.workspace = true
+tokio.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ratatui = { version = "0.29", default-features = false }
 tinycrossterm = "0.1.0"
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "io-util", "rt", "time"] }
 
 [dev-dependencies]

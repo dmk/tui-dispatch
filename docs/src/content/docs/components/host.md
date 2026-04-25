@@ -3,7 +3,7 @@ title: Component Host
 description: Mount long-lived widgets and optionally bind them into EventBus
 ---
 
-`ComponentHost<S, A, Id, Ctx>` is an optional Layer 2 helper for long-lived interactive widgets. It wraps the Layer 1 runtime additively through `run_with_hooks(...)` — `tui-dispatch-core` stays component-agnostic.
+`ComponentHost<S, A, Id, Ctx>` is an optional Layer 2 helper for long-lived interactive widgets. It wraps the Layer 1 runtime additively through `RuntimeHostExt::with_component_host(...)` — `tui-dispatch-core` stays component-agnostic.
 
 It solves two related problems:
 
@@ -85,28 +85,29 @@ host.sync_areas(&mut bus);
 
 ### Wiring into the runtime
 
-When the runtime owns the main loop, `sync_areas(...)` is the post-render hook
-to pass into `run_with_hooks(...)`:
+When the runtime owns the main loop, attach the host after adding the event bus:
 
 ```rust
-let host_for_hook = host.clone();
+use tui_dispatch_components::RuntimeHostExt;
 
 let mut runtime = Runtime::new(state, reducer)
-    .with_event_bus(bus, keybindings);
+    .with_event_bus(bus, keybindings)
+    .with_component_host(host.clone());
 
 runtime
-    .run_with_hooks(
+    .run(
         terminal,
         render,
         is_quit,
-        |bus, _state| host_for_hook.sync_areas(bus),
     )
     .await?;
 ```
 
 This is the recommended Layer 2 integration path: `ComponentHost` lives in
-`tui-dispatch-components` and consumes the Layer 1 `run_with_hooks` seam, so
-`tui-dispatch-core` stays component-agnostic.
+`tui-dispatch-components` and uses the Layer 1 post-render hook internally, so
+`tui-dispatch-core` stays component-agnostic. If you still need your own
+post-render hook, call `run_with_hooks(...)` on the hosted runtime; it runs
+`host.sync_areas(...)` first, then your hook.
 
 ## Without EventBus
 
