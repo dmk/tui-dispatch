@@ -414,6 +414,10 @@ impl<Item, A> Component<A> for SelectList<Item> {
         event: &EventKind,
         props: Self::Props<'_>,
     ) -> impl IntoIterator<Item = A> {
+        if !props.is_focused {
+            return None;
+        }
+
         match event {
             EventKind::Key(key) => match key.code {
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -472,6 +476,10 @@ impl<Item, A, Ctx> InteractiveComponent<A, Ctx> for SelectList<Item> {
         input: ComponentInput<'_, Ctx>,
         props: Self::Props<'_>,
     ) -> HandlerResponse<A> {
+        if !props.is_focused {
+            return HandlerResponse::ignored();
+        }
+
         let action = match input {
             ComponentInput::Command { name, .. } => match name {
                 "next" | "down" => self.handle_navigation(NavigationCommand::Next, &props),
@@ -686,6 +694,35 @@ mod tests {
             .collect();
 
         assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn test_unfocused_ignores_commands() {
+        let mut list = SelectList::new();
+        let items = make_items();
+        let props = SelectListProps {
+            items: &items,
+            count: items.len(),
+            selected: 0,
+            is_focused: false,
+            style: SelectListStyle::default(),
+            behavior: SelectListBehavior::default(),
+            on_select: Rc::new(TestAction::Select),
+            render_item: &render_item,
+        };
+
+        let response = <SelectList as InteractiveComponent<TestAction, ()>>::update(
+            &mut list,
+            ComponentInput::Command {
+                name: "next",
+                ctx: (),
+            },
+            props,
+        );
+
+        assert!(response.actions.is_empty());
+        assert!(!response.consumed);
+        assert!(!response.needs_render);
     }
 
     #[test]

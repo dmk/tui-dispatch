@@ -8,7 +8,7 @@ use crossterm::event::{KeyEvent, KeyModifiers, MouseEvent};
 use ratatui::{layout::Rect, Frame};
 use tui_dispatch_core::{
     Action as ActionTrait, BindingContext, ComponentId, DefaultBindingContext, EventBus, EventKind,
-    HandlerResponse, RoutedEvent,
+    EventType, HandlerResponse, RoutedEvent,
 };
 
 /// Routed input delivered to interactive components.
@@ -91,6 +91,15 @@ pub trait InteractiveComponent<A, Ctx = DefaultBindingContext>: ComponentDebugSt
     type Props<'a>
     where
         Self: 'a;
+
+    /// Event types this component should receive when bound through [`ComponentHost`].
+    ///
+    /// Focused and hovered components still receive routed input through the normal
+    /// EventBus routing path. Subscriptions are for events the component wants even
+    /// when it is not the focused or hovered target.
+    fn subscriptions() -> &'static [EventType] {
+        &[EventType::Key]
+    }
 
     #[allow(unused_variables)]
     fn update(
@@ -459,6 +468,7 @@ where
         bus.register(id, move |event, state| {
             host.update(mounted, event.into(), state)
         });
+        bus.subscribe_many(id, C::subscriptions());
     }
 
     pub fn unbind(&self, bus: &mut EventBus<S, A, Id, Ctx>, id: Id) {
@@ -677,6 +687,36 @@ mod tests {
         }
     }
 
+    struct TickComponent;
+
+    impl ComponentDebugState for TickComponent {}
+
+    impl InteractiveComponent<TestAction, TestCtx> for TickComponent {
+        type Props<'a> = &'a str;
+
+        fn subscriptions() -> &'static [EventType] {
+            &[EventType::Tick]
+        }
+
+        fn update(
+            &mut self,
+            input: ComponentInput<'_, TestCtx>,
+            _props: Self::Props<'_>,
+        ) -> HandlerResponse<TestAction> {
+            match input {
+                ComponentInput::Tick => {
+                    HandlerResponse::action(TestAction::Emit("tick-subscription".into()))
+                }
+                _ => HandlerResponse::ignored(),
+            }
+        }
+
+        fn render(&mut self, frame: &mut Frame, area: Rect, _props: Self::Props<'_>) {
+            use ratatui::widgets::Paragraph;
+            frame.render_widget(Paragraph::new("tick"), area);
+        }
+    }
+
     fn key_event(code: KeyCode) -> KeyEvent {
         KeyEvent {
             code,
@@ -746,8 +786,6 @@ mod tests {
 
         let mut bus = EventBus::<TestState, TestAction, TestId, TestCtx>::new();
         host.bind(&mut bus, TestId::A, mounted);
-        bus.subscribe(TestId::A, EventType::Tick);
-        bus.subscribe(TestId::A, EventType::Resize);
 
         let mut bindings = Keybindings::new();
         bindings.add(TestCtx::Nav, "next", vec!["j".into()]);
@@ -773,6 +811,57 @@ mod tests {
 
         host.sync_areas(&mut bus);
         assert_eq!(bus.context().component_areas.get(&TestId::A).copied(), None);
+    }
+
+    #[test]
+    fn bind_subscribes_default_key_events() {
+        let host = ComponentHost::<TestState, TestAction, TestId, TestCtx>::new();
+        let mounted: Mounted<EchoComponent> = host.mount::<EchoComponent, _>(
+            || EchoComponent {
+                resets: Rc::new(Cell::new(1)),
+            },
+            label_props,
+        );
+        let mut bus = EventBus::<TestState, TestAction, TestId, TestCtx>::new();
+
+        host.bind(&mut bus, TestId::A, mounted);
+
+        assert_eq!(bus.get_subscribers(EventType::Key), vec![TestId::A]);
+
+        let mut bindings = Keybindings::new();
+        bindings.add(TestCtx::Nav, "next", vec!["j".into()]);
+        let state = TestState {
+            focused: None,
+            context: TestCtx::Nav,
+            label: "bound".into(),
+        };
+
+        let outcome = bus.handle_event(&EventKind::Key(key("j")), &state, &bindings);
+        assert_eq!(outcome.actions, vec![TestAction::Emit("next".into())]);
+    }
+
+    #[test]
+    fn bind_subscribes_declared_event_types() {
+        let host = ComponentHost::<TestState, TestAction, TestId, TestCtx>::new();
+        let mounted: Mounted<TickComponent> =
+            host.mount::<TickComponent, _>(|| TickComponent, label_props);
+        let mut bus = EventBus::<TestState, TestAction, TestId, TestCtx>::new();
+
+        host.bind(&mut bus, TestId::A, mounted);
+
+        assert!(bus.get_subscribers(EventType::Key).is_empty());
+        assert_eq!(bus.get_subscribers(EventType::Tick), vec![TestId::A]);
+
+        let state = TestState {
+            focused: None,
+            context: TestCtx::Default,
+            label: "bound".into(),
+        };
+        let outcome = bus.handle_event(&EventKind::Tick, &state, &Keybindings::new());
+        assert_eq!(
+            outcome.actions,
+            vec![TestAction::Emit("tick-subscription".into())]
+        );
     }
 
     #[test]

@@ -88,6 +88,11 @@ host.bind(&mut bus, RouteId::Logs, mounted.logs);
 host.bind(&mut bus, RouteId::Details, mounted.details);
 ```
 
+`bind(...)` registers the widget handler and subscribes it to the event types
+declared by `InteractiveComponent::subscriptions()`. Widgets default to key
+events; override the associated function when a component needs broadcast-style
+delivery such as ticks or resizes.
+
 Render stays explicit:
 
 ```rust
