@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.7.0] - 2026-04-26
+
+Runtime unification, mounted component hosting, routed widget commands, debug overlay refinements, and a new log-viewer example.
+
+### Breaking Changes
+
+- `EffectStore`, `EffectStoreWithMiddleware`, `DispatchRuntime`, and `EffectRuntime` have been folded into the generic `Store<S, A, E>` and `Runtime<S, A, E>` model
+- Effect-capable reducers now use `ReducerResult<E>` directly from the same store/runtime path as no-effect reducers
+- Component callback props now accept closure-friendly `Rc<dyn Fn(...) -> A>` callback types instead of plain function pointers
+- Some broad component prelude exports were removed; import specialized host/runtime types from `tui_dispatch_components` or its prelude
+
+### Added
+
+- `ComponentHost` for mounting long-lived interactive widgets, reusing props factories, binding widgets to `EventBus`, syncing render areas, and exposing widget-local debug state
+- `RuntimeHostExt::with_component_host(...)` and `HostedRuntime` for automatic host area synchronization after each render
+- `ComponentInput::Command` plus routed command constants under `tui_dispatch_components::commands`
+- Routed command handling for `TextInput`, including movement, deletion, submit, and cancel commands
+- Components debug overlay support in `DebugLayer::with_component_host(...)`
+- Log viewer example demonstrating `ComponentHost`, routed commands, filters, follow mode, details inspection, and debug component state
+- Runtime and debug contract tests across feature combinations, with `make test-feature-matrix` included in `make verify`
+- WASM preview artifacts for docs examples
+
+### Changed
+
+- Runtime internals now share a common shell for event polling, dispatch error policy handling, debug integration, action broadcast, and task/subscription cleanup
+- `Store` and `StoreWithMiddleware` now share effect-capable reducer results, making side-effect reducers the default model instead of a separate store type
+- `SelectList`, `ScrollView`, `TextInput`, `TreeView`, and `Modal` callback props are closure-friendly
+- `ComponentHost::bind(...)` subscribes widgets to their declared event types automatically
+- Debug overlays now use richer component widgets for state trees, action-log search/navigation, scrolling, footer hints, and cell previews
+- Examples and docs were updated for the unified runtime API and component host flow
+
+### Fixed
+
+- Docs site base URL for published GitHub Pages links
+
 ## [0.6.1] - 2026-02-28
 
 Safer middleware dispatch, runtime error policies, debug action filtering, and wasm support.

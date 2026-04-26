@@ -40,6 +40,18 @@ A markdown file viewer with debug overlay and feature flags.
 
 [Read more →](/tui-dispatch/examples/markdown-preview/)
 
+## Log Viewer
+
+A structured log viewer for files and stdin streams.
+
+**Demonstrates:**
+- ComponentHost with multiple mounted widgets
+- Routed widget commands through EventBus and Keybindings
+- Debug components overlay for widget-local state
+- JSON log parsing, filtering, follow mode, and details inspection
+
+[Read more →](/tui-dispatch/examples/log-viewer/)
+
 ## Minesweeper
 
 A minesweeper game demonstrating middleware cancel/inject patterns.
@@ -59,6 +71,9 @@ cargo run -p counter-example
 
 # GitHub Lookup
 cargo run -p github-lookup-example
+
+# Log viewer
+cargo run -p log-viewer-example --bin log-viewer -- --help
 
 # Markdown preview (default: README.md)
 cargo run -p md-preview-example --bin mdpreview

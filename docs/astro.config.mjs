@@ -57,6 +57,7 @@ export default defineConfig({
             { label: 'Overview', slug: 'examples' },
             { label: 'Counter', slug: 'examples/counter' },
             { label: 'GitHub Lookup', slug: 'examples/github-lookup' },
+            { label: 'Log Viewer', slug: 'examples/log-viewer' },
             { label: 'Markdown Preview', slug: 'examples/markdown-preview' },
           ],
         },

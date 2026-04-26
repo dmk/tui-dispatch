@@ -11,7 +11,7 @@ Add the basics:
 
 ```toml
 [dependencies]
-tui-dispatch = "0.6.0"
+tui-dispatch = "0.7.0"
 ratatui = "0.29"
 crossterm = "0.28"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
@@ -21,7 +21,7 @@ If you know you'll be doing async work, enable the runtime helpers:
 
 ```toml
 [dependencies]
-tui-dispatch = { version = "0.6.0", features = ["tasks", "subscriptions"] }
+tui-dispatch = { version = "0.7.0", features = ["tasks", "subscriptions"] }
 ```
 
 - `tasks`: `TaskManager` (cancellation + debounce)
@@ -101,7 +101,7 @@ The recommended pattern is:
 Enable `tasks`:
 
 ```toml
-tui-dispatch = { version = "0.6.0", features = ["tasks"] }
+tui-dispatch = { version = "0.7.0", features = ["tasks"] }
 ```
 
 Skeleton:

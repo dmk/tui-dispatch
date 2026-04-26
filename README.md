@@ -6,7 +6,7 @@ Centralized state management for Rust TUI apps (ratatui + crossterm). Redux/Elm 
 
 ```toml
 [dependencies]
-tui-dispatch = "0.6.0"
+tui-dispatch = "0.7.0"
 ratatui = "0.29"
 crossterm = "0.28"
 ```
@@ -103,6 +103,7 @@ See `docs/src/content/docs/patterns/async.md` and the `github-lookup-example` ap
 ```bash
 cargo run -p counter-example
 cargo run -p github-lookup-example
+cargo run -p log-viewer-example --bin log-viewer -- --help
 cargo run -p md-preview-example --bin mdpreview -- README.md --debug
 cargo run -p minesweeper-example
 ```

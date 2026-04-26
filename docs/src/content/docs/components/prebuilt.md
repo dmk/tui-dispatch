@@ -13,7 +13,7 @@ If you have not read it yet, start with [Components Overview](/tui-dispatch/comp
 
 ```toml
 [dependencies]
-tui-dispatch-components = "0.6.0"
+tui-dispatch-components = "0.7.0"
 ```
 
 ## Usage Modes

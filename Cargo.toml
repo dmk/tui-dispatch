@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/dmk/tui-dispatch"
@@ -24,12 +24,12 @@ keywords = ["tui", "redux", "state-management", "terminal", "ratatui"]
 categories = ["command-line-interface", "development-tools"]
 
 [workspace.dependencies]
-tui-dispatch = { version = "0.6.1", path = "tui-dispatch" }
-tui-dispatch-shared = { version = "0.6.1", path = "tui-dispatch-shared" }
-tui-dispatch-core = { version = "0.6.1", path = "tui-dispatch-core" }
-tui-dispatch-macros = { version = "0.6.1", path = "tui-dispatch-macros" }
-tui-dispatch-components = { version = "0.6.1", path = "tui-dispatch-components" }
-tui-dispatch-debug = { version = "0.6.1", path = "tui-dispatch-debug" }
+tui-dispatch = { version = "0.7.0", path = "tui-dispatch" }
+tui-dispatch-shared = { version = "0.7.0", path = "tui-dispatch-shared" }
+tui-dispatch-core = { version = "0.7.0", path = "tui-dispatch-core" }
+tui-dispatch-macros = { version = "0.7.0", path = "tui-dispatch-macros" }
+tui-dispatch-components = { version = "0.7.0", path = "tui-dispatch-components" }
+tui-dispatch-debug = { version = "0.7.0", path = "tui-dispatch-debug" }
 
 # External deps
 ratatui = "0.29"
