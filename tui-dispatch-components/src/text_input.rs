@@ -80,10 +80,12 @@ pub struct TextInputProps<'a, A> {
     pub style: TextInputStyle,
     /// Callback when value changes
     pub on_change: TextInputCallback<A>,
-    /// Callback when user submits (Enter)
+    /// Callback when user submits (Enter or `submit` command)
     pub on_submit: TextInputCallback<A>,
     /// Callback when cursor moves without content change
     pub on_cursor_move: Option<TextInputCursorCallback<A>>,
+    /// Callback when the user runs the `cancel` command
+    pub on_cancel: Option<TextInputCallback<A>>,
 }
 
 /// Render-only props for TextInput
@@ -544,7 +546,8 @@ impl TextInput {
             _ => None,
         };
 
-        let action = if action.is_none() && did_move {
+        let cursor_moved = self.cursor != cursor_before;
+        let action = if action.is_none() && did_move && cursor_moved {
             props
                 .on_cursor_move
                 .as_ref()
@@ -553,7 +556,87 @@ impl TextInput {
             action
         };
 
-        (action, self.cursor != cursor_before)
+        (action, cursor_moved)
+    }
+
+    /// Handle a `ComponentInput::Command`.
+    ///
+    /// Recognised commands: `move_backward`, `move_forward`,
+    /// `move_word_backward`, `move_word_forward`, `move_home`, `move_end`,
+    /// `delete_backward`, `delete_forward`, `delete_word_backward`,
+    /// `delete_word_forward`, `submit`, `cancel`. Unknown commands are
+    /// ignored.
+    fn handle_command<A>(
+        &mut self,
+        name: &str,
+        props: &TextInputProps<'_, A>,
+    ) -> (Option<A>, bool) {
+        self.clamp_cursor(props.value);
+        let cursor_before = self.cursor;
+        let mut did_move = false;
+
+        let action = match name {
+            "move_backward" => {
+                self.move_cursor_left(props.value);
+                did_move = true;
+                None
+            }
+            "move_forward" => {
+                self.move_cursor_right(props.value);
+                did_move = true;
+                None
+            }
+            "move_word_backward" => {
+                self.move_word_backward(props.value);
+                did_move = true;
+                None
+            }
+            "move_word_forward" => {
+                self.move_word_forward(props.value);
+                did_move = true;
+                None
+            }
+            "move_home" => {
+                self.cursor = 0;
+                did_move = true;
+                None
+            }
+            "move_end" => {
+                self.cursor = props.value.len();
+                did_move = true;
+                None
+            }
+            "delete_backward" => self
+                .delete_char_before(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            "delete_forward" => self
+                .delete_char_at(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            "delete_word_backward" => self
+                .kill_word_backward(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            "delete_word_forward" => self
+                .kill_word_forward(props.value)
+                .map(|value| (props.on_change.as_ref())(value)),
+            "submit" => Some((props.on_submit.as_ref())(props.value.to_string())),
+            "cancel" => props
+                .on_cancel
+                .as_ref()
+                .map(|cb| cb(props.value.to_string())),
+            _ => None,
+        };
+
+        let cursor_moved = self.cursor != cursor_before;
+        let action = if action.is_none() && did_move && cursor_moved {
+            props
+                .on_cursor_move
+                .as_ref()
+                .map(|callback| callback(self.cursor))
+        } else {
+            action
+        };
+
+        (action, cursor_moved)
     }
 
     fn render_with(
@@ -692,23 +775,23 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for TextInput {
             return HandlerResponse::ignored();
         }
 
-        match input {
-            ComponentInput::Key(key) => {
-                let (action, local_changed) = self.handle_key(key, &props);
-                let mut response = match action {
-                    Some(action) => HandlerResponse::action(action),
-                    None if local_changed => HandlerResponse::ignored().with_consumed(true),
-                    None => HandlerResponse::ignored(),
-                };
+        let (action, local_changed) = match input {
+            ComponentInput::Command { name, .. } => self.handle_command(name, &props),
+            ComponentInput::Key(key) => self.handle_key(key, &props),
+            _ => return HandlerResponse::ignored(),
+        };
 
-                if local_changed {
-                    response = response.with_render();
-                }
+        let mut response = match action {
+            Some(action) => HandlerResponse::action(action),
+            None if local_changed => HandlerResponse::ignored().with_consumed(true),
+            None => HandlerResponse::ignored(),
+        };
 
-                response
-            }
-            _ => HandlerResponse::ignored(),
+        if local_changed {
+            response = response.with_render();
         }
+
+        response
     }
 
     fn render(&mut self, frame: &mut Frame, area: Rect, props: Self::Props<'_>) {
@@ -738,6 +821,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -761,6 +845,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         // Space character
@@ -787,6 +872,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -810,6 +896,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -834,6 +921,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -856,6 +944,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -878,6 +967,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -902,6 +992,7 @@ mod tests {
                 on_change: Rc::new(|_| ()),
                 on_submit: Rc::new(|_| ()),
                 on_cursor_move: None,
+                on_cancel: None,
             };
             <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
         });
@@ -923,6 +1014,7 @@ mod tests {
                 on_change: Rc::new(|_| ()),
                 on_submit: Rc::new(|_| ()),
                 on_cursor_move: None,
+                on_cancel: None,
             };
             <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
         });
@@ -953,6 +1045,7 @@ mod tests {
                 on_change: Rc::new(|_| ()),
                 on_submit: Rc::new(|_| ()),
                 on_cursor_move: None,
+                on_cancel: None,
             };
             <TextInput as Component<()>>::render(&mut input, frame, frame.area(), props);
         });
@@ -989,6 +1082,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -1012,6 +1106,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -1036,6 +1131,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -1060,6 +1156,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -1084,6 +1181,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -1107,6 +1205,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let actions: Vec<_> = input
@@ -1130,6 +1229,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         // Ctrl+B moves back
@@ -1148,6 +1248,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
         let _: Vec<_> = input
             .handle_event(&EventKind::Key(ctrl_key('f')), props)
@@ -1170,6 +1271,7 @@ mod tests {
             on_change: Rc::new(TestAction::Change),
             on_submit: Rc::new(TestAction::Submit),
             on_cursor_move: None,
+            on_cancel: None,
         };
 
         let _: Vec<_> = input
@@ -1178,5 +1280,200 @@ mod tests {
             .collect();
 
         assert_eq!(input.cursor, 8); // At start of "world"
+    }
+
+    // ========================================================================
+    // ComponentInput::Command tests (command-aware TextInput)
+    // ========================================================================
+
+    fn command_props<'a>(value: &'a str) -> TextInputProps<'a, TestAction> {
+        TextInputProps {
+            value,
+            placeholder: "",
+            is_focused: true,
+            style: TextInputStyle::default(),
+            on_change: Rc::new(TestAction::Change),
+            on_submit: Rc::new(TestAction::Submit),
+            on_cursor_move: None,
+            on_cancel: None,
+        }
+    }
+
+    fn run_command<'a>(
+        input: &mut TextInput,
+        name: &str,
+        props: TextInputProps<'a, TestAction>,
+    ) -> HandlerResponse<TestAction> {
+        <TextInput as InteractiveComponent<TestAction, ()>>::update(
+            input,
+            ComponentInput::Command { name, ctx: () },
+            props,
+        )
+    }
+
+    #[test]
+    fn command_move_forward_backward() {
+        let mut input = TextInput::new();
+        input.cursor = 3;
+
+        let response = run_command(&mut input, "move_backward", command_props("hello"));
+        assert!(response.actions.is_empty());
+        assert!(response.consumed);
+        assert!(response.needs_render);
+        assert_eq!(input.cursor, 2);
+
+        let response = run_command(&mut input, "move_forward", command_props("hello"));
+        assert!(response.actions.is_empty());
+        assert_eq!(input.cursor, 3);
+    }
+
+    #[test]
+    fn command_move_word_forward_backward() {
+        let mut input = TextInput::new();
+        input.cursor = 11;
+
+        let response = run_command(
+            &mut input,
+            "move_word_backward",
+            command_props("hello world"),
+        );
+        assert!(response.actions.is_empty());
+        assert_eq!(input.cursor, 6);
+
+        let response = run_command(
+            &mut input,
+            "move_word_forward",
+            command_props("hello world"),
+        );
+        assert!(response.actions.is_empty());
+        assert_eq!(input.cursor, 11);
+    }
+
+    #[test]
+    fn command_move_home_end() {
+        let mut input = TextInput::new();
+        input.cursor = 3;
+
+        let response = run_command(&mut input, "move_home", command_props("hello"));
+        assert!(response.actions.is_empty());
+        assert_eq!(input.cursor, 0);
+
+        let response = run_command(&mut input, "move_end", command_props("hello"));
+        assert!(response.actions.is_empty());
+        assert_eq!(input.cursor, 5);
+    }
+
+    #[test]
+    fn command_delete_backward_forward() {
+        let mut input = TextInput::new();
+        input.cursor = 3;
+
+        let response = run_command(&mut input, "delete_backward", command_props("hello"));
+        assert_eq!(response.actions, vec![TestAction::Change("helo".into())]);
+        assert_eq!(input.cursor, 2);
+
+        let response = run_command(&mut input, "delete_forward", command_props("helo"));
+        assert_eq!(response.actions, vec![TestAction::Change("heo".into())]);
+        assert_eq!(input.cursor, 2);
+    }
+
+    #[test]
+    fn command_delete_word_backward_forward() {
+        let mut input = TextInput::new();
+        input.cursor = 11;
+
+        let response = run_command(
+            &mut input,
+            "delete_word_backward",
+            command_props("hello world"),
+        );
+        assert_eq!(response.actions, vec![TestAction::Change("hello ".into())]);
+        assert_eq!(input.cursor, 6);
+
+        let mut input = TextInput::new();
+        input.cursor = 0;
+        let response = run_command(
+            &mut input,
+            "delete_word_forward",
+            command_props("hello world"),
+        );
+        assert_eq!(response.actions, vec![TestAction::Change("world".into())]);
+    }
+
+    #[test]
+    fn command_submit() {
+        let mut input = TextInput::new();
+        let response = run_command(&mut input, "submit", command_props("hello"));
+        assert_eq!(response.actions, vec![TestAction::Submit("hello".into())]);
+    }
+
+    #[test]
+    fn command_cancel_emits_when_callback_set() {
+        let mut input = TextInput::new();
+        let mut props = command_props("hello");
+        props.on_cancel = Some(Rc::new(|_| TestAction::Submit("cancelled".into())));
+
+        let response = run_command(&mut input, "cancel", props);
+        assert_eq!(
+            response.actions,
+            vec![TestAction::Submit("cancelled".into())]
+        );
+    }
+
+    #[test]
+    fn command_cancel_ignored_without_callback() {
+        let mut input = TextInput::new();
+        let response = run_command(&mut input, "cancel", command_props("hello"));
+        assert!(response.actions.is_empty());
+        assert!(!response.consumed);
+        assert!(!response.needs_render);
+    }
+
+    #[test]
+    fn command_unknown_is_ignored() {
+        let mut input = TextInput::new();
+        let response = run_command(&mut input, "totally_made_up", command_props("hello"));
+        assert!(response.actions.is_empty());
+        assert!(!response.consumed);
+        assert!(!response.needs_render);
+    }
+
+    #[test]
+    fn command_unfocused_returns_ignored() {
+        let mut input = TextInput::new();
+        let mut props = command_props("hello");
+        props.is_focused = false;
+        let response = run_command(&mut input, "submit", props);
+        assert!(response.actions.is_empty());
+    }
+
+    #[test]
+    fn command_movement_emits_on_cursor_move_when_set() {
+        let mut input = TextInput::new();
+        input.cursor = 3;
+
+        let mut props = command_props("hello");
+        props.on_cursor_move = Some(Rc::new(|pos: usize| TestAction::Change(format!("@{pos}"))));
+
+        let response = run_command(&mut input, "move_backward", props);
+        assert_eq!(
+            response.actions,
+            vec![TestAction::Change("@2".into())],
+            "on_cursor_move should fire when movement command actually moves"
+        );
+    }
+
+    #[test]
+    fn command_movement_at_boundary_does_not_emit_on_cursor_move() {
+        let mut input = TextInput::new();
+
+        let mut props = command_props("hello");
+        props.on_cursor_move = Some(Rc::new(|pos: usize| TestAction::Change(format!("@{pos}"))));
+
+        let response = run_command(&mut input, "move_backward", props);
+        assert!(response.actions.is_empty());
+        assert!(!response.consumed);
+        assert!(!response.needs_render);
+        assert_eq!(input.cursor, 0);
     }
 }

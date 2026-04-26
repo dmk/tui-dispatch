@@ -93,6 +93,7 @@ impl FilterPane {
                 on_change: Rc::new(LocalAction::QueryChanged),
                 on_submit: Rc::new(LocalAction::QueryChanged),
                 on_cursor_move: None,
+                on_cancel: None,
             },
         );
 

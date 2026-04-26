@@ -101,6 +101,7 @@ let response = <TextInput as InteractiveComponent<Action>>::update(
         on_change: Rc::new(Action::QueryChanged),
         on_submit: Rc::new(|_| Action::Submit),
         on_cursor_move: None,
+        on_cancel: None,
     },
 );
 

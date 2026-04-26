@@ -46,6 +46,7 @@ impl PropsFactory<AppState, TextInput, Action, AppBindingContext> for SearchProp
             on_change: self.on_change.clone(),
             on_submit: self.on_submit.clone(),
             on_cursor_move: None,
+            on_cancel: None,
         }
     }
 }

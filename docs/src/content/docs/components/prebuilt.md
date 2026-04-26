@@ -174,9 +174,19 @@ let response = <TextInput as InteractiveComponent<Action>>::update(
         on_change: Rc::new(Action::QueryChanged),
         on_submit: Rc::new(|_| Action::Submit),
         on_cursor_move: None,
+        on_cancel: None,
     },
 );
 ```
+
+`TextInput` recognises a fixed set of [routed commands](/components/host/) when
+focused: `move_backward`, `move_forward`, `move_word_backward`,
+`move_word_forward`, `move_home`, `move_end`, `delete_backward`,
+`delete_forward`, `delete_word_backward`, `delete_word_forward`, `submit`, and
+`cancel`. Bind these to keys via `BindingContext` and the host adapter
+delivers them as `ComponentInput::Command` so the same widget works with
+arbitrary keymaps. `cancel` only emits an action if `on_cancel` is set;
+otherwise it is left for the bus / app to handle.
 
 `TextInput` already uses `needs_render` for cursor-only changes in its interactive path.
 
