@@ -11,10 +11,12 @@ use tui_dispatch_core::{
 
 use crate::ComponentHost;
 
+#[doc(hidden)]
 /// Bus-routed runtime shape that can be paired with a [`ComponentHost`].
 pub type ComponentHostRuntime<S, A, E, Id, Ctx, St = Store<S, A, E>> =
     Runtime<S, A, E, EventBusRouting<S, A, Id, Ctx>, St>;
 
+#[doc(hidden)]
 /// Owned pieces returned by [`HostedRuntime::into_parts`].
 pub struct HostedRuntimeParts<S, A, E, Id, Ctx, St = Store<S, A, E>>
 where

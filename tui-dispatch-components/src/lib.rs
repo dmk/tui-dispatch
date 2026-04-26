@@ -110,9 +110,9 @@ pub mod prelude {
     };
 
     pub use crate::{
-        ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentHostRuntime,
-        ComponentInput, HostLifecycleError, HostedRuntime, HostedRuntimeParts,
-        InteractiveComponent, Mounted, MountedComponentInfo, PropsFactory, RuntimeHostExt,
+        ComponentDebugEntry, ComponentDebugState, ComponentHost, ComponentInput,
+        HostLifecycleError, HostedRuntime, InteractiveComponent, Mounted, MountedComponentInfo,
+        PropsFactory, RuntimeHostExt,
     };
 
     pub use ratatui::style::{Color, Modifier, Style};
