@@ -192,7 +192,7 @@ let response = <TextInput as InteractiveComponent<Action>>::update(
 );
 ```
 
-`TextInput` recognises a fixed set of [routed commands](/components/host/) when
+`TextInput` recognises a fixed set of [routed commands](/tui-dispatch/components/host/) when
 focused: `move_backward`, `move_forward`, `move_word_backward`,
 `move_word_forward`, `move_home`, `move_end`, `delete_backward`,
 `delete_forward`, `delete_word_backward`, `delete_word_forward`, `submit`, and
