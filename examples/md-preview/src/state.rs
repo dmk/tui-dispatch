@@ -305,25 +305,19 @@ impl AppState {
                             lines.push(RenderedLine::text(Line::from("")));
                             code_block_content.clear();
                         }
-                        TagEnd::Item => {
-                            if !current_spans.is_empty() {
-                                lines.push(RenderedLine::text(Line::from(std::mem::take(
-                                    &mut current_spans,
-                                ))));
-                            }
+                        TagEnd::Item if !current_spans.is_empty() => {
+                            lines.push(RenderedLine::text(Line::from(std::mem::take(
+                                &mut current_spans,
+                            ))));
                         }
                         TagEnd::TableCell => {
                             current_row.push(std::mem::take(&mut current_cell));
                         }
-                        TagEnd::TableHead => {
-                            if !current_row.is_empty() {
-                                table_rows.push(std::mem::take(&mut current_row));
-                            }
+                        TagEnd::TableHead if !current_row.is_empty() => {
+                            table_rows.push(std::mem::take(&mut current_row));
                         }
-                        TagEnd::TableRow => {
-                            if !current_row.is_empty() {
-                                table_rows.push(std::mem::take(&mut current_row));
-                            }
+                        TagEnd::TableRow if !current_row.is_empty() => {
+                            table_rows.push(std::mem::take(&mut current_row));
                         }
                         TagEnd::Table => {
                             // Render the table
@@ -420,12 +414,10 @@ impl AppState {
                 Event::SoftBreak => {
                     current_spans.push(Span::raw(" "));
                 }
-                Event::HardBreak => {
-                    if !current_spans.is_empty() {
-                        lines.push(RenderedLine::text(Line::from(std::mem::take(
-                            &mut current_spans,
-                        ))));
-                    }
+                Event::HardBreak if !current_spans.is_empty() => {
+                    lines.push(RenderedLine::text(Line::from(std::mem::take(
+                        &mut current_spans,
+                    ))));
                 }
                 Event::Rule => {
                     if !current_spans.is_empty() {
