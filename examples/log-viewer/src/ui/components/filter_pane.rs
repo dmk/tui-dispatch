@@ -11,9 +11,10 @@ use ratatui::{
 };
 use tui_dispatch::prelude::HandlerResponse;
 use tui_dispatch_components::{
-    highlight_substring, BorderStyle, ComponentDebugEntry, ComponentDebugState, ComponentInput,
-    InteractiveComponent, SelectList, SelectListBehavior, SelectListProps, SelectListRenderProps,
-    SelectListStyle, TextInput, TextInputProps, TextInputRenderProps, TextInputStyle,
+    commands, highlight_substring, BorderStyle, ComponentDebugEntry, ComponentDebugState,
+    ComponentInput, InteractiveComponent, SelectList, SelectListBehavior, SelectListProps,
+    SelectListRenderProps, SelectListStyle, TextInput, TextInputProps, TextInputRenderProps,
+    TextInputStyle,
 };
 
 pub type FilterToggleCallback<A> = Rc<dyn Fn(String) -> A>;
@@ -177,13 +178,18 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for FilterPane {
 
         match input {
             command @ ComponentInput::Command { name, .. } => match name {
-                "toggle" | "select" | "confirm" => self
+                commands::TOGGLE | commands::SELECT | commands::CONFIRM => self
                     .toggle_current(&props)
                     .map(HandlerResponse::action)
                     .unwrap_or_else(HandlerResponse::ignored),
-                "next" | "down" | "prev" | "up" | "first" | "home" | "last" | "end" => {
-                    self.handle_list_input::<A, Ctx>(command, &props)
-                }
+                commands::NEXT
+                | commands::DOWN
+                | commands::PREV
+                | commands::UP
+                | commands::FIRST
+                | commands::HOME
+                | commands::LAST
+                | commands::END => self.handle_list_input::<A, Ctx>(command, &props),
                 _ => self.handle_query_input::<A, Ctx>(command, &props),
             },
             ComponentInput::Key(key) => match key.code {

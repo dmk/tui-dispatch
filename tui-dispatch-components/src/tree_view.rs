@@ -15,6 +15,7 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
+use crate::commands;
 use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
 use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
@@ -843,7 +844,7 @@ where
                         };
 
                         match name {
-                            "next" | "down" => {
+                            commands::NEXT | commands::DOWN => {
                                 if !has_selection {
                                     move_selection(0)
                                 } else {
@@ -858,7 +859,7 @@ where
                                         .then(|| (props.on_select.as_ref())(&visible[next].node.id))
                                 }
                             }
-                            "prev" | "up" => {
+                            commands::PREV | commands::UP => {
                                 if !has_selection {
                                     move_selection(last_idx)
                                 } else {
@@ -872,21 +873,21 @@ where
                                         .then(|| (props.on_select.as_ref())(&visible[next].node.id))
                                 }
                             }
-                            "first" | "home" => {
+                            commands::FIRST | commands::HOME => {
                                 if current_idx != 0 || !has_selection {
                                     move_selection(0)
                                 } else {
                                     None
                                 }
                             }
-                            "last" | "end" => {
+                            commands::LAST | commands::END => {
                                 if current_idx != last_idx || !has_selection {
                                     move_selection(last_idx)
                                 } else {
                                     None
                                 }
                             }
-                            "left" => {
+                            commands::LEFT => {
                                 let current = &visible[current_idx];
                                 if current.has_children && current.is_expanded {
                                     toggle_node(current_idx, false)
@@ -896,7 +897,7 @@ where
                                     None
                                 }
                             }
-                            "right" => {
+                            commands::RIGHT => {
                                 let current = &visible[current_idx];
                                 if current.has_children && !current.is_expanded {
                                     toggle_node(current_idx, true)
@@ -913,7 +914,7 @@ where
                                     None
                                 }
                             }
-                            "toggle" => {
+                            commands::TOGGLE => {
                                 let current = &visible[current_idx];
                                 if current.has_children {
                                     toggle_node(current_idx, !current.is_expanded)
@@ -921,8 +922,8 @@ where
                                     None
                                 }
                             }
-                            "select" => move_selection(current_idx),
-                            "confirm" => {
+                            commands::SELECT => move_selection(current_idx),
+                            commands::CONFIRM => {
                                 let current = &visible[current_idx];
                                 if props.behavior.enter_toggles && current.has_children {
                                     toggle_node(current_idx, !current.is_expanded)

@@ -13,6 +13,7 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
+use crate::commands;
 use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle, SelectionStyle};
 use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
@@ -482,11 +483,21 @@ impl<Item, A, Ctx> InteractiveComponent<A, Ctx> for SelectList<Item> {
 
         let action = match input {
             ComponentInput::Command { name, .. } => match name {
-                "next" | "down" => self.handle_navigation(NavigationCommand::Next, &props),
-                "prev" | "up" => self.handle_navigation(NavigationCommand::Prev, &props),
-                "first" | "home" => self.handle_navigation(NavigationCommand::First, &props),
-                "last" | "end" => self.handle_navigation(NavigationCommand::Last, &props),
-                "select" | "confirm" => self.handle_navigation(NavigationCommand::Select, &props),
+                commands::NEXT | commands::DOWN => {
+                    self.handle_navigation(NavigationCommand::Next, &props)
+                }
+                commands::PREV | commands::UP => {
+                    self.handle_navigation(NavigationCommand::Prev, &props)
+                }
+                commands::FIRST | commands::HOME => {
+                    self.handle_navigation(NavigationCommand::First, &props)
+                }
+                commands::LAST | commands::END => {
+                    self.handle_navigation(NavigationCommand::Last, &props)
+                }
+                commands::SELECT | commands::CONFIRM => {
+                    self.handle_navigation(NavigationCommand::Select, &props)
+                }
                 _ => None,
             },
             ComponentInput::Key(key) => match key.code {

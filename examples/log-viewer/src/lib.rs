@@ -5,6 +5,7 @@ pub mod state;
 pub mod ui;
 
 use tui_dispatch::prelude::{BindingContext, HandlerResponse, Keybindings, RoutedEvent};
+use tui_dispatch_components::commands;
 
 pub use action::Action;
 pub use reducer::reducer;
@@ -59,22 +60,22 @@ pub fn default_keybindings() -> Keybindings<AppBindingContext> {
 
     bindings.add(
         AppBindingContext::Logs,
-        "next",
+        commands::NEXT,
         vec!["j".into(), "down".into()],
     );
     bindings.add(
         AppBindingContext::Logs,
-        "prev",
+        commands::PREV,
         vec!["k".into(), "up".into()],
     );
     bindings.add(
         AppBindingContext::Logs,
-        "first",
+        commands::FIRST,
         vec!["g".into(), "home".into()],
     );
     bindings.add(
         AppBindingContext::Logs,
-        "last",
+        commands::LAST,
         vec!["G".into(), "end".into()],
     );
     bindings.add(

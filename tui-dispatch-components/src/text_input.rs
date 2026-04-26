@@ -11,6 +11,7 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
+use crate::commands;
 use crate::style::{BaseStyle, ComponentStyle, Padding};
 use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
@@ -561,11 +562,8 @@ impl TextInput {
 
     /// Handle a `ComponentInput::Command`.
     ///
-    /// Recognised commands: `move_backward`, `move_forward`,
-    /// `move_word_backward`, `move_word_forward`, `move_home`, `move_end`,
-    /// `delete_backward`, `delete_forward`, `delete_word_backward`,
-    /// `delete_word_forward`, `submit`, `cancel`. Unknown commands are
-    /// ignored.
+    /// Recognised commands are defined in [`commands::text_input`]. Unknown
+    /// commands are ignored.
     fn handle_command<A>(
         &mut self,
         name: &str,
@@ -575,51 +573,53 @@ impl TextInput {
         let cursor_before = self.cursor;
         let mut did_move = false;
 
+        use commands::text_input as cmd;
+
         let action = match name {
-            "move_backward" => {
+            cmd::MOVE_BACKWARD | cmd::MOVE_LEFT => {
                 self.move_cursor_left(props.value);
                 did_move = true;
                 None
             }
-            "move_forward" => {
+            cmd::MOVE_FORWARD | cmd::MOVE_RIGHT => {
                 self.move_cursor_right(props.value);
                 did_move = true;
                 None
             }
-            "move_word_backward" => {
+            cmd::MOVE_WORD_BACKWARD | cmd::MOVE_WORD_LEFT => {
                 self.move_word_backward(props.value);
                 did_move = true;
                 None
             }
-            "move_word_forward" => {
+            cmd::MOVE_WORD_FORWARD | cmd::MOVE_WORD_RIGHT => {
                 self.move_word_forward(props.value);
                 did_move = true;
                 None
             }
-            "move_home" => {
+            cmd::MOVE_HOME => {
                 self.cursor = 0;
                 did_move = true;
                 None
             }
-            "move_end" => {
+            cmd::MOVE_END => {
                 self.cursor = props.value.len();
                 did_move = true;
                 None
             }
-            "delete_backward" => self
+            cmd::DELETE_BACKWARD | cmd::DELETE_LEFT => self
                 .delete_char_before(props.value)
                 .map(|value| (props.on_change.as_ref())(value)),
-            "delete_forward" => self
+            cmd::DELETE_FORWARD | cmd::DELETE_RIGHT => self
                 .delete_char_at(props.value)
                 .map(|value| (props.on_change.as_ref())(value)),
-            "delete_word_backward" => self
+            cmd::DELETE_WORD_BACKWARD | cmd::DELETE_WORD_LEFT => self
                 .kill_word_backward(props.value)
                 .map(|value| (props.on_change.as_ref())(value)),
-            "delete_word_forward" => self
+            cmd::DELETE_WORD_FORWARD | cmd::DELETE_WORD_RIGHT => self
                 .kill_word_forward(props.value)
                 .map(|value| (props.on_change.as_ref())(value)),
-            "submit" => Some((props.on_submit.as_ref())(props.value.to_string())),
-            "cancel" => props
+            cmd::SUBMIT => Some((props.on_submit.as_ref())(props.value.to_string())),
+            cmd::CANCEL => props
                 .on_cancel
                 .as_ref()
                 .map(|cb| cb(props.value.to_string())),
@@ -1398,6 +1398,28 @@ mod tests {
             command_props("hello world"),
         );
         assert_eq!(response.actions, vec![TestAction::Change("world".into())]);
+    }
+
+    #[test]
+    fn command_directional_aliases_work() {
+        let mut input = TextInput::new();
+        input.cursor = 3;
+
+        let response = run_command(
+            &mut input,
+            crate::commands::text_input::MOVE_LEFT,
+            command_props("hello"),
+        );
+        assert!(response.actions.is_empty());
+        assert_eq!(input.cursor, 2);
+
+        let response = run_command(
+            &mut input,
+            crate::commands::text_input::DELETE_RIGHT,
+            command_props("hello"),
+        );
+        assert_eq!(response.actions, vec![TestAction::Change("helo".into())]);
+        assert_eq!(input.cursor, 2);
     }
 
     #[test]

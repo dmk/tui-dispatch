@@ -37,6 +37,19 @@ Recommended starting point:
 
 See [View Components](/tui-dispatch/components/custom/) and [Interactive Widgets](/tui-dispatch/components/interactive/) for the architectural side.
 
+## Command Constants
+
+Routed command names are plain strings for config-file friendliness. Rust code
+can use constants from `tui_dispatch_components::commands` instead of repeating
+string literals:
+
+```rust
+use tui_dispatch_components::commands;
+
+bindings.add(Context::Logs, commands::NEXT, vec!["j".into(), "down".into()]);
+bindings.add(Context::Search, commands::text_input::MOVE_BACKWARD, vec!["left".into()]);
+```
+
 ## Shared Styling Model
 
 All widget styles embed `BaseStyle` via `ComponentStyle`, so borders, padding, and base colors stay consistent across widgets.
@@ -183,10 +196,13 @@ let response = <TextInput as InteractiveComponent<Action>>::update(
 focused: `move_backward`, `move_forward`, `move_word_backward`,
 `move_word_forward`, `move_home`, `move_end`, `delete_backward`,
 `delete_forward`, `delete_word_backward`, `delete_word_forward`, `submit`, and
-`cancel`. Bind these to keys via `BindingContext` and the host adapter
-delivers them as `ComponentInput::Command` so the same widget works with
-arbitrary keymaps. `cancel` only emits an action if `on_cancel` is set;
-otherwise it is left for the bus / app to handle.
+`cancel`. Directional aliases such as `move_left`, `move_right`,
+`delete_left`, and `delete_right` are also accepted. Use
+`commands::text_input::*` constants when wiring these from Rust. Bind commands
+to keys via `BindingContext` and the host adapter delivers them as
+`ComponentInput::Command` so the same widget works with arbitrary keymaps.
+`cancel` only emits an action if `on_cancel` is set; otherwise it is left for
+the bus / app to handle.
 
 `TextInput` already uses `needs_render` for cursor-only changes in its interactive path.
 

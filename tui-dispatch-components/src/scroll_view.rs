@@ -17,6 +17,7 @@ use ratatui::{
 };
 use tui_dispatch_core::{Component, EventKind, HandlerResponse};
 
+use crate::commands;
 use crate::style::{BaseStyle, ComponentStyle, Padding, ScrollbarStyle};
 use crate::{ComponentDebugEntry, ComponentDebugState, ComponentInput, InteractiveComponent};
 
@@ -376,20 +377,20 @@ impl<A, Ctx> InteractiveComponent<A, Ctx> for ScrollView {
                     let scroll_step = props.behavior.scroll_step.max(1) as isize;
                     let page_size = self.page_size(&props.behavior) as isize;
                     let next_offset = match name {
-                        "next" | "down" => {
+                        commands::NEXT | commands::DOWN => {
                             Some(self.apply_delta(props.scroll_offset, scroll_step, max_offset))
                         }
-                        "prev" | "up" => {
+                        commands::PREV | commands::UP => {
                             Some(self.apply_delta(props.scroll_offset, -scroll_step, max_offset))
                         }
-                        "page_down" => {
+                        commands::PAGE_DOWN => {
                             Some(self.apply_delta(props.scroll_offset, page_size, max_offset))
                         }
-                        "page_up" => {
+                        commands::PAGE_UP => {
                             Some(self.apply_delta(props.scroll_offset, -page_size, max_offset))
                         }
-                        "first" | "home" => Some(0),
-                        "last" | "end" => Some(max_offset),
+                        commands::FIRST | commands::HOME => Some(0),
+                        commands::LAST | commands::END => Some(max_offset),
                         _ => None,
                     };
 

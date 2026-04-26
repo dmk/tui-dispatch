@@ -24,6 +24,7 @@
 //! - [`ModalStyle`] - Styling for Modal (base, dimming)
 //!
 //! Common types are available in the [`style`] module.
+//! Routed command name constants are available in the [`commands`] module.
 //!
 //! # Example
 //!
@@ -52,6 +53,7 @@
 #[cfg(target_arch = "wasm32")]
 extern crate tinycrossterm as crossterm;
 
+pub mod commands;
 mod host;
 mod modal;
 mod runtime;
@@ -96,6 +98,8 @@ pub use tree_view::{
 
 /// Prelude for convenient imports
 pub mod prelude {
+    pub use crate::commands;
+
     pub use crate::{
         centered_rect, BaseStyle, BorderStyle, ComponentStyle, LinesScroller, Modal, ModalBehavior,
         ModalCloseCallback, ModalProps, ModalStyle, Padding, ScrollView, ScrollViewBehavior,
