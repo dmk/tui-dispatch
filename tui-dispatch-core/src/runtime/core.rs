@@ -132,23 +132,26 @@ pub(crate) fn draw_frame<S: 'static, A, B, F>(
 where
     A: Action,
     B: Backend,
+    B::Error: Send + Sync + 'static,
     F: FnMut(&mut Frame, Rect, &S, RenderContext),
 {
     let render_ctx = shell.render_ctx();
-    terminal.draw(|frame| {
-        #[cfg(feature = "debug")]
-        if let Some(debug) = shell.debug.as_mut() {
-            let mut rf =
-                |f: &mut Frame, area: Rect, s: &S, ctx: RenderContext| render(f, area, s, ctx);
-            debug.render(frame, state, render_ctx, &mut rf);
-        } else {
-            render(frame, frame.area(), state, render_ctx);
-        }
-        #[cfg(not(feature = "debug"))]
-        {
-            render(frame, frame.area(), state, render_ctx);
-        }
-    })?;
+    terminal
+        .draw(|frame| {
+            #[cfg(feature = "debug")]
+            if let Some(debug) = shell.debug.as_mut() {
+                let mut rf =
+                    |f: &mut Frame, area: Rect, s: &S, ctx: RenderContext| render(f, area, s, ctx);
+                debug.render(frame, state, render_ctx, &mut rf);
+            } else {
+                render(frame, frame.area(), state, render_ctx);
+            }
+            #[cfg(not(feature = "debug"))]
+            {
+                render(frame, frame.area(), state, render_ctx);
+            }
+        })
+        .map_err(io::Error::other)?;
     shell.should_render = false;
     Ok(())
 }
@@ -530,6 +533,7 @@ where
     ) -> io::Result<()>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext),
         FEvent: FnMut(&EventKind, &S) -> R,
         R: Into<EventOutcome<A>>,
@@ -582,6 +586,7 @@ where
     ) -> io::Result<()>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext),
         FEvent: FnMut(&EventKind, &S) -> R,
         R: Into<EventOutcome<A>>,

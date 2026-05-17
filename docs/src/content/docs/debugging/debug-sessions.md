@@ -176,7 +176,7 @@ Generate JSON schemas for your state and action types. Requires the `json-schema
 
 ```toml
 [dependencies]
-tui-dispatch = { version = "0.7.0", features = ["json-schema"] }
+tui-dispatch = { version = "0.7.1", features = ["json-schema"] }
 ```
 
 ```rust

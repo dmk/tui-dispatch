@@ -55,34 +55,6 @@ Could provide preset themes: `Theme::dark()`, `Theme::light()`, `Theme::nord()`,
 
 ---
 
-## Animation System
-
-Centralized animation management following the same pattern as keybindings/themes.
-
-```rust
-// Define animations
-let animations = Animations::new()
-    .register("fade_in", Animation::fade(0.0, 1.0, Duration::from_millis(200)))
-    .register("slide_right", Animation::translate_x(-10, 0, Duration::from_millis(150)))
-    .register("pulse", Animation::scale(1.0, 1.1, Duration::from_millis(300)).loop_ping_pong());
-
-// Trigger animation
-store.dispatch(Action::Animate {
-    target: "modal",
-    animation: "fade_in"
-});
-
-// In render - get interpolated value
-let opacity = animations.value("modal.fade_in", state.animation_progress);
-```
-
-Animation types:
-- `Tween<T>` - interpolate between values
-- `Spring` - physics-based spring animation
-- `Keyframes` - multi-step sequences
-
----
-
 ## Additional Components (Planned)
 
 **CmdLine** - Vim-style command input

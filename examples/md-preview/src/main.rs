@@ -163,16 +163,20 @@ fn default_keybindings() -> Keybindings<DefaultBindingContext> {
     kb
 }
 
-async fn run_app<B: ratatui::backend::Backend>(
+async fn run_app<B>(
     terminal: &mut Terminal<B>,
     file_path: String,
     features: Features,
     debug_enabled: bool,
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Send + Sync + 'static,
+{
     let mut state = AppState::new(file_path, features);
 
     // Update terminal size in state
-    let size = terminal.size()?;
+    let size = terminal.size().map_err(io::Error::other)?;
     state.terminal_height = size.height;
 
     // Keybindings - user-configurable key mappings

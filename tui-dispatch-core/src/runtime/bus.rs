@@ -108,6 +108,7 @@ where
     ) -> io::Result<()>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
         FQuit: FnMut(&A) -> bool,
     {
@@ -126,6 +127,7 @@ where
     ) -> io::Result<()>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
         FQuit: FnMut(&A) -> bool,
         FAfter: FnMut(&mut EventBus<S, A, Id, Ctx>, &S),
@@ -194,6 +196,7 @@ where
     ) -> io::Result<()>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
         FQuit: FnMut(&A) -> bool,
         FEffect: FnMut(E, &mut EffectContext<A>),
@@ -214,6 +217,7 @@ where
     ) -> io::Result<()>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         FRender: FnMut(&mut Frame, Rect, &S, RenderContext, &mut EventContext<Id>),
         FQuit: FnMut(&A) -> bool,
         FEffect: FnMut(E, &mut EffectContext<A>),

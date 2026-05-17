@@ -72,11 +72,15 @@ async fn main() -> io::Result<()> {
     result
 }
 
-async fn run_app<B: ratatui::backend::Backend>(
+async fn run_app<B>(
     terminal: &mut Terminal<B>,
     mode: InputMode,
     debug_args: &DebugCliArgs,
-) -> io::Result<()> {
+) -> io::Result<()>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Send + Sync + 'static,
+{
     let host = ComponentHost::<AppState, Action, RouteId, AppBindingContext>::new();
     let level_toggle = Rc::new(Action::ToggleLevel);
     let tag_toggle = Rc::new(Action::ToggleTag);

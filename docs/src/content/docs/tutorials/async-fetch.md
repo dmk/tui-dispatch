@@ -42,11 +42,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tui-dispatch = { version = "0.7.0", features = ["tasks"] }
+tui-dispatch = { version = "0.7.1", features = ["tasks"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-ratatui = "0.29"
-crossterm = "0.28"
-reqwest = { version = "0.12", features = ["json"] }
+ratatui = "0.30"
+crossterm = "0.29"
+reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
@@ -450,7 +450,11 @@ async fn main() -> io::Result<()> {
     result
 }
 
-async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
+async fn run_app<B>(terminal: &mut Terminal<B>) -> io::Result<()>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Send + Sync + 'static,
+{
     let mut bus: SimpleEventBus<AppState, Action, AppComponentId> = SimpleEventBus::new();
     let keybindings: Keybindings<DefaultBindingContext> = Keybindings::new();
 

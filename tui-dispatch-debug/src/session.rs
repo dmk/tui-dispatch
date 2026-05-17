@@ -405,6 +405,7 @@ impl DebugSession {
     ) -> io::Result<DebugRunOutput<S>>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         S: Clone + DebugState + Serialize + 'static,
         A: Action + ActionParams,
         St: RuntimeStore<S, A, E>,
@@ -481,7 +482,10 @@ impl DebugSession {
                 });
 
                 let backend = TestBackend::new(width, height);
-                let mut test_terminal = Terminal::new(backend)?;
+                let mut test_terminal = match Terminal::new(backend) {
+                    Ok(terminal) => terminal,
+                    Err(error) => match error {},
+                };
                 runtime
                     .run_with_effects(
                         &mut test_terminal,
@@ -570,6 +574,7 @@ impl DebugSession {
     ) -> io::Result<DebugRunOutput<S>>
     where
         B: Backend,
+        B::Error: Send + Sync + 'static,
         S: Clone + DebugState + Serialize + EventRoutingState<Id, Ctx> + 'static,
         A: Action + ActionParams,
         St: RuntimeStore<S, A, E>,
@@ -646,7 +651,10 @@ impl DebugSession {
                 });
 
                 let backend = TestBackend::new(width, height);
-                let mut test_terminal = Terminal::new(backend)?;
+                let mut test_terminal = match Terminal::new(backend) {
+                    Ok(terminal) => terminal,
+                    Err(error) => match error {},
+                };
                 runtime
                     .run_with_effects(
                         &mut test_terminal,

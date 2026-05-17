@@ -90,7 +90,7 @@ Enable features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tui-dispatch = { version = "0.7.0", features = ["tasks", "subscriptions"] }
+tui-dispatch = { version = "0.7.1", features = ["tasks", "subscriptions"] }
 ```
 
 | Feature | What it enables | When to use |

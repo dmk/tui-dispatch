@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/dmk/tui-dispatch"
@@ -24,29 +24,29 @@ keywords = ["tui", "redux", "state-management", "terminal", "ratatui"]
 categories = ["command-line-interface", "development-tools"]
 
 [workspace.dependencies]
-tui-dispatch = { version = "0.7.0", path = "tui-dispatch" }
-tui-dispatch-shared = { version = "0.7.0", path = "tui-dispatch-shared" }
-tui-dispatch-core = { version = "0.7.0", path = "tui-dispatch-core" }
-tui-dispatch-macros = { version = "0.7.0", path = "tui-dispatch-macros" }
-tui-dispatch-components = { version = "0.7.0", path = "tui-dispatch-components" }
-tui-dispatch-debug = { version = "0.7.0", path = "tui-dispatch-debug" }
+tui-dispatch = { version = "0.7.1", path = "tui-dispatch" }
+tui-dispatch-shared = { version = "0.7.1", path = "tui-dispatch-shared" }
+tui-dispatch-core = { version = "0.7.1", path = "tui-dispatch-core" }
+tui-dispatch-macros = { version = "0.7.1", path = "tui-dispatch-macros" }
+tui-dispatch-components = { version = "0.7.1", path = "tui-dispatch-components" }
+tui-dispatch-debug = { version = "0.7.1", path = "tui-dispatch-debug" }
 
 # External deps
-ratatui = "0.29"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tokio-util = "0.7"
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-ron = "0.8"
+ron = "0.12"
 
 # HTTP/CLI deps (for examples)
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 clap = { version = "4", features = ["derive"] }
 
 # Proc macro deps
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full"] }
-darling = "0.20"
+darling = "0.23"

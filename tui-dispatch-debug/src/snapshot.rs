@@ -1,4 +1,6 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "json-schema")]
+use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
@@ -125,7 +127,7 @@ pub use schemars::JsonSchema;
 
 /// Generate a JSON schema for type T.
 #[cfg(feature = "json-schema")]
-pub fn generate_schema<T: schemars::JsonSchema>() -> schemars::schema::RootSchema {
+pub fn generate_schema<T: schemars::JsonSchema>() -> schemars::Schema {
     schemars::schema_for!(T)
 }
 
@@ -167,25 +169,19 @@ where
     // Extract Did* action names from the schema definitions
     let awaitable = extract_awaitable_actions(&schema);
 
-    // Add awaitable_actions to the schema's extensions
-    if let Some(metadata) = schema.schema.metadata.as_mut() {
-        metadata.description = Some(
+    let object = schema.ensure_object();
+    object.insert(
+        "description".to_string(),
+        Value::String(
             "Replay items: actions and await markers for async coordination.\n\n\
              Use `_await` or `_await_any` to pause replay until async effects complete.\n\
              Only actions listed in `awaitable_actions` should be awaited (Did* pattern)."
                 .to_string(),
-        );
-    }
-
-    // Add awaitable_actions as a custom extension
-    schema.schema.extensions.insert(
-        "awaitable_actions".to_string(),
-        serde_json::Value::Array(
-            awaitable
-                .into_iter()
-                .map(serde_json::Value::String)
-                .collect(),
         ),
+    );
+    object.insert(
+        "awaitable_actions".to_string(),
+        Value::Array(awaitable.into_iter().map(Value::String).collect()),
     );
 
     let json = serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string());
@@ -195,25 +191,10 @@ where
 
 /// Extract action names containing "Did" from a schema's definitions.
 #[cfg(feature = "json-schema")]
-fn extract_awaitable_actions(schema: &schemars::schema::RootSchema) -> Vec<String> {
+fn extract_awaitable_actions(schema: &schemars::Schema) -> Vec<String> {
     let mut awaitable = Vec::new();
 
-    // Look through definitions for action enum variants
-    for (name, def) in &schema.definitions {
-        // Skip non-action definitions
-        if !name.ends_with("Action") && name != "Action" {
-            continue;
-        }
-
-        // Extract enum variant names from oneOf
-        if let Some(subschemas) = def.clone().into_object().subschemas {
-            if let Some(one_of) = subschemas.one_of {
-                for variant_schema in one_of {
-                    extract_did_variants(&variant_schema.into_object(), &mut awaitable);
-                }
-            }
-        }
-    }
+    collect_did_names(schema.as_value(), &mut awaitable);
 
     awaitable.sort();
     awaitable.dedup();
@@ -221,30 +202,54 @@ fn extract_awaitable_actions(schema: &schemars::schema::RootSchema) -> Vec<Strin
 }
 
 #[cfg(feature = "json-schema")]
-fn extract_did_variants(schema: &schemars::schema::SchemaObject, awaitable: &mut Vec<String>) {
-    // Check for enum values (unit variants like "WeatherDidLoad")
-    if let Some(enum_values) = &schema.enum_values {
-        for val in enum_values {
-            if let Some(name) = val.as_str() {
-                if name.contains("Did") {
-                    awaitable.push(name.to_string());
+fn collect_did_names(value: &Value, awaitable: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(name) = object.get("const").and_then(Value::as_str) {
+                push_did_name(name, awaitable);
+            }
+
+            if let Some(values) = object.get("enum").and_then(Value::as_array) {
+                for value in values {
+                    if let Some(name) = value.as_str() {
+                        push_did_name(name, awaitable);
+                    }
                 }
             }
-        }
-    }
 
-    // Check for object properties (struct variants like {"WeatherDidLoad": data})
-    if let Some(obj) = &schema.object {
-        for prop_name in obj.properties.keys() {
-            if prop_name.contains("Did") {
-                awaitable.push(prop_name.clone());
+            if let Some(properties) = object.get("properties").and_then(Value::as_object) {
+                for (name, schema) in properties {
+                    push_did_name(name, awaitable);
+                    collect_did_names(schema, awaitable);
+                }
+            }
+
+            if let Some(required) = object.get("required").and_then(Value::as_array) {
+                for value in required {
+                    if let Some(name) = value.as_str() {
+                        push_did_name(name, awaitable);
+                    }
+                }
+            }
+
+            for (name, schema) in object {
+                push_did_name(name, awaitable);
+                collect_did_names(schema, awaitable);
             }
         }
-        for prop_name in obj.required.iter() {
-            if prop_name.contains("Did") && !awaitable.contains(prop_name) {
-                awaitable.push(prop_name.clone());
+        Value::Array(values) => {
+            for value in values {
+                collect_did_names(value, awaitable);
             }
         }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "json-schema")]
+fn push_did_name(name: &str, awaitable: &mut Vec<String>) {
+    if name.contains("Did") {
+        awaitable.push(name.to_string());
     }
 }
 

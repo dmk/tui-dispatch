@@ -26,4 +26,4 @@ serde_json.workspace = true
 ron.workspace = true
 base64 = "0.22"
 clap.workspace = true
-schemars = { version = "0.8", optional = true }
+schemars = { version = "1", optional = true }

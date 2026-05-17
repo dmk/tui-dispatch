@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.1] - 2026-05-17
+
+Dependency refresh for the Ratatui 0.30 line, with runtime error handling tightened around backend failures.
+
+### Breaking Changes
+
+- Generic runtime entry points now require `B::Error: Send + Sync + 'static` for Ratatui backends so terminal/backend failures can be preserved as `io::Error` sources instead of stringified. Standard `CrosstermBackend` and `TestBackend` users should not need app-level changes.
+
+### Changed
+
+- Updated terminal and support dependencies, including Ratatui 0.30, Crossterm 0.29, RON 0.12, reqwest 0.13, schemars 1, darling 0.23, pulldown-cmark 0.13, and rand 0.10.
+- Runtime drawing and terminal-size error paths now preserve the original backend error source via `io::Error::other(...)`.
+- Updated examples and documentation snippets for the new dependency versions and generic backend bounds.
+
+### Fixed
+
+- Restored debug JSON schema generation compatibility with schemars 1 while keeping replay awaitable-action metadata.
+
 ## [0.7.0] - 2026-04-26
 
 Runtime unification, mounted component hosting, routed widget commands, debug overlay refinements, and a new log-viewer example.

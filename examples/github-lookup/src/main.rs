@@ -52,7 +52,11 @@ async fn main() -> io::Result<()> {
     result
 }
 
-async fn run_app<B: ratatui::backend::Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
+async fn run_app<B>(terminal: &mut Terminal<B>) -> io::Result<()>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Send + Sync + 'static,
+{
     // Create the runtime with initial state and reducer
     let mut runtime: Runtime<AppState, Action, Effect> = Runtime::new(AppState::new(), reducer);
 
