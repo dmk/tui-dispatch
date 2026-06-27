@@ -74,6 +74,10 @@ struct ActionVariant {
     ident: syn::Ident,
     fields: darling::ast::Fields<()>,
 
+    /// Mark this variant as an async completion action for replay tooling
+    #[darling(default)]
+    awaitable: bool,
+
     /// Explicit category override
     #[darling(default)]
     category: Option<String>,
@@ -109,6 +113,8 @@ fn infer_category(name: &str) -> Option<String> {
 /// Derive macro for the Action trait
 ///
 /// Generates a `name()` method that returns the variant name as a static string.
+/// Variants marked with `#[action(awaitable)]` are also exposed as typed
+/// metadata for replay-schema generation.
 ///
 /// With `#[action(infer_categories)]`, also generates:
 /// - `category() -> Option<&'static str>` - Get action's category
@@ -128,6 +134,7 @@ fn infer_category(name: &str) -> Option<String> {
 ///     SearchClear,
 ///     ConnectionFormOpen,
 ///     ConnectionFormSubmit,
+///     #[action(awaitable)]
 ///     DidConnect,
 ///     Tick,  // uncategorized
 /// }
@@ -167,6 +174,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
         syn::Data::Enum(data) => &data.variants,
         _ => unreachable!(), // Already checked above
     };
+
+    let awaitable_names: Vec<String> = variants
+        .iter()
+        .filter(|variant| variant.awaitable)
+        .map(|variant| variant.ident.to_string())
+        .collect();
 
     // Generate basic name() implementation
     let name_arms = variants.iter().map(|v| {
@@ -303,6 +316,8 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 
     let mut expanded = quote! {
         impl #support::Action for #name {
+            const AWAITABLE_NAMES: &'static [&'static str] = &[#(#awaitable_names),*];
+
             fn name(&self) -> &'static str {
                 match self {
                     #(#name_arms),*

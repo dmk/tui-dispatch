@@ -13,8 +13,12 @@ use tui_dispatch_macros::{
 #[derive(Clone, Debug, DeriveAction)]
 #[action(infer_categories)]
 enum CoreAction {
-    DataLoad { id: u64 },
+    DataLoad {
+        id: u64,
+    },
+    #[action(awaitable)]
     DataDidLoad(String),
+    Candidate,
 }
 
 #[derive(Clone, Copy, Debug, DeriveComponentId, Eq, Hash, PartialEq)]
@@ -54,6 +58,9 @@ fn all_derives_work_without_the_facade() {
 
     let loaded = CoreAction::DataDidLoad("done".into());
     assert_eq!(loaded.params(), "\"done\"");
+    assert!(loaded.is_awaitable());
+    assert!(!CoreAction::Candidate.is_awaitable());
+    assert_eq!(CoreAction::AWAITABLE_NAMES, &["DataDidLoad"]);
 
     assert_eq!(CoreComponentId::Main.name(), "Main");
     assert_eq!(CoreComponentId::Status.name(), "Status");

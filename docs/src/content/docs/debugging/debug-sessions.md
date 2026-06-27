@@ -206,12 +206,16 @@ struct AppState {
 enum Action {
     Increment,
     UserFetch(String),
+    #[action(awaitable)]
     UserDidLoad(User),
+    #[action(awaitable)]
     UserDidError(String),
 }
 ```
 
-The actions schema includes an `awaitable_actions` extension listing actions containing "Did" (async completion markers).
+Mark each async completion variant with `#[action(awaitable)]`. The actions schema
+includes those exact variant names in its `awaitable_actions` extension; names are not
+inferred, so variants such as `UserLoaded` work without a `Did` naming convention.
 
 ## Complete Integration Example
 

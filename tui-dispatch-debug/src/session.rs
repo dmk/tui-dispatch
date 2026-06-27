@@ -370,11 +370,11 @@ impl DebugSession {
     /// This generates a schema for `Vec<ReplayItem<A>>` which includes:
     /// - All action variants from `A`
     /// - `_await` and `_await_any` markers for async coordination
-    /// - An `$defs.awaitable_actions` list of Did* action names
+    /// - An `awaitable_actions` list populated by `#[action(awaitable)]`
     #[cfg(feature = "json-schema")]
     pub fn save_actions_schema<A>(&self) -> DebugSessionResult<()>
     where
-        A: crate::JsonSchema,
+        A: crate::JsonSchema + Action,
     {
         if let Some(path) = self.args.actions_schema_out.as_ref() {
             crate::save_replay_schema::<A, _>(path).map_err(DebugSessionError::Snapshot)

@@ -154,11 +154,11 @@ where
 ///
 /// This includes:
 /// - The full schema for replay items (actions + await markers)
-/// - An `awaitable_actions` list extracted from Did* action names
+/// - An `awaitable_actions` list populated by `#[action(awaitable)]`
 #[cfg(feature = "json-schema")]
 pub fn save_replay_schema<A, P>(path: P) -> SnapshotResult<()>
 where
-    A: schemars::JsonSchema,
+    A: schemars::JsonSchema + tui_dispatch_core::Action,
     P: AsRef<Path>,
 {
     use crate::replay::ReplayItem;
@@ -166,8 +166,7 @@ where
     // Generate schema for Vec<ReplayItem<A>>
     let mut schema = schemars::schema_for!(Vec<ReplayItem<A>>);
 
-    // Extract Did* action names from the schema definitions
-    let awaitable = extract_awaitable_actions(&schema);
+    let awaitable = <A as tui_dispatch_core::Action>::AWAITABLE_NAMES;
 
     let object = schema.ensure_object();
     object.insert(
@@ -175,82 +174,23 @@ where
         Value::String(
             "Replay items: actions and await markers for async coordination.\n\n\
              Use `_await` or `_await_any` to pause replay until async effects complete.\n\
-             Only actions listed in `awaitable_actions` should be awaited (Did* pattern)."
+             Only actions explicitly listed in `awaitable_actions` should be awaited."
                 .to_string(),
         ),
     );
     object.insert(
         "awaitable_actions".to_string(),
-        Value::Array(awaitable.into_iter().map(Value::String).collect()),
+        Value::Array(
+            awaitable
+                .iter()
+                .map(|name| Value::String((*name).to_string()))
+                .collect(),
+        ),
     );
 
     let json = serde_json::to_string_pretty(&schema).unwrap_or_else(|_| "{}".to_string());
     fs::write(path, json)?;
     Ok(())
-}
-
-/// Extract action names containing "Did" from a schema's definitions.
-#[cfg(feature = "json-schema")]
-fn extract_awaitable_actions(schema: &schemars::Schema) -> Vec<String> {
-    let mut awaitable = Vec::new();
-
-    collect_did_names(schema.as_value(), &mut awaitable);
-
-    awaitable.sort();
-    awaitable.dedup();
-    awaitable
-}
-
-#[cfg(feature = "json-schema")]
-fn collect_did_names(value: &Value, awaitable: &mut Vec<String>) {
-    match value {
-        Value::Object(object) => {
-            if let Some(name) = object.get("const").and_then(Value::as_str) {
-                push_did_name(name, awaitable);
-            }
-
-            if let Some(values) = object.get("enum").and_then(Value::as_array) {
-                for value in values {
-                    if let Some(name) = value.as_str() {
-                        push_did_name(name, awaitable);
-                    }
-                }
-            }
-
-            if let Some(properties) = object.get("properties").and_then(Value::as_object) {
-                for (name, schema) in properties {
-                    push_did_name(name, awaitable);
-                    collect_did_names(schema, awaitable);
-                }
-            }
-
-            if let Some(required) = object.get("required").and_then(Value::as_array) {
-                for value in required {
-                    if let Some(name) = value.as_str() {
-                        push_did_name(name, awaitable);
-                    }
-                }
-            }
-
-            for (name, schema) in object {
-                push_did_name(name, awaitable);
-                collect_did_names(schema, awaitable);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                collect_did_names(value, awaitable);
-            }
-        }
-        _ => {}
-    }
-}
-
-#[cfg(feature = "json-schema")]
-fn push_did_name(name: &str, awaitable: &mut Vec<String>) {
-    if name.contains("Did") {
-        awaitable.push(name.to_string());
-    }
 }
 
 #[cfg(test)]
@@ -330,5 +270,32 @@ mod tests {
             Err(SnapshotError::Io(_)) => {}
             other => panic!("expected io error, got {other:?}"),
         }
+    }
+
+    #[cfg(feature = "json-schema")]
+    #[test]
+    fn replay_schema_uses_explicit_awaitable_markers() {
+        #[derive(
+            Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, tui_dispatch_macros::Action,
+        )]
+        enum TestAction {
+            Candidate,
+            Forbidden,
+            #[action(awaitable)]
+            UserLoaded,
+            #[action(awaitable)]
+            DataDidLoad,
+        }
+
+        let path = temp_path("replay-schema");
+        save_replay_schema::<TestAction, _>(&path).expect("save replay schema");
+
+        let schema: serde_json::Value = load_json(&path).expect("load replay schema");
+        assert_eq!(
+            schema["awaitable_actions"],
+            serde_json::json!(["UserLoaded", "DataDidLoad"])
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

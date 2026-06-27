@@ -13,6 +13,7 @@
 ### Fixed
 
 - Derive macros now resolve renamed dependencies and support facade-free use: all five derives work with `tui-dispatch-core`, while direct `tui-dispatch-debug` users retain the full `DebugState` API.
+- Replay schema generation now uses explicit `#[action(awaitable)]` variant metadata instead of treating every action name containing `Did` as awaitable.
 
 ## [0.7.1] - 2026-05-17
 

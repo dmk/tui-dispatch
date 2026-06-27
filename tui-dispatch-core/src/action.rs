@@ -12,8 +12,20 @@ use std::hash::Hash;
 ///
 /// Use `#[derive(Action)]` from `tui-dispatch-macros` to auto-implement this trait.
 pub trait Action: Clone + Debug + Send + 'static {
+    /// Names of actions that may satisfy replay await markers.
+    ///
+    /// `#[derive(Action)]` populates this list from variants annotated with
+    /// `#[action(awaitable)]`. Manual implementations can override the empty
+    /// default when they expose async completion actions to replay tooling.
+    const AWAITABLE_NAMES: &'static [&'static str] = &[];
+
     /// Get the action name for logging and filtering
     fn name(&self) -> &'static str;
+
+    /// Whether this action may satisfy a replay await marker.
+    fn is_awaitable(&self) -> bool {
+        Self::AWAITABLE_NAMES.contains(&self.name())
+    }
 }
 
 /// Extension trait for actions with category support
