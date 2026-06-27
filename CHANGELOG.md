@@ -10,6 +10,10 @@
 
 - `ReducerResult::changed_with(...)` and `ReducerResult::changed_with_many(...)`; use the chainable `changed().with(...)` and `effects(...).mark_changed()` forms instead.
 
+### Fixed
+
+- Derive macros now resolve renamed dependencies and support facade-free use: all five derives work with `tui-dispatch-core`, while direct `tui-dispatch-debug` users retain the full `DebugState` API.
+
 ## [0.7.1] - 2026-05-17
 
 Dependency refresh for the Ratatui 0.30 line, with runtime error handling tightened around backend failures.

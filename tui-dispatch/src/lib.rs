@@ -82,6 +82,8 @@
 //!
 //! See the [documentation](https://docs.rs/tui-dispatch) for full guides.
 
+extern crate self as tui_dispatch;
+
 // Re-export everything from core
 pub use tui_dispatch_core::reducer_compose;
 pub use tui_dispatch_core::*;
@@ -91,54 +93,20 @@ pub use tui_dispatch_core::*;
 pub use tui_dispatch_debug::debug;
 #[cfg(not(feature = "debug"))]
 pub mod debug {
-    use std::fmt::Debug;
+    pub use tui_dispatch_core::__macro_support::{
+        debug_string, debug_string_pretty, DebugEntry, DebugSection, DebugState,
+    };
+}
 
-    #[derive(Clone, Debug, Default)]
-    pub struct DebugEntry {
-        pub key: String,
-        pub value: String,
-    }
-
-    impl DebugEntry {
-        pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
-            Self {
-                key: key.into(),
-                value: value.into(),
-            }
-        }
-    }
-
-    #[derive(Clone, Debug, Default)]
-    pub struct DebugSection {
-        pub title: String,
-        pub entries: Vec<DebugEntry>,
-    }
-
-    impl DebugSection {
-        pub fn new(title: impl Into<String>) -> Self {
-            Self {
-                title: title.into(),
-                entries: Vec::new(),
-            }
-        }
-
-        pub fn entry(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-            self.entries.push(DebugEntry::new(key, value));
-            self
-        }
-    }
-
-    pub trait DebugState {
-        fn debug_sections(&self) -> Vec<DebugSection>;
-    }
-
-    pub fn debug_string<T: Debug>(value: &T) -> String {
-        format!("{value:?}")
-    }
-
-    pub fn debug_string_pretty<T: Debug>(value: &T) -> String {
-        format!("{value:#?}")
-    }
+/// Implementation details used by generated derive code.
+#[doc(hidden)]
+pub mod __macro_support {
+    pub use crate::debug::{
+        debug_string, debug_string_pretty, DebugEntry, DebugSection, DebugState,
+    };
+    pub use tui_dispatch_core::{
+        Action, ActionCategory, ActionParams, BindingContext, ComponentId, FeatureFlags,
+    };
 }
 
 // Re-export derive macros

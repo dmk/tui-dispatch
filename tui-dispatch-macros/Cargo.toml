@@ -15,4 +15,8 @@ syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 darling.workspace = true
+proc-macro-crate.workspace = true
 tui-dispatch-shared.workspace = true
+
+[dev-dependencies]
+dispatch_core = { package = "tui-dispatch-core", path = "../tui-dispatch-core" }

@@ -2,11 +2,54 @@
 
 use darling::{FromDeriveInput, FromField, FromVariant};
 use proc_macro::TokenStream;
-use proc_macro2::Ident;
+use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
+use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 use syn::{parse_macro_input, DeriveInput};
 use tui_dispatch_shared::{infer_action_category, pascal_to_snake_case};
+
+fn resolve_macro_support(
+    candidates: &[(&str, &str)],
+    requirement: &str,
+) -> syn::Result<TokenStream2> {
+    for &(package, canonical_name) in candidates {
+        match crate_name(package) {
+            Ok(FoundCrate::Itself) => {
+                let ident = Ident::new(canonical_name, Span::call_site());
+                return Ok(quote!(::#ident::__macro_support));
+            }
+            Ok(FoundCrate::Name(name)) => {
+                let ident = Ident::new(&name, Span::call_site());
+                return Ok(quote!(::#ident::__macro_support));
+            }
+            Err(_) => {}
+        }
+    }
+
+    Err(syn::Error::new(Span::call_site(), requirement))
+}
+
+fn macro_support_path() -> syn::Result<TokenStream2> {
+    resolve_macro_support(
+        &[
+            ("tui-dispatch", "tui_dispatch"),
+            ("tui-dispatch-core", "tui_dispatch_core"),
+        ],
+        "derive requires a dependency on `tui-dispatch` or `tui-dispatch-core`",
+    )
+}
+
+fn debug_macro_support_path() -> syn::Result<TokenStream2> {
+    resolve_macro_support(
+        &[
+            ("tui-dispatch", "tui_dispatch"),
+            ("tui-dispatch-debug", "tui_dispatch_debug"),
+            ("tui-dispatch-core", "tui_dispatch_core"),
+        ],
+        "DebugState derive requires `tui-dispatch`, `tui-dispatch-debug`, or `tui-dispatch-core`",
+    )
+}
 
 /// Container-level attributes for #[derive(Action)]
 #[derive(Debug, FromDeriveInput)]
@@ -97,6 +140,10 @@ fn infer_category(name: &str) -> Option<String> {
 #[proc_macro_derive(Action, attributes(action))]
 pub fn derive_action(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let support = match macro_support_path() {
+        Ok(path) => path,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     // Try to parse with darling for attributes
     let opts = match ActionOpts::from_derive_input(&input) {
@@ -154,12 +201,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 if field_count == 1 {
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
-                            tui_dispatch::debug::debug_string(&#(#field_names),*)
+                            #support::debug_string(&#(#field_names),*)
                         }
                     }
                 } else {
                     let parts = field_names.iter().map(|field| {
-                        quote! { tui_dispatch::debug::debug_string(&#field) }
+                        quote! { #support::debug_string(&#field) }
                     });
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
@@ -183,7 +230,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                     let parts = field_names.iter().map(|field| {
                         let label = field.to_string();
                         quote! {
-                            format!("{}: {}", #label, tui_dispatch::debug::debug_string(&#field))
+                            format!("{}: {}", #label, #support::debug_string(&#field))
                         }
                     });
                     quote! {
@@ -211,12 +258,12 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 if field_count == 1 {
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
-                            tui_dispatch::debug::debug_string_pretty(&#(#field_names),*)
+                            #support::debug_string_pretty(&#(#field_names),*)
                         }
                     }
                 } else {
                     let parts = field_names.iter().map(|field| {
-                        quote! { tui_dispatch::debug::debug_string_pretty(&#field) }
+                        quote! { #support::debug_string_pretty(&#field) }
                     });
                     quote! {
                         #name::#variant_name(#(#field_names),*) => {
@@ -240,7 +287,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                     let parts = field_names.iter().map(|field| {
                         let label = field.to_string();
                         quote! {
-                            format!("{}: {}", #label, tui_dispatch::debug::debug_string_pretty(&#field))
+                            format!("{}: {}", #label, #support::debug_string_pretty(&#field))
                         }
                     });
                     quote! {
@@ -255,7 +302,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
     });
 
     let mut expanded = quote! {
-        impl tui_dispatch::Action for #name {
+        impl #support::Action for #name {
             fn name(&self) -> &'static str {
                 match self {
                     #(#name_arms),*
@@ -263,7 +310,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl tui_dispatch::ActionParams for #name {
+        impl #support::ActionParams for #name {
             fn params(&self) -> ::std::string::String {
                 match self {
                     #(#params_arms),*
@@ -415,7 +462,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
                 #(#predicates)*
             }
 
-            impl tui_dispatch::ActionCategory for #name {
+            impl #support::ActionCategory for #name {
                 type Category = #category_enum_name;
 
                 fn category(&self) -> ::core::option::Option<&'static str> {
@@ -512,6 +559,10 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(BindingContext)]
 pub fn derive_binding_context(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let support = match macro_support_path() {
+        Ok(path) => path,
+        Err(error) => return error.to_compile_error().into(),
+    };
     let name = &input.ident;
 
     let expanded = match &input.data {
@@ -551,7 +602,7 @@ pub fn derive_binding_context(input: TokenStream) -> TokenStream {
             let all_variants = variant_names.iter().map(|v| quote! { #name::#v });
 
             quote! {
-                impl tui_dispatch::BindingContext for #name {
+                impl #support::BindingContext for #name {
                     fn name(&self) -> &'static str {
                         match self {
                             #(#name_arms),*
@@ -600,6 +651,10 @@ pub fn derive_binding_context(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(ComponentId)]
 pub fn derive_component_id(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let support = match macro_support_path() {
+        Ok(path) => path,
+        Err(error) => return error.to_compile_error().into(),
+    };
     let name = &input.ident;
 
     let expanded = match &input.data {
@@ -627,7 +682,7 @@ pub fn derive_component_id(input: TokenStream) -> TokenStream {
                 });
 
             quote! {
-                impl tui_dispatch::ComponentId for #name {
+                impl #support::ComponentId for #name {
                     fn name(&self) -> &'static str {
                         match self {
                             #(#name_arms),*
@@ -725,6 +780,10 @@ struct DebugStateField {
 #[proc_macro_derive(DebugState, attributes(debug, debug_state))]
 pub fn derive_debug_state(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let support = match debug_macro_support_path() {
+        Ok(path) => path,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     let opts = match DebugStateOpts::from_derive_input(&input) {
         Ok(opts) => opts,
@@ -784,7 +843,7 @@ pub fn derive_debug_state(input: TokenStream) -> TokenStream {
                     } else if field.debug_fmt {
                         quote! { format!("{:?}", self.#field_ident) }
                     } else {
-                        quote! { tui_dispatch::debug::debug_string(&self.#field_ident) }
+                        quote! { #support::debug_string(&self.#field_ident) }
                     };
 
                     Some(quote! {
@@ -794,15 +853,15 @@ pub fn derive_debug_state(input: TokenStream) -> TokenStream {
                 .collect();
 
             quote! {
-                tui_dispatch::debug::DebugSection::new(#section_name)
+                #support::DebugSection::new(#section_name)
                     #(#entry_calls)*
             }
         })
         .collect();
 
     let expanded = quote! {
-        impl tui_dispatch::debug::DebugState for #name {
-            fn debug_sections(&self) -> ::std::vec::Vec<tui_dispatch::debug::DebugSection> {
+        impl #support::DebugState for #name {
+            fn debug_sections(&self) -> ::std::vec::Vec<#support::DebugSection> {
                 ::std::vec![
                     #(#section_code),*
                 ]
@@ -870,6 +929,10 @@ struct FeatureFlagsOpts {
 #[proc_macro_derive(FeatureFlags, attributes(flag, feature_flags))]
 pub fn derive_feature_flags(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let support = match macro_support_path() {
+        Ok(path) => path,
+        Err(error) => return error.to_compile_error().into(),
+    };
 
     let opts = match FeatureFlagsOpts::from_derive_input(&input) {
         Ok(opts) => opts,
@@ -952,7 +1015,7 @@ pub fn derive_feature_flags(input: TokenStream) -> TokenStream {
         .collect();
 
     let expanded = quote! {
-        impl tui_dispatch::FeatureFlags for #name {
+        impl #support::FeatureFlags for #name {
             fn is_enabled(&self, name: &str) -> ::core::option::Option<bool> {
                 match name {
                     #(#is_enabled_arms,)*

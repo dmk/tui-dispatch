@@ -171,6 +171,7 @@ fn test_combined_attributes() {
 }
 
 #[test]
+#[cfg(feature = "debug")]
 fn test_build_debug_table() {
     #[derive(DebugState, Serialize)]
     struct TableState {

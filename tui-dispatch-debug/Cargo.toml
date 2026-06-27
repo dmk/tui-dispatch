@@ -27,3 +27,6 @@ ron.workspace = true
 base64 = "0.22"
 clap.workspace = true
 schemars = { version = "1", optional = true }
+
+[dev-dependencies]
+tui-dispatch-macros.workspace = true
