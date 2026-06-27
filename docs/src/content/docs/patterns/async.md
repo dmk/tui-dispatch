@@ -48,7 +48,7 @@ fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::WeatherFetch => {
             state.weather = DataResource::Loading;
-            ReducerResult::changed_with(Effect::FetchWeather)
+            ReducerResult::changed().with(Effect::FetchWeather)
         }
         Action::WeatherDidLoad(data) => {
             state.weather = DataResource::Loaded(data);
@@ -122,7 +122,7 @@ fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
         Action::WeatherFetch => {
             state.weather = DataResource::Loading;
             let loc = &state.location;
-            ReducerResult::changed_with(Effect::FetchWeather {
+            ReducerResult::changed().with(Effect::FetchWeather {
                 lat: loc.lat,
                 lon: loc.lon,
             })
@@ -336,7 +336,7 @@ fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
         }
         Action::Refresh => {
             state.data = DataResource::Loading;
-            ReducerResult::changed_with(Effect::FetchData)
+            ReducerResult::changed().with(Effect::FetchData)
         }
         Action::DataDidLoad(data) => {
             state.data = DataResource::Loaded(data);

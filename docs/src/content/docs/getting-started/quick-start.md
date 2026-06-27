@@ -133,7 +133,7 @@ fn reducer(state: &mut State, action: Action) -> ReducerResult<Effect> {
         Action::Fetch => {
             state.loading = true;
             state.error = None;
-            ReducerResult::changed_with(Effect::FetchData)
+            ReducerResult::changed().with(Effect::FetchData)
         }
         Action::DidLoad(data) => {
             state.loading = false;

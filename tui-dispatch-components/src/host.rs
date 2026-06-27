@@ -59,6 +59,7 @@ where
             },
             EventKind::Resize(width, height) => Self::Resize(width, height),
             EventKind::Tick => Self::Tick,
+            _ => unreachable!("unsupported EventKind variant"),
         }
     }
 }

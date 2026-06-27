@@ -57,6 +57,7 @@ pub enum EventType {
 
 /// The actual event payload
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum EventKind {
     /// Keyboard event
     Key(KeyEvent),

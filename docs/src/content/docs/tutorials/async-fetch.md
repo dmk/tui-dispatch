@@ -174,7 +174,7 @@ pub fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
             state.error = None;
             state.user = None;
 
-            ReducerResult::changed_with(Effect::FetchUser { username })
+            ReducerResult::changed().with(Effect::FetchUser { username })
         }
 
         Action::UserDidLoad(user) => {

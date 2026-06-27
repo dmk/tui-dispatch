@@ -66,7 +66,7 @@ fn reducer(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::Save => {
             let data = serialize(&state.document);
-            ReducerResult::changed_with(Effect::SaveFile {
+            ReducerResult::changed().with(Effect::SaveFile {
                 path: state.save_path.clone(),
                 data,
             })

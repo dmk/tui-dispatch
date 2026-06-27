@@ -1072,6 +1072,7 @@ impl<A: Action> DebugLayer<A> {
             }
             // Don't intercept resize or tick events
             EventKind::Resize(_, _) | EventKind::Tick => None,
+            _ => None,
         }
     }
 

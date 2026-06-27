@@ -29,6 +29,7 @@ pub trait EventRoutingState<Id: ComponentId, Ctx: BindingContext> {
 
 /// Where a handler is being routed in the current event flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RouteTarget<Id: ComponentId> {
     Modal(Id),
     Focused(Id),

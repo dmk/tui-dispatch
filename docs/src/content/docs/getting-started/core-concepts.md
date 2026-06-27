@@ -60,7 +60,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
     match action {
         AppAction::WeatherFetch => {
             state.is_loading = true;
-            ReducerResult::changed_with(Effect::FetchWeather)
+            ReducerResult::changed().with(Effect::FetchWeather)
         }
         AppAction::WeatherDidLoad(data) => {
             state.weather = Some(data);
@@ -127,8 +127,8 @@ The return type of an effect reducer. Contains whether state changed and any eff
 ReducerResult::unchanged()            // No change, no effects
 ReducerResult::changed()              // State changed, no effects
 ReducerResult::effect(e)              // No change, one effect
-ReducerResult::changed_with(e)        // State changed, one effect
-ReducerResult::changed_with_many(v)   // State changed, multiple effects
+ReducerResult::changed().with(e)      // State changed, one effect
+ReducerResult::effects(v).mark_changed() // State changed, multiple effects
 ```
 
 The same `Store` type works for reducers with and without effects:

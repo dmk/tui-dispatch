@@ -75,7 +75,7 @@ fn reducer(state: &mut AppState, action: AppAction) -> ReducerResult<Effect> {
     match action {
         AppAction::Fetch => {
             state.is_loading = true;
-            ReducerResult::changed_with(Effect::FetchData)
+            ReducerResult::changed().with(Effect::FetchData)
         }
         AppAction::DidLoad(data) => {
             state.data = Some(data);

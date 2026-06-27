@@ -64,7 +64,7 @@
 //!     match action {
 //!         Action::Fetch => {
 //!             state.loading = true;
-//!             ReducerResult::changed_with(Effect::FetchData)
+//!             ReducerResult::changed().with(Effect::FetchData)
 //!         }
 //!         Action::DidLoad(data) => {
 //!             state.data = Some(data);

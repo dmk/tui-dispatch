@@ -87,7 +87,7 @@ fn effect_reducer(state: &mut TestState, action: TestAction) -> ReducerResult<Te
     match action {
         TestAction::Tick => {
             state.ticks += 1;
-            ReducerResult::changed_with(TestEffect::EchoTick)
+            ReducerResult::changed().with(TestEffect::EchoTick)
         }
         TestAction::Quit => ReducerResult::unchanged(),
     }

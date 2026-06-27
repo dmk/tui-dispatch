@@ -15,6 +15,7 @@ pub enum NoEffect {}
 /// `changed` and `effects` are independent facts: reducers can update state
 /// without emitting effects, emit effects without updating state, or do both.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReducerResult<E = NoEffect> {
     /// Whether the state was modified by this action.
     pub changed: bool,
@@ -67,6 +68,7 @@ impl<E> ReducerResult<E> {
 
     /// Create a result indicating state changed with a single effect.
     #[inline]
+    #[deprecated(note = "use `ReducerResult::changed().with(effect)`")]
     pub fn changed_with(effect: E) -> Self {
         Self {
             changed: true,
@@ -76,6 +78,7 @@ impl<E> ReducerResult<E> {
 
     /// Create a result indicating state changed with multiple effects.
     #[inline]
+    #[deprecated(note = "use `ReducerResult::effects(effects).mark_changed()`")]
     pub fn changed_with_many(effects: Vec<E>) -> Self {
         Self {
             changed: true,
@@ -140,6 +143,7 @@ impl Default for DispatchLimits {
 
 /// Error returned when middleware dispatch exceeds configured limits.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DispatchError {
     /// Nested middleware injection exceeded `DispatchLimits::max_depth`.
     DepthExceeded {
@@ -917,7 +921,7 @@ mod tests {
         match action {
             EffectAction::Decrement => {
                 state.counter -= 1;
-                ReducerResult::changed_with(TestEffect::Log(format!("count: {}", state.counter)))
+                ReducerResult::changed().with(TestEffect::Log(format!("count: {}", state.counter)))
             }
             EffectAction::TriggerEffect => {
                 ReducerResult::effects(vec![TestEffect::Log("triggered".into()), TestEffect::Save])
@@ -939,12 +943,12 @@ mod tests {
         assert!(!r.changed);
         assert_eq!(r.effects, vec![TestEffect::Save]);
 
-        let r = ReducerResult::changed_with(TestEffect::Save);
+        let r = ReducerResult::changed().with(TestEffect::Save);
         assert!(r.changed);
         assert_eq!(r.effects, vec![TestEffect::Save]);
 
-        let r =
-            ReducerResult::changed_with_many(vec![TestEffect::Save, TestEffect::Log("x".into())]);
+        let r = ReducerResult::effects(vec![TestEffect::Save, TestEffect::Log("x".into())])
+            .mark_changed();
         assert!(r.changed);
         assert_eq!(r.effects.len(), 2);
     }
@@ -1181,7 +1185,7 @@ mod tests {
         action: OrderingAction,
     ) -> ReducerResult<TestEffect> {
         state.order.push(action.name());
-        ReducerResult::changed_with(TestEffect::Log(action.name().into()))
+        ReducerResult::changed().with(TestEffect::Log(action.name().into()))
     }
 
     #[test]

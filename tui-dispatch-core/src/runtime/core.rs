@@ -45,12 +45,18 @@ impl Default for PollerConfig {
 
 /// Context passed to render closures.
 #[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
 pub struct RenderContext {
     /// Whether the debug overlay is currently active.
     pub debug_enabled: bool,
 }
 
 impl RenderContext {
+    /// Create a render context with the current debug-overlay state.
+    pub const fn new(debug_enabled: bool) -> Self {
+        Self { debug_enabled }
+    }
+
     /// Whether the app should treat input focus as active.
     pub fn is_focused(self) -> bool {
         !self.debug_enabled
@@ -58,7 +64,8 @@ impl RenderContext {
 }
 
 /// Policy applied by runtimes when `try_dispatch` returns a [`DispatchError`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DispatchErrorPolicy {
     /// Keep running without forcing a render.
     Continue,
@@ -68,6 +75,7 @@ pub enum DispatchErrorPolicy {
     /// capture visibility in your error handler closure if needed.
     Render,
     /// Stop the runtime loop gracefully.
+    #[default]
     Stop,
 }
 
@@ -191,18 +199,16 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
     }
 
     pub(crate) fn render_ctx(&self) -> RenderContext {
-        RenderContext {
-            debug_enabled: {
-                #[cfg(feature = "debug")]
-                {
-                    self.debug.as_ref().is_some_and(|d| d.is_enabled())
-                }
-                #[cfg(not(feature = "debug"))]
-                {
-                    false
-                }
-            },
-        }
+        RenderContext::new({
+            #[cfg(feature = "debug")]
+            {
+                self.debug.as_ref().is_some_and(|d| d.is_enabled())
+            }
+            #[cfg(not(feature = "debug"))]
+            {
+                false
+            }
+        })
     }
 
     #[allow(unused_variables)]

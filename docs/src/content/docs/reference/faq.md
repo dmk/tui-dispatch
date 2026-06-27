@@ -48,7 +48,7 @@ For more on the layering, see:
 
 Most apps use them together:
 
-- reducer returns `ReducerResult::changed_with(Effect::FetchThing)`
+- reducer returns `ReducerResult::changed().with(Effect::FetchThing)`
 - effect handler uses `ctx.tasks().spawn("fetch", async { Action::DidLoad(...) })`
 
 ## How do I do periodic ticks / background polling?

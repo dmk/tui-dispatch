@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking Changes
+
+- `RenderContext`, `EventKind`, `DispatchError`, `RouteTarget`, `DispatchErrorPolicy`, and `ReducerResult` are now non-exhaustive. Downstream enum matches must include a wildcard arm, and `RenderContext` must be built with `RenderContext::new(...)` or `Default`.
+
+### Deprecated
+
+- `ReducerResult::changed_with(...)` and `ReducerResult::changed_with_many(...)`; use the chainable `changed().with(...)` and `effects(...).mark_changed()` forms instead.
+
 ## [0.7.1] - 2026-05-17
 
 Dependency refresh for the Ratatui 0.30 line, with runtime error handling tightened around backend failures.

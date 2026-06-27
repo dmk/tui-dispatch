@@ -305,7 +305,7 @@ fn handle_api(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
     match action {
         Action::ApiFetch => {
             state.loading = true;
-            ReducerResult::changed_with(Effect::Fetch)
+            ReducerResult::changed().with(Effect::Fetch)
         }
         Action::ApiDidLoad(data) => {
             state.data = Some(data);
