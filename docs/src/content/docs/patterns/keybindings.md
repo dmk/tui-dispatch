@@ -68,6 +68,47 @@ fn handle_key(key: KeyEvent, context: Context, bindings: &Keybindings<Context>) 
 
 The lookup checks context-specific bindings first, then falls back to global bindings.
 
+## Validation and Conflicts
+
+Use `validate()` after loading or merging configuration. It reports all invalid key
+strings and keys assigned to multiple commands within the same scope:
+
+```rust
+if let Err(errors) = bindings.validate() {
+    for invalid in errors.invalid_bindings() {
+        eprintln!("{:?}/{}: invalid key {:?}", invalid.context, invalid.command, invalid.key);
+    }
+    for conflict in errors.conflicts() {
+        eprintln!("{:?}: {:?}", conflict.key, conflict.commands().collect::<Vec<_>>());
+    }
+}
+```
+
+Diagnostics include context names (`None` means global) and use stable ordering.
+Aliases such as `ctrl+s` and `control-s` count as the same key. Repeating a key on
+one command is allowed. Context bindings may shadow global bindings, and separate
+contexts may use the same key for different commands.
+
+For checked registration, use `try_add_global()` or `try_add(context, ...)`:
+
+```rust
+bindings.try_add_global("save", ["ctrl+s", "f2"], ConflictPolicy::Reject)?;
+bindings.try_add_global("search", ["ctrl-s"], ConflictPolicy::Replace)?;
+// ctrl+s now runs search; f2 still runs save.
+bindings.try_add(Context::Editor, "select", ["ctrl+s"], ConflictPolicy::Reject)?;
+```
+
+Both methods replace the named command's entire key list and validate the resulting
+scope. `Reject` reports conflicts; `Replace` removes only colliding keys from other
+commands in that scope, so the latest successful registration wins. Errors leave
+all bindings unchanged. An empty key list clears a command's keys.
+
+`add`, `add_global`, deserialization, and `merge` remain unchecked. `merge` replaces
+lists by command name, so different commands can still collide. Until those
+conflicts are resolved, lookup deterministically uses the lexically first command
+name within the scope; invalid key strings are skipped. Call `validate()` before
+using configuration to surface these problems.
+
 ## BindingContext Derive Macro
 
 The `#[derive(BindingContext)]` macro generates the required trait implementation:
@@ -147,7 +188,11 @@ The `parse_key_string()` function accepts these formats:
 | Arrow keys | `"up"`, `"down"`, `"left"`, `"right"` |
 | Navigation | `"home"`, `"end"`, `"pageup"`, `"pagedown"` |
 | Function keys | `"f1"` through `"f12"` |
-| With modifiers | `"ctrl+c"`, `"shift+tab"`, `"alt+x"`, `"ctrl+shift+s"` |
+| With modifiers | `"ctrl+c"`, `"ctrl-c"`, `"shift+tab"`, `"alt+x"`, `"ctrl+shift+s"` |
+
+Modifiers are case insensitive: `ctrl` (or `control`), `shift`, and `alt`.
+Unknown modifiers and missing keys are invalid. Literal `+` and `-` keys are
+supported, including `ctrl++` and `ctrl+-`.
 
 For displaying keys in UI (help text, status bar):
 

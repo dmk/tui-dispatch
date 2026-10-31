@@ -197,7 +197,10 @@ pub use event::{
 };
 
 // Keybindings exports
-pub use keybindings::{format_key_for_display, parse_key_string, BindingContext, Keybindings};
+pub use keybindings::{
+    format_key_for_display, parse_key_string, BindingContext, ConflictPolicy, InvalidKeybinding,
+    KeybindingConflict, KeybindingErrors, Keybindings,
+};
 
 // Store exports
 #[cfg(feature = "tracing")]
@@ -255,7 +258,8 @@ pub mod prelude {
     };
     pub use crate::features::{DynamicFeatures, FeatureFlags};
     pub use crate::keybindings::{
-        format_key_for_display, parse_key_string, BindingContext, Keybindings,
+        format_key_for_display, parse_key_string, BindingContext, ConflictPolicy,
+        InvalidKeybinding, KeybindingConflict, KeybindingErrors, Keybindings,
     };
     pub use crate::reducer_compose;
     pub use crate::resource::DataResource;

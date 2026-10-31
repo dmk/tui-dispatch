@@ -127,7 +127,10 @@ pub mod prelude {
     };
 
     // Keybindings
-    pub use tui_dispatch_core::{format_key_for_display, parse_key_string, Keybindings};
+    pub use tui_dispatch_core::{
+        format_key_for_display, parse_key_string, ConflictPolicy, InvalidKeybinding,
+        KeybindingConflict, KeybindingErrors, Keybindings,
+    };
 
     // Store
     pub use tui_dispatch_core::reducer_compose;

@@ -1,7 +1,8 @@
 //! Keybindings system with context-aware key parsing and lookup
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::hash::Hash;
 use std::sync::OnceLock;
 
@@ -29,6 +30,102 @@ pub trait BindingContext: Clone + Copy + Eq + Hash {
     /// Get all possible context values (for iteration/config loading)
     fn all() -> &'static [Self];
 }
+
+/// How checked registration handles keys already assigned in the same scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictPolicy {
+    /// Return diagnostics without changing any bindings.
+    Reject,
+    /// Remove colliding keys from other commands; the new registration wins.
+    Replace,
+}
+
+/// An invalid key string and its configuration location.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidKeybinding {
+    /// Context name, or `None` for global bindings.
+    pub context: Option<&'static str>,
+    /// Command containing the invalid key.
+    pub command: String,
+    /// Original key string.
+    pub key: String,
+}
+
+/// Commands assigned to the same normalized key within one scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeybindingConflict {
+    /// Context name, or `None` for global bindings.
+    pub context: Option<&'static str>,
+    /// Normalized key shared by the commands.
+    pub key: KeyEvent,
+    commands: Vec<String>,
+}
+
+impl KeybindingConflict {
+    /// Conflicting command names in lexical order (without duplicates).
+    pub fn commands(&self) -> impl Iterator<Item = &str> {
+        self.commands.iter().map(String::as_str)
+    }
+}
+
+/// All invalid keys and conflicting assignments found during validation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeybindingErrors {
+    invalid: Vec<InvalidKeybinding>,
+    conflicts: Vec<KeybindingConflict>,
+}
+
+impl KeybindingErrors {
+    /// Invalid key strings, preserving their original spelling.
+    pub fn invalid_keys(&self) -> impl Iterator<Item = &str> {
+        self.invalid.iter().map(|entry| entry.key.as_str())
+    }
+
+    /// Invalid keys with their context and command locations.
+    pub fn invalid_bindings(&self) -> impl Iterator<Item = &InvalidKeybinding> {
+        self.invalid.iter()
+    }
+
+    /// Conflicting assignments, grouped by scope and normalized key.
+    pub fn conflicts(&self) -> impl Iterator<Item = &KeybindingConflict> {
+        self.conflicts.iter()
+    }
+
+    fn into_result(self) -> Result<(), Self> {
+        if self.invalid.is_empty() && self.conflicts.is_empty() {
+            Ok(())
+        } else {
+            Err(self)
+        }
+    }
+}
+
+impl fmt::Display for KeybindingErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid keybindings")?;
+        for invalid in &self.invalid {
+            write!(
+                f,
+                "; [{}] {}: invalid key {:?}",
+                invalid.context.unwrap_or("global"),
+                invalid.command,
+                invalid.key
+            )?;
+        }
+        for conflict in &self.conflicts {
+            write!(
+                f,
+                "; [{}] {:?}: conflicting commands {}",
+                conflict.context.unwrap_or("global"),
+                conflict.key,
+                conflict.commands.join(", ")
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for KeybindingErrors {}
 
 /// Keybindings configuration with context support
 ///
@@ -129,19 +226,76 @@ impl<C: BindingContext> Keybindings<C> {
         }
     }
 
-    /// Add a global keybinding
+    /// Add a global keybinding without validation, replacing this command's keys.
+    ///
+    /// Call [`Self::validate`] after loading configuration, or use [`Self::try_add_global`].
+    /// Unchecked conflicts resolve to the lexically first command name.
     pub fn add_global(&mut self, command: impl Into<String>, keys: Vec<String>) {
         self.global.insert(command.into(), keys);
         self.invalidate_cache();
     }
 
-    /// Add a context-specific keybinding
+    /// Add a context-specific keybinding without validation.
+    ///
+    /// Like [`Self::add_global`], this replaces the command's entire key list.
     pub fn add(&mut self, context: C, command: impl Into<String>, keys: Vec<String>) {
         self.contexts
             .entry(context)
             .or_default()
             .insert(command.into(), keys);
         self.invalidate_cache();
+    }
+
+    /// Validate all scopes without modifying the configuration.
+    ///
+    /// Context bindings intentionally shadow globals and do not conflict with them.
+    /// Aliases for the same key on one command are allowed. Diagnostics are ordered
+    /// by scope (globals first, then context name), command name, and key-list order.
+    pub fn validate(&self) -> Result<(), KeybindingErrors> {
+        let mut errors = KeybindingErrors::default();
+        validate_scope(&self.global, None, &mut errors);
+        let mut contexts: Vec<_> = self.contexts.iter().collect();
+        contexts.sort_by_key(|(context, _)| context.name());
+        for (context, bindings) in contexts {
+            validate_scope(bindings, Some(context.name()), &mut errors);
+        }
+        errors.into_result()
+    }
+
+    /// Replace a global command's keys and validate the resulting global scope.
+    ///
+    /// Errors leave all bindings and cached lookups unchanged. `Replace` removes
+    /// only colliding keys from other commands, preserving their remaining keys.
+    pub fn try_add_global(
+        &mut self,
+        command: impl Into<String>,
+        keys: impl IntoIterator<Item = impl Into<String>>,
+        policy: ConflictPolicy,
+    ) -> Result<(), KeybindingErrors> {
+        let updated = checked_registration(&self.global, None, command.into(), keys, policy)?;
+        self.global = updated;
+        self.invalidate_cache();
+        Ok(())
+    }
+
+    /// Replace a context command's keys and validate the resulting context scope.
+    ///
+    /// Has the same atomicity and replacement semantics as [`Self::try_add_global`].
+    /// Global bindings and other contexts are unaffected.
+    pub fn try_add(
+        &mut self,
+        context: C,
+        command: impl Into<String>,
+        keys: impl IntoIterator<Item = impl Into<String>>,
+        policy: ConflictPolicy,
+    ) -> Result<(), KeybindingErrors> {
+        let empty = HashMap::new();
+        let bindings = self.contexts.get(&context).unwrap_or(&empty);
+        let updated =
+            checked_registration(bindings, Some(context.name()), command.into(), keys, policy)?;
+        self.contexts.insert(context, updated);
+        self.invalidate_cache();
+        Ok(())
     }
 
     /// Get bindings for a specific context
@@ -194,7 +348,10 @@ impl<C: BindingContext> Keybindings<C> {
             .and_then(|keys| keys.first().cloned())
     }
 
-    /// Merge user config onto defaults - user config overrides defaults
+    /// Merge user config onto defaults, replacing keys for matching command names.
+    ///
+    /// This is unchecked: call [`Self::validate`] on the result to detect collisions
+    /// between different commands. Unchecked collisions use lexical command order.
     pub fn merge(mut defaults: Self, user: Self) -> Self {
         // Merge global
         for (key, value) in user.global {
@@ -226,7 +383,11 @@ impl<C: BindingContext> Keybindings<C> {
 impl ParsedKey {
     fn from_key_event(key: &KeyEvent) -> Option<Self> {
         Some(Self {
-            code: normalize_code(key.code)?,
+            code: if key.code == KeyCode::Tab && key.modifiers.contains(KeyModifiers::SHIFT) {
+                KeyCode::BackTab
+            } else {
+                normalize_code(key.code)?
+            },
             modifiers: key.modifiers,
         })
     }
@@ -239,29 +400,98 @@ impl ParsedKey {
 
 impl<C: BindingContext> CompiledKeybindings<C> {
     fn build(bindings: &Keybindings<C>) -> Self {
-        let mut global = HashMap::new();
-        for (command, keys) in &bindings.global {
-            insert_bindings(&mut global, command, keys);
+        Self {
+            global: compile_scope(&bindings.global),
+            contexts: bindings
+                .contexts
+                .iter()
+                .map(|(context, bindings)| (*context, compile_scope(bindings)))
+                .collect(),
         }
-
-        let mut contexts = HashMap::new();
-        for (context, bindings) in &bindings.contexts {
-            let entry = contexts.entry(*context).or_insert_with(HashMap::new);
-            for (command, keys) in bindings {
-                insert_bindings(entry, command, keys);
-            }
-        }
-
-        Self { global, contexts }
     }
 }
 
-fn insert_bindings(target: &mut HashMap<ParsedKey, String>, command: &str, keys: &[String]) {
-    for key_str in keys {
-        if let Some(parsed) = ParsedKey::from_key_string(key_str) {
-            target.entry(parsed).or_insert_with(|| command.to_string());
+fn sorted_bindings(bindings: &HashMap<String, Vec<String>>) -> Vec<(&String, &Vec<String>)> {
+    let mut entries: Vec<_> = bindings.iter().collect();
+    entries.sort_by_key(|(command, _)| *command);
+    entries
+}
+
+fn compile_scope(bindings: &HashMap<String, Vec<String>>) -> HashMap<ParsedKey, String> {
+    let mut compiled = HashMap::new();
+    for (command, keys) in sorted_bindings(bindings) {
+        for key in keys {
+            if let Some(parsed) = ParsedKey::from_key_string(key) {
+                compiled.entry(parsed).or_insert_with(|| command.clone());
+            }
         }
     }
+    compiled
+}
+
+fn validate_scope(
+    bindings: &HashMap<String, Vec<String>>,
+    context: Option<&'static str>,
+    errors: &mut KeybindingErrors,
+) {
+    let mut assignments = Vec::<KeybindingConflict>::new();
+    let mut indices = HashMap::<ParsedKey, usize>::new();
+    for (command, keys) in sorted_bindings(bindings) {
+        for key in keys {
+            if let Some(parsed) = ParsedKey::from_key_string(key) {
+                let index = *indices.entry(parsed.clone()).or_insert_with(|| {
+                    assignments.push(KeybindingConflict {
+                        context,
+                        key: KeyEvent::new(parsed.code, parsed.modifiers),
+                        commands: Vec::new(),
+                    });
+                    assignments.len() - 1
+                });
+                let commands = &mut assignments[index].commands;
+                if commands.last() != Some(command) {
+                    commands.push(command.clone());
+                }
+            } else {
+                errors.invalid.push(InvalidKeybinding {
+                    context,
+                    command: command.clone(),
+                    key: key.clone(),
+                });
+            }
+        }
+    }
+    errors.conflicts.extend(
+        assignments
+            .into_iter()
+            .filter(|entry| entry.commands.len() > 1),
+    );
+}
+
+fn checked_registration(
+    bindings: &HashMap<String, Vec<String>>,
+    context: Option<&'static str>,
+    command: String,
+    keys: impl IntoIterator<Item = impl Into<String>>,
+    policy: ConflictPolicy,
+) -> Result<HashMap<String, Vec<String>>, KeybindingErrors> {
+    let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
+    let mut updated = bindings.clone();
+    if policy == ConflictPolicy::Replace {
+        let replacing: HashSet<_> = keys
+            .iter()
+            .filter_map(|key| ParsedKey::from_key_string(key))
+            .collect();
+        for existing in updated.values_mut() {
+            existing.retain(|key| {
+                ParsedKey::from_key_string(key).is_none_or(|parsed| !replacing.contains(&parsed))
+            });
+        }
+    }
+    updated.insert(command, keys);
+    let mut errors = KeybindingErrors::default();
+    validate_scope(&updated, context, &mut errors);
+    errors.into_result()?;
+    Ok(updated)
 }
 
 fn normalize_code(code: KeyCode) -> Option<KeyCode> {
@@ -284,7 +514,23 @@ fn normalize_char(c: char) -> Option<char> {
     }
 }
 
-/// Parse a key string like "q", "esc", "ctrl+p", "shift+tab" into a KeyEvent
+// Consume modifier prefixes while leaving literal '+' and '-' keys intact.
+fn split_key_parts(mut key: &str) -> (Vec<&str>, &str) {
+    let mut modifiers = Vec::new();
+    while key.chars().count() > 1 {
+        let Some(index) = key.find(['+', '-']) else {
+            break;
+        };
+        modifiers.push(key[..index].trim());
+        key = key[index + 1..].trim();
+    }
+    (modifiers, key)
+}
+
+/// Parse a key string like "q", "esc", "ctrl+p", "ctrl-p", "shift+tab".
+///
+/// Modifier names are case insensitive: ctrl/control, shift, and alt.
+/// Unknown or empty modifier names and missing keys are rejected.
 pub fn parse_key_string(key_str: &str) -> Option<KeyEvent> {
     let key_str = key_str.trim().to_lowercase();
 
@@ -292,29 +538,15 @@ pub fn parse_key_string(key_str: &str) -> Option<KeyEvent> {
         return None;
     }
 
-    // Special case: shift+tab should be BackTab
-    if key_str == "shift+tab" || key_str == "backtab" {
-        return Some(KeyEvent {
-            code: KeyCode::BackTab,
-            modifiers: KeyModifiers::SHIFT,
-            kind: crossterm::event::KeyEventKind::Press,
-            state: crossterm::event::KeyEventState::empty(),
-        });
-    }
-
     // Check for modifiers
-    let parts: Vec<&str> = key_str.split('+').collect();
+    let (parts, key_part) = split_key_parts(&key_str);
     let mut modifiers = KeyModifiers::empty();
-    let key_part = parts.last()?.trim();
-
-    if parts.len() > 1 {
-        for part in &parts[..parts.len() - 1] {
-            match part.trim() {
-                "ctrl" | "control" => modifiers |= KeyModifiers::CONTROL,
-                "shift" => modifiers |= KeyModifiers::SHIFT,
-                "alt" => modifiers |= KeyModifiers::ALT,
-                _ => {}
-            }
+    for part in parts {
+        match part {
+            "ctrl" | "control" => modifiers |= KeyModifiers::CONTROL,
+            "shift" => modifiers |= KeyModifiers::SHIFT,
+            "alt" => modifiers |= KeyModifiers::ALT,
+            _ => return None,
         }
     }
 
@@ -322,11 +554,10 @@ pub fn parse_key_string(key_str: &str) -> Option<KeyEvent> {
     let code = match key_part {
         "esc" | "escape" => KeyCode::Esc,
         "enter" | "return" => KeyCode::Enter,
+        "tab" if modifiers.contains(KeyModifiers::SHIFT) => KeyCode::BackTab,
         "tab" => KeyCode::Tab,
         "backtab" => {
-            if modifiers.is_empty() {
-                modifiers |= KeyModifiers::SHIFT;
-            }
+            modifiers |= KeyModifiers::SHIFT;
             KeyCode::BackTab
         }
         "backspace" => KeyCode::Backspace,
@@ -354,7 +585,7 @@ pub fn parse_key_string(key_str: &str) -> Option<KeyEvent> {
         "f12" => KeyCode::F(12),
         "space" => KeyCode::Char(' '),
         // Single character
-        c if c.len() == 1 => {
+        c if c.chars().count() == 1 => {
             let ch = c.chars().next()?;
             KeyCode::Char(ch)
         }
@@ -374,23 +605,19 @@ pub fn format_key_for_display(key_str: &str) -> String {
     let key_str = key_str.trim().to_lowercase();
 
     // Handle special cases first
-    if key_str == "shift+tab" || key_str == "backtab" {
+    if key_str == "shift+tab" || key_str == "shift-tab" || key_str == "backtab" {
         return "Shift+Tab".to_string();
     }
 
     // Check for modifiers
-    let parts: Vec<&str> = key_str.split('+').collect();
+    let (parts, key_part) = split_key_parts(&key_str);
     let mut modifiers = Vec::new();
-    let key_part = parts.last().copied().unwrap_or(key_str.as_str());
-
-    if parts.len() > 1 {
-        for part in &parts[..parts.len() - 1] {
-            match part.trim() {
-                "ctrl" | "control" => modifiers.push("^"),
-                "shift" => modifiers.push("Shift+"),
-                "alt" => modifiers.push("Alt+"),
-                _ => {}
-            }
+    for part in parts {
+        match part {
+            "ctrl" | "control" => modifiers.push("^"),
+            "shift" => modifiers.push("Shift+"),
+            "alt" => modifiers.push("Alt+"),
+            _ => {}
         }
     }
 
@@ -424,7 +651,7 @@ pub fn format_key_for_display(key_str: &str) -> String {
         "f11" => "F11".to_string(),
         "f12" => "F12".to_string(),
         // Single character - capitalize for display
-        c if c.len() == 1 => {
+        c if c.chars().count() == 1 => {
             let ch = c.chars().next().unwrap();
             // Keep special characters as-is, capitalize letters
             if ch.is_alphabetic() {
