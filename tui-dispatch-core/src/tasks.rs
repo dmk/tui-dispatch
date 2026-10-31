@@ -91,6 +91,7 @@ impl<A> TaskPauseHandle<A> {
     ///
     /// When paused, completed tasks queue their actions instead of sending them.
     pub fn pause(&self) {
+        let _queue = self.queued_actions.lock().unwrap();
         self.paused.store(true, Ordering::SeqCst);
     }
 
@@ -98,13 +99,27 @@ impl<A> TaskPauseHandle<A> {
     ///
     /// Returns all actions that were queued while paused.
     pub fn resume(&self) -> Vec<A> {
+        let mut queue = self.queued_actions.lock().unwrap();
         self.paused.store(false, Ordering::SeqCst);
-        std::mem::take(&mut *self.queued_actions.lock().unwrap())
+        std::mem::take(&mut *queue)
     }
 
     /// Check if the task manager is paused.
     pub fn is_paused(&self) -> bool {
         self.paused.load(Ordering::SeqCst)
+    }
+}
+
+impl<A> TaskPauseHandle<A> {
+    fn deliver(&self, action: A, tx: &mpsc::UnboundedSender<A>) {
+        // Pause, resume/drain, and delivery share this lock. In particular,
+        // a completion cannot enqueue behind a resume that already drained.
+        let mut queue = self.queued_actions.lock().unwrap();
+        if self.paused.load(Ordering::SeqCst) {
+            queue.push(action);
+        } else {
+            let _ = tx.send(action);
+        }
     }
 }
 
@@ -123,6 +138,8 @@ impl<A> TaskPauseHandle<A> {
 pub struct TaskManager<A> {
     tasks: HashMap<TaskKey, AbortHandle>,
     action_tx: mpsc::UnboundedSender<A>,
+    #[cfg(test)]
+    before_delivery: Option<Arc<dyn Fn(bool) + Send + Sync>>,
     /// Whether the task manager is paused (actions are queued instead of sent)
     paused: Arc<AtomicBool>,
     /// Actions queued while paused
@@ -141,6 +158,8 @@ where
         Self {
             tasks: HashMap::new(),
             action_tx,
+            #[cfg(test)]
+            before_delivery: None,
             paused: Arc::new(AtomicBool::new(false)),
             queued_actions: Arc::new(Mutex::new(Vec::new())),
         }
@@ -151,6 +170,7 @@ where
     /// When paused, completed tasks queue their actions instead of sending them.
     /// In-flight tasks continue to completion but their results are queued.
     pub fn pause(&self) {
+        let _queue = self.queued_actions.lock().unwrap();
         self.paused.store(true, Ordering::SeqCst);
     }
 
@@ -159,8 +179,9 @@ where
     /// Returns all actions that were queued while paused.
     /// The caller should dispatch these through the normal action pipeline.
     pub fn resume(&self) -> Vec<A> {
+        let mut queue = self.queued_actions.lock().unwrap();
         self.paused.store(false, Ordering::SeqCst);
-        std::mem::take(&mut *self.queued_actions.lock().unwrap())
+        std::mem::take(&mut *queue)
     }
 
     /// Check if the task manager is paused.
@@ -216,16 +237,16 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
-        let paused = self.paused.clone();
-        let queued = self.queued_actions.clone();
+        let delivery = self.pause_handle();
+        #[cfg(test)]
+        let before_delivery = self.before_delivery.clone();
         let handle: JoinHandle<()> = tokio::spawn(async move {
             let action = future.await;
-            // Check if paused - if so, queue instead of send
-            if paused.load(Ordering::SeqCst) {
-                queued.lock().unwrap().push(action);
-            } else {
-                let _ = tx.send(action);
+            #[cfg(test)]
+            if let Some(hook) = before_delivery {
+                hook(delivery.is_paused());
             }
+            delivery.deliver(action, &tx);
         });
 
         self.tasks.insert(key, handle.abort_handle());
@@ -266,17 +287,17 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
-        let paused = self.paused.clone();
-        let queued = self.queued_actions.clone();
+        let delivery = self.pause_handle();
+        #[cfg(test)]
+        let before_delivery = self.before_delivery.clone();
         let handle: JoinHandle<()> = tokio::spawn(async move {
             tokio::time::sleep(duration).await;
             let action = future.await;
-            // Check if paused - if so, queue instead of send
-            if paused.load(Ordering::SeqCst) {
-                queued.lock().unwrap().push(action);
-            } else {
-                let _ = tx.send(action);
+            #[cfg(test)]
+            if let Some(hook) = before_delivery {
+                hook(delivery.is_paused());
             }
+            delivery.deliver(action, &tx);
         });
 
         self.tasks.insert(key, handle.abort_handle());
@@ -352,7 +373,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     enum TestAction {
         Done(usize),
     }
@@ -372,6 +393,61 @@ mod tests {
         assert_eq!(k1, k2);
         assert_eq!(k2, k3);
         assert_eq!(k1.name(), "test");
+    }
+
+    async fn resume_during_completion(debounce: bool) {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut tasks = TaskManager::new(tx);
+        let pause = tasks.pause_handle();
+        pause.pause();
+        let (observed_tx, observed_rx) = tokio::sync::oneshot::channel();
+        let observed_tx = Mutex::new(Some(observed_tx));
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        tasks.before_delivery = Some(Arc::new(move |paused| {
+            observed_tx
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap()
+                .send(paused)
+                .unwrap();
+            // Hold completion between observing pause and attempting delivery.
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+        }));
+        if debounce {
+            tasks.debounce("race", Duration::ZERO, async { TestAction::Done(42) });
+        } else {
+            tasks.spawn("race", async { TestAction::Done(42) });
+        }
+        assert!(tokio::time::timeout(Duration::from_secs(2), observed_rx)
+            .await
+            .unwrap()
+            .unwrap());
+        assert!(pause.resume().is_empty());
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap(),
+            Some(TestAction::Done(42))
+        );
+        assert!(pause.resume().is_empty());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn spawn_completion_rechecks_pause_after_resume() {
+        resume_during_completion(false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn debounce_completion_rechecks_pause_after_resume() {
+        resume_during_completion(true).await;
     }
 
     #[tokio::test]

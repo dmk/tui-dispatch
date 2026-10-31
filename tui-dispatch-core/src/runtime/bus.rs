@@ -12,7 +12,9 @@ use crate::keybindings::Keybindings;
 use crate::store::NoEffect;
 use crate::{Action, BindingContext};
 
-use super::core::{draw_frame, EffectContext, RenderContext, Runtime, RuntimeStore};
+use super::core::{
+    draw_frame, EffectContext, RenderContext, Runtime, RuntimeRunGuard, RuntimeStore,
+};
 
 /// Runtime routing mode that routes raw events through an [`EventBus`].
 #[doc(hidden)]
@@ -133,36 +135,41 @@ where
         FAfter: FnMut(&mut EventBus<S, A, Id, Ctx>, &S),
     {
         let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let guard = RuntimeRunGuard {
+            runtime: self,
+            cancel_token,
+        };
+        let runtime = &mut *guard.runtime;
 
         loop {
-            if self.shell.should_render {
-                let bus = &mut self.routing.bus;
+            if runtime.shell.should_render {
+                let bus = &mut runtime.routing.bus;
                 draw_frame(
-                    &mut self.shell,
-                    self.store.state(),
+                    &mut runtime.shell,
+                    runtime.store.state(),
                     terminal,
                     |f, area, s, ctx| render(f, area, s, ctx, bus.context_mut()),
                 )?;
-                after_render(&mut self.routing.bus, self.store.state());
+                after_render(&mut runtime.routing.bus, runtime.store.state());
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
-                    let bus = &mut self.routing.bus;
-                    let kb = &self.routing.keybindings;
-                    self.shell.process_event(
+                    let bus = &mut runtime.routing.bus;
+                    let kb = &runtime.routing.keybindings;
+                    runtime.shell.process_event(
                         raw_event,
-                        self.store.state(),
+                        runtime.store.state(),
                         |event, state| bus.handle_event(event, state, kb),
                     );
                 }
 
-                Some(action) = self.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_action(action) {
+                    runtime.shell.debug_log_action(&action);
+                    if runtime.dispatch_action(action) {
                         break;
                     }
                 }
@@ -171,7 +178,6 @@ where
             }
         }
 
-        self.cleanup(cancel_token);
         Ok(())
     }
 }
@@ -224,36 +230,41 @@ where
         FAfter: FnMut(&mut EventBus<S, A, Id, Ctx>, &S),
     {
         let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let guard = RuntimeRunGuard {
+            runtime: self,
+            cancel_token,
+        };
+        let runtime = &mut *guard.runtime;
 
         loop {
-            if self.shell.should_render {
-                let bus = &mut self.routing.bus;
+            if runtime.shell.should_render {
+                let bus = &mut runtime.routing.bus;
                 draw_frame(
-                    &mut self.shell,
-                    self.store.state(),
+                    &mut runtime.shell,
+                    runtime.store.state(),
                     terminal,
                     |f, area, s, ctx| render(f, area, s, ctx, bus.context_mut()),
                 )?;
-                after_render(&mut self.routing.bus, self.store.state());
+                after_render(&mut runtime.routing.bus, runtime.store.state());
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
-                    let bus = &mut self.routing.bus;
-                    let kb = &self.routing.keybindings;
-                    self.shell.process_event(
+                    let bus = &mut runtime.routing.bus;
+                    let kb = &runtime.routing.keybindings;
+                    runtime.shell.process_event(
                         raw_event,
-                        self.store.state(),
+                        runtime.store.state(),
                         |event, state| bus.handle_event(event, state, kb),
                     );
                 }
 
-                Some(action) = self.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_and_handle_effects(action, &mut handle_effect) {
+                    runtime.shell.debug_log_action(&action);
+                    if runtime.dispatch_and_handle_effects(action, &mut handle_effect) {
                         break;
                     }
                 }
@@ -262,7 +273,6 @@ where
             }
         }
 
-        self.cleanup(cancel_token);
         Ok(())
     }
 }

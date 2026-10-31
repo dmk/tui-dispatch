@@ -168,6 +168,8 @@ pub(crate) struct RuntimeShell<S, A: Action> {
     pub(crate) action_tx: mpsc::UnboundedSender<A>,
     pub(crate) action_rx: mpsc::UnboundedReceiver<A>,
     pub(crate) poller_config: PollerConfig,
+    #[cfg(test)]
+    poller_probe: Option<mpsc::UnboundedSender<(CancellationToken, tokio::task::AbortHandle)>>,
     #[cfg(feature = "debug")]
     pub(crate) debug: Option<Box<dyn DebugAdapter<S, A>>>,
     pub(crate) dispatch_error_handler: Box<dyn FnMut(&DispatchError) -> DispatchErrorPolicy>,
@@ -182,6 +184,8 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
             action_tx,
             action_rx,
             poller_config: PollerConfig::default(),
+            #[cfg(test)]
+            poller_probe: None,
             #[cfg(feature = "debug")]
             debug: None,
             dispatch_error_handler: Box::new(|_| DispatchErrorPolicy::Stop),
@@ -246,6 +250,10 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
             self.poller_config.loop_sleep,
             cancel_token.clone(),
         );
+        #[cfg(test)]
+        if let Some(probe) = &self.poller_probe {
+            let _ = probe.send((cancel_token.clone(), _handle.abort_handle()));
+        }
         (event_rx, cancel_token)
     }
 
@@ -330,6 +338,25 @@ where
     pub(crate) subscriptions: Subscriptions<A>,
     pub(crate) action_broadcast: tokio::sync::broadcast::Sender<String>,
     pub(crate) _effect: PhantomData<E>,
+}
+
+// Borrow the runtime for a run so every exit, including future cancellation,
+// cancels its owned work while leaving the runtime available to the caller.
+pub(crate) struct RuntimeRunGuard<'a, S: 'static, A: Action, E, Routing, St>
+where
+    St: RuntimeStore<S, A, E>,
+{
+    pub(crate) runtime: &'a mut Runtime<S, A, E, Routing, St>,
+    pub(crate) cancel_token: CancellationToken,
+}
+
+impl<S: 'static, A: Action, E, Routing, St> Drop for RuntimeRunGuard<'_, S, A, E, Routing, St>
+where
+    St: RuntimeStore<S, A, E>,
+{
+    fn drop(&mut self) {
+        self.runtime.cleanup(self.cancel_token.clone());
+    }
 }
 
 impl<S: 'static, A: Action, E> Runtime<S, A, E, Direct, Store<S, A, E>> {
@@ -546,23 +573,33 @@ where
         FQuit: FnMut(&A) -> bool,
     {
         let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let guard = RuntimeRunGuard {
+            runtime: self,
+            cancel_token,
+        };
+        let runtime = &mut *guard.runtime;
 
         loop {
-            if self.shell.should_render {
-                draw_frame(&mut self.shell, self.store.state(), terminal, &mut render)?;
+            if runtime.shell.should_render {
+                draw_frame(
+                    &mut runtime.shell,
+                    runtime.store.state(),
+                    terminal,
+                    &mut render,
+                )?;
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
-                    self.shell.process_event(raw_event, self.store.state(), &mut map_event);
+                    runtime.shell.process_event(raw_event, runtime.store.state(), &mut map_event);
                 }
 
-                Some(action) = self.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_action(action) {
+                    runtime.shell.debug_log_action(&action);
+                    if runtime.dispatch_action(action) {
                         break;
                     }
                 }
@@ -571,7 +608,6 @@ where
             }
         }
 
-        self.cleanup(cancel_token);
         Ok(())
     }
 }
@@ -600,23 +636,33 @@ where
         FEffect: FnMut(E, &mut EffectContext<A>),
     {
         let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let guard = RuntimeRunGuard {
+            runtime: self,
+            cancel_token,
+        };
+        let runtime = &mut *guard.runtime;
 
         loop {
-            if self.shell.should_render {
-                draw_frame(&mut self.shell, self.store.state(), terminal, &mut render)?;
+            if runtime.shell.should_render {
+                draw_frame(
+                    &mut runtime.shell,
+                    runtime.store.state(),
+                    terminal,
+                    &mut render,
+                )?;
             }
 
             tokio::select! {
                 Some(raw_event) = event_rx.recv() => {
-                    self.shell.process_event(raw_event, self.store.state(), &mut map_event);
+                    runtime.shell.process_event(raw_event, runtime.store.state(), &mut map_event);
                 }
 
-                Some(action) = self.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv() => {
                     if should_quit(&action) {
                         break;
                     }
-                    self.shell.debug_log_action(&action);
-                    if self.dispatch_and_handle_effects(action, &mut handle_effect) {
+                    runtime.shell.debug_log_action(&action);
+                    if runtime.dispatch_and_handle_effects(action, &mut handle_effect) {
                         break;
                     }
                 }
@@ -625,7 +671,6 @@ where
             }
         }
 
-        self.cleanup(cancel_token);
         Ok(())
     }
 }
@@ -751,6 +796,86 @@ mod tests {
             max_depth: 1,
             action: "Increment",
         }
+    }
+
+    async fn assert_poller_stopped(
+        mut probe: mpsc::UnboundedReceiver<(CancellationToken, tokio::task::AbortHandle)>,
+    ) {
+        let (token, handle) = probe.recv().await.unwrap();
+        assert!(token.is_cancelled());
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !handle.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("event poller must exit even when the runtime stays alive");
+    }
+
+    fn runtime_with_poller_probe() -> (
+        Runtime<TestState, TestAction>,
+        mpsc::UnboundedReceiver<(CancellationToken, tokio::task::AbortHandle)>,
+    ) {
+        let mut runtime = Runtime::new(TestState::default(), reducer);
+        runtime.shell.poller_config.loop_sleep = std::time::Duration::from_secs(3600);
+        let (tx, rx) = mpsc::unbounded_channel();
+        runtime.shell.poller_probe = Some(tx);
+        (runtime, rx)
+    }
+
+    #[tokio::test]
+    async fn cancelling_run_stops_event_poller() {
+        use std::{
+            future::{poll_fn, Future},
+            task::Poll,
+        };
+        let (mut runtime, probe) = runtime_with_poller_probe();
+        let mut terminal = Terminal::new(ratatui::backend::TestBackend::new(20, 5)).unwrap();
+        {
+            let mut running = Box::pin(runtime.run(
+                &mut terminal,
+                |_, _, _, _| {},
+                |_, _| EventOutcome::ignored(),
+                |_| false,
+            ));
+            poll_fn(|cx| {
+                assert!(running.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+        }
+        assert_poller_stopped(probe).await;
+    }
+
+    #[tokio::test]
+    async fn render_error_stops_event_poller() {
+        struct BrokenWriter;
+        impl std::io::Write for BrokenWriter {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Err(io::Error::from(io::ErrorKind::BrokenPipe))
+            }
+        }
+        let (mut runtime, probe) = runtime_with_poller_probe();
+        let mut terminal = Terminal::with_options(
+            ratatui::backend::CrosstermBackend::new(BrokenWriter),
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(Rect::new(0, 0, 20, 5)),
+            },
+        )
+        .unwrap();
+        assert!(runtime
+            .run(
+                &mut terminal,
+                |_, _, _, _| {},
+                |_, _| EventOutcome::ignored(),
+                |_| false,
+            )
+            .await
+            .is_err());
+        assert_poller_stopped(probe).await;
     }
 
     #[test]

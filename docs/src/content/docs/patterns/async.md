@@ -388,3 +388,15 @@ async fn run() {
     }
 }
 ```
+
+## Runtime shutdown
+
+All runtime loop variants cancel their tasks, subscriptions, and event poller when
+quitting, returning an error, or dropping a polled run future. The runtime can stay
+alive after the run ends. Task and subscription registrations are cleared immediately;
+Tokio drops the cancelled futures and streams when it next schedules them.
+
+Pausing tasks buffers their completion actions while work continues. Resume returns
+buffered actions for dispatch through the normal pipeline; completions racing with
+resume are delivered exactly once, either in that returned batch or on the action
+channel.
