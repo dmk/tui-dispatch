@@ -116,6 +116,8 @@ pub mod subscriptions;
 #[cfg(feature = "tasks")]
 pub mod tasks;
 pub mod testing;
+#[cfg(any(feature = "tasks", feature = "subscriptions"))]
+mod work;
 
 /// Implementation details shared with `tui-dispatch-macros`.
 ///
@@ -242,7 +244,7 @@ pub use testing::{
 };
 
 #[cfg(feature = "testing-time")]
-pub use testing::{advance_time, pause_time, resume_time};
+pub use testing::{advance_time, pause_time, resume_time, RuntimeTestHarness};
 
 /// Prelude module for convenient imports
 pub mod prelude {

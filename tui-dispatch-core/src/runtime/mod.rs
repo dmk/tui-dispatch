@@ -2,6 +2,8 @@
 
 mod bus;
 mod core;
+#[cfg(feature = "testing-time")]
+pub(crate) use self::core::draw_frame;
 
 #[doc(hidden)]
 pub use self::bus::EventBusRouting;

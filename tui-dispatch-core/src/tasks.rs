@@ -136,6 +136,7 @@ impl<A> TaskPauseHandle<A> {
 ///
 /// - `A`: The action type that tasks produce
 pub struct TaskManager<A> {
+    pub(crate) spawner: crate::work::WorkSpawner,
     tasks: HashMap<TaskKey, AbortHandle>,
     action_tx: mpsc::UnboundedSender<A>,
     #[cfg(test)]
@@ -158,6 +159,7 @@ where
         Self {
             tasks: HashMap::new(),
             action_tx,
+            spawner: crate::work::WorkSpawner::default(),
             #[cfg(test)]
             before_delivery: None,
             paused: Arc::new(AtomicBool::new(false)),
@@ -240,7 +242,7 @@ where
         let delivery = self.pause_handle();
         #[cfg(test)]
         let before_delivery = self.before_delivery.clone();
-        let handle: JoinHandle<()> = tokio::spawn(async move {
+        let handle: JoinHandle<()> = self.spawner.spawn(async move {
             let action = future.await;
             #[cfg(test)]
             if let Some(hook) = before_delivery {
@@ -290,7 +292,7 @@ where
         let delivery = self.pause_handle();
         #[cfg(test)]
         let before_delivery = self.before_delivery.clone();
-        let handle: JoinHandle<()> = tokio::spawn(async move {
+        let handle: JoinHandle<()> = self.spawner.spawn(async move {
             tokio::time::sleep(duration).await;
             let action = future.await;
             #[cfg(test)]

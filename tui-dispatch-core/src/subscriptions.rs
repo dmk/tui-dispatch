@@ -109,6 +109,7 @@ impl SubPauseHandle {
 ///
 /// - `A`: The action type that subscriptions produce
 pub struct Subscriptions<A> {
+    pub(crate) spawner: crate::work::WorkSpawner,
     handles: HashMap<SubKey, JoinHandle<()>>,
     action_tx: mpsc::UnboundedSender<A>,
     /// Whether subscriptions are paused (skip emitting)
@@ -126,6 +127,7 @@ where
         Self {
             handles: HashMap::new(),
             action_tx,
+            spawner: crate::work::WorkSpawner::default(),
             paused: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -198,7 +200,7 @@ where
 
         let tx = self.action_tx.clone();
         let paused = self.paused.clone();
-        let handle = tokio::spawn(async move {
+        let handle = self.spawner.spawn(async move {
             let mut interval = tokio::time::interval(duration);
             // Skip the first immediate tick
             interval.tick().await;
@@ -251,7 +253,7 @@ where
 
         let tx = self.action_tx.clone();
         let paused = self.paused.clone();
-        let handle = tokio::spawn(async move {
+        let handle = self.spawner.spawn(async move {
             let mut interval = tokio::time::interval(duration);
 
             loop {
@@ -300,7 +302,7 @@ where
 
         let tx = self.action_tx.clone();
         let paused = self.paused.clone();
-        let handle = tokio::spawn(async move {
+        let handle = self.spawner.spawn(async move {
             tokio::pin!(stream);
             while let Some(action) = stream.next().await {
                 // Skip if paused
@@ -345,7 +347,7 @@ where
 
         let tx = self.action_tx.clone();
         let paused = self.paused.clone();
-        let handle = tokio::spawn(async move {
+        let handle = self.spawner.spawn(async move {
             let stream = stream_fn.await;
             tokio::pin!(stream);
             while let Some(action) = stream.next().await {

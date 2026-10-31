@@ -134,10 +134,11 @@ where
         FQuit: FnMut(&A) -> bool,
         FAfter: FnMut(&mut EventBus<S, A, Id, Ctx>, &S),
     {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let (mut event_rx, cancel_token, event_task) = self.shell.spawn_poller();
         let guard = RuntimeRunGuard {
             runtime: self,
             cancel_token,
+            event_task,
         };
         let runtime = &mut *guard.runtime;
 
@@ -229,10 +230,11 @@ where
         FEffect: FnMut(E, &mut EffectContext<A>),
         FAfter: FnMut(&mut EventBus<S, A, Id, Ctx>, &S),
     {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let (mut event_rx, cancel_token, event_task) = self.shell.spawn_poller();
         let guard = RuntimeRunGuard {
             runtime: self,
             cancel_token,
+            event_task,
         };
         let runtime = &mut *guard.runtime;
 

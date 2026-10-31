@@ -25,6 +25,9 @@ use crate::subscriptions::Subscriptions;
 #[cfg(feature = "tasks")]
 use crate::tasks::TaskManager;
 
+type EventSourceFactory =
+    dyn FnMut(mpsc::UnboundedSender<RawEvent>, CancellationToken) -> tokio::task::JoinHandle<()>;
+
 /// Configuration for the event poller.
 #[derive(Debug, Clone, Copy)]
 pub struct PollerConfig {
@@ -168,6 +171,7 @@ pub(crate) struct RuntimeShell<S, A: Action> {
     pub(crate) action_tx: mpsc::UnboundedSender<A>,
     pub(crate) action_rx: mpsc::UnboundedReceiver<A>,
     pub(crate) poller_config: PollerConfig,
+    event_source: Option<Box<EventSourceFactory>>,
     #[cfg(test)]
     poller_probe: Option<mpsc::UnboundedSender<(CancellationToken, tokio::task::AbortHandle)>>,
     #[cfg(feature = "debug")]
@@ -184,6 +188,7 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
             action_tx,
             action_rx,
             poller_config: PollerConfig::default(),
+            event_source: None,
             #[cfg(test)]
             poller_probe: None,
             #[cfg(feature = "debug")]
@@ -241,20 +246,30 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         }
     }
 
-    pub(crate) fn spawn_poller(&self) -> (mpsc::UnboundedReceiver<RawEvent>, CancellationToken) {
+    pub(crate) fn spawn_poller(
+        &mut self,
+    ) -> (
+        mpsc::UnboundedReceiver<RawEvent>,
+        CancellationToken,
+        tokio::task::JoinHandle<()>,
+    ) {
         let (event_tx, event_rx) = mpsc::unbounded_channel::<RawEvent>();
         let cancel_token = CancellationToken::new();
-        let _handle = spawn_event_poller(
-            event_tx,
-            self.poller_config.poll_timeout,
-            self.poller_config.loop_sleep,
-            cancel_token.clone(),
-        );
+        let handle = if let Some(source) = &mut self.event_source {
+            source(event_tx, cancel_token.clone())
+        } else {
+            spawn_event_poller(
+                event_tx,
+                self.poller_config.poll_timeout,
+                self.poller_config.loop_sleep,
+                cancel_token.clone(),
+            )
+        };
         #[cfg(test)]
         if let Some(probe) = &self.poller_probe {
-            let _ = probe.send((cancel_token.clone(), _handle.abort_handle()));
+            let _ = probe.send((cancel_token.clone(), handle.abort_handle()));
         }
-        (event_rx, cancel_token)
+        (event_rx, cancel_token, handle)
     }
 
     pub(crate) fn apply_error_policy(&mut self, error: DispatchError) -> bool {
@@ -348,6 +363,7 @@ where
 {
     pub(crate) runtime: &'a mut Runtime<S, A, E, Routing, St>,
     pub(crate) cancel_token: CancellationToken,
+    pub(crate) event_task: tokio::task::JoinHandle<()>,
 }
 
 impl<S: 'static, A: Action, E, Routing, St> Drop for RuntimeRunGuard<'_, S, A, E, Routing, St>
@@ -356,6 +372,7 @@ where
 {
     fn drop(&mut self) {
         self.runtime.cleanup(self.cancel_token.clone());
+        self.event_task.abort();
     }
 }
 
@@ -420,6 +437,23 @@ where
     /// Configure event polling behavior.
     pub fn with_event_poller(mut self, config: PollerConfig) -> Self {
         self.shell.poller_config = config;
+        self
+    }
+
+    /// Replace terminal polling with an application-provided event source.
+    ///
+    /// The factory is called once per run. It must spawn and return the task
+    /// that sends raw events into the supplied channel. The runtime cancels
+    /// the token and aborts that task on every exit, including errors and
+    /// cancellation. No terminal poller is started when a source is supplied.
+    /// Closing the event channel disables input; queued actions and async work
+    /// continue until the quit predicate or dispatch error policy stops the run.
+    pub fn with_event_source<F>(mut self, source: F) -> Self
+    where
+        F: FnMut(mpsc::UnboundedSender<RawEvent>, CancellationToken) -> tokio::task::JoinHandle<()>
+            + 'static,
+    {
+        self.shell.event_source = Some(Box::new(source));
         self
     }
 
@@ -572,10 +606,11 @@ where
         R: Into<EventOutcome<A>>,
         FQuit: FnMut(&A) -> bool,
     {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let (mut event_rx, cancel_token, event_task) = self.shell.spawn_poller();
         let guard = RuntimeRunGuard {
             runtime: self,
             cancel_token,
+            event_task,
         };
         let runtime = &mut *guard.runtime;
 
@@ -635,10 +670,11 @@ where
         FQuit: FnMut(&A) -> bool,
         FEffect: FnMut(E, &mut EffectContext<A>),
     {
-        let (mut event_rx, cancel_token) = self.shell.spawn_poller();
+        let (mut event_rx, cancel_token, event_task) = self.shell.spawn_poller();
         let guard = RuntimeRunGuard {
             runtime: self,
             cancel_token,
+            event_task,
         };
         let runtime = &mut *guard.runtime;
 

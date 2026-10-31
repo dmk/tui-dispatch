@@ -30,6 +30,11 @@
 //! emitted.assert_count(2);
 //! ```
 
+#[cfg(feature = "testing-time")]
+mod runtime;
+#[cfg(feature = "testing-time")]
+pub use runtime::RuntimeTestHarness;
+
 use std::fmt::Debug;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

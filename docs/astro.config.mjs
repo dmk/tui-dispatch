@@ -31,6 +31,7 @@ export default defineConfig({
             { label: 'Keybindings', slug: 'patterns/keybindings' },
             { label: 'Middleware', slug: 'patterns/middleware' },
             { label: 'Reducer Composition', slug: 'patterns/reducer-composition' },
+            { label: 'Runtime Testing', slug: 'patterns/runtime-testing' },
           ],
         },
         {
