@@ -349,6 +349,47 @@ subs.cancel(&SubKey::new("tick"));
 subs.cancel_all();
 ```
 
+### Backpressure, batching, and pause policies
+
+Existing `stream`, `stream_async`, and interval subscriptions discard items/ticks
+while paused. Choose `PausePolicy::Buffer` for lossless stream delivery:
+
+```rust
+let (tx, mut rx) = ActionChannel::bounded(16); // Capacity counts actions
+let mut subs = Subscriptions::with_channel(tx);
+subs.stream_batched(
+    "logs",
+    log_stream,
+    BatchConfig::new(100, Duration::from_millis(50)),
+    PausePolicy::Buffer { capacity: 500 }, // Capacity counts source items
+    Action::LogsReceived, // Receives Vec<LogEntry>
+);
+```
+
+A batch flushes at its size limit, at the deadline measured from its first item,
+or at EOF. A partial batch's deadline does not move when more items arrive.
+Pausing suspends delivery, including sends waiting for channel capacity. Buffered
+items resume in order; an expired partial batch flushes after resume. Actions
+already queued before pause remain readable.
+
+A full pause buffer stops polling the source. A full bounded action channel also
+stops source polling while an assembled batch waits to send. Internal storage is
+bounded by `max(buffer capacity, batch size)` source items plus at most one
+in-flight batch/action; add the output channel and any upstream queues separately.
+Neither source items nor payloads are cloned. Batch size and buffer capacity must
+be positive; zero delay requests immediate partial flushing.
+
+Use `stream_with_policy(key, actions, policy)` without batching. `PausePolicy::Drop`
+discards paused items and partial batches, including pending sends that observe
+pause. Cancellation, replacement, or dropping the manager discards unsent work.
+Closing the receiver stops stream subscriptions even when their source is idle
+or their pause buffer is full.
+
+The runtime's existing action channel remains unbounded. You can batch through
+`ctx.subscriptions()` there; use `Subscriptions::with_channel` and drain `rx` in a
+custom loop when you need a bounded action queue. `Subscriptions::new` continues
+to accept a Tokio unbounded sender.
+
 ### When to use what
 
 | Scenario | Tool |

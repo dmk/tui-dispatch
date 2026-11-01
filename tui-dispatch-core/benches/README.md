@@ -88,3 +88,7 @@ allocation in a measured operation, payload copying during refresh, or retained
 obsolete completions needs review regardless of timing. The accepted cost is
 constant metadata plus destruction of caller-owned values, which supports typed
 errors and deterministic stale-result rejection without payload-size overhead.
+
+## Stream delivery
+
+Roadmap item 05 benchmarks and results are documented in [stream_policies.md](stream_policies.md).

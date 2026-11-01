@@ -1,0 +1,97 @@
+subscriptions run=1
+   Compiling tokio-stream v0.1.18
+   Compiling tui-dispatch-core v0.7.1 (/Users/dmk/Work/fr/rust-tui/tui-dispatch/tui-dispatch-core)
+    Finished `bench` profile [optimized] target(s) in 2.16s
+     Running benches/stream_policies.rs (target/release/deps/stream_policies-41004ccbf572edad)
+legacy bytes=0 sample=1 ns/item=79.26 p95_ns=4889000 p99_ns=4912167
+legacy bytes=0 sample=2 ns/item=54.48 p95_ns=2907125 p99_ns=2928166
+legacy bytes=0 sample=3 ns/item=55.83 p95_ns=2931583 p99_ns=2956791
+legacy bytes=0 sample=4 ns/item=62.78 p95_ns=3493167 p99_ns=3505084
+legacy bytes=0 sample=5 ns/item=68.41 p95_ns=3469125 p99_ns=3494500
+legacy bytes=0 sample=6 ns/item=62.96 p95_ns=3301208 p99_ns=3321000
+legacy bytes=0 sample=7 ns/item=60.81 p95_ns=3185541 p99_ns=3205292
+legacy bytes=1024 sample=1 ns/item=125.76 p95_ns=6059916 p99_ns=6088542
+legacy bytes=1024 sample=2 ns/item=110.47 p95_ns=6195459 p99_ns=6313875
+legacy bytes=1024 sample=3 ns/item=80.41 p95_ns=4201625 p99_ns=4231500
+legacy bytes=1024 sample=4 ns/item=82.10 p95_ns=4275083 p99_ns=4304708
+legacy bytes=1024 sample=5 ns/item=83.56 p95_ns=4338917 p99_ns=4367500
+legacy bytes=1024 sample=6 ns/item=85.89 p95_ns=4433792 p99_ns=4457333
+legacy bytes=1024 sample=7 ns/item=86.23 p95_ns=4461250 p99_ns=4489083
+subscriptions run=2
+legacy bytes=0 sample=1 ns/item=50.30 p95_ns=2618916 p99_ns=2636708
+legacy bytes=0 sample=2 ns/item=49.81 p95_ns=2558375 p99_ns=2568916
+legacy bytes=0 sample=3 ns/item=46.57 p95_ns=2420083 p99_ns=2436959
+legacy bytes=0 sample=4 ns/item=46.60 p95_ns=2439583 p99_ns=2455750
+legacy bytes=0 sample=5 ns/item=46.16 p95_ns=2404833 p99_ns=2421458
+legacy bytes=0 sample=6 ns/item=46.10 p95_ns=2412834 p99_ns=2430916
+legacy bytes=0 sample=7 ns/item=46.23 p95_ns=2408292 p99_ns=2416458
+legacy bytes=1024 sample=1 ns/item=117.72 p95_ns=5859334 p99_ns=5890875
+legacy bytes=1024 sample=2 ns/item=107.72 p95_ns=5832042 p99_ns=5948416
+legacy bytes=1024 sample=3 ns/item=80.35 p95_ns=4200042 p99_ns=4229833
+legacy bytes=1024 sample=4 ns/item=81.35 p95_ns=4250833 p99_ns=4275917
+legacy bytes=1024 sample=5 ns/item=82.95 p95_ns=4314083 p99_ns=4343625
+legacy bytes=1024 sample=6 ns/item=83.94 p95_ns=4364209 p99_ns=4392709
+legacy bytes=1024 sample=7 ns/item=85.19 p95_ns=4435833 p99_ns=4463292
+subscriptions run=3
+legacy bytes=0 sample=1 ns/item=46.30 p95_ns=2417792 p99_ns=2434500
+legacy bytes=0 sample=2 ns/item=46.35 p95_ns=2419667 p99_ns=2437333
+legacy bytes=0 sample=3 ns/item=46.64 p95_ns=2433959 p99_ns=2451333
+legacy bytes=0 sample=4 ns/item=46.41 p95_ns=2428750 p99_ns=2445750
+legacy bytes=0 sample=5 ns/item=46.44 p95_ns=2427708 p99_ns=2444834
+legacy bytes=0 sample=6 ns/item=46.59 p95_ns=2431917 p99_ns=2449291
+legacy bytes=0 sample=7 ns/item=46.49 p95_ns=2431166 p99_ns=2447958
+legacy bytes=1024 sample=1 ns/item=117.04 p95_ns=5716542 p99_ns=5745125
+legacy bytes=1024 sample=2 ns/item=108.18 p95_ns=5911084 p99_ns=6044208
+legacy bytes=1024 sample=3 ns/item=81.09 p95_ns=4204292 p99_ns=4229750
+legacy bytes=1024 sample=4 ns/item=82.52 p95_ns=4263500 p99_ns=4288500
+legacy bytes=1024 sample=5 ns/item=83.73 p95_ns=4335916 p99_ns=4362750
+legacy bytes=1024 sample=6 ns/item=85.29 p95_ns=4399166 p99_ns=4426333
+legacy bytes=1024 sample=7 ns/item=86.48 p95_ns=4449791 p99_ns=4475209
+all-features run=1
+   Compiling tui-dispatch-core v0.7.1 (/Users/dmk/Work/fr/rust-tui/tui-dispatch/tui-dispatch-core)
+    Finished `bench` profile [optimized] target(s) in 0.46s
+     Running benches/stream_policies.rs (target/release/deps/stream_policies-37d375e651ac4eeb)
+legacy bytes=0 sample=1 ns/item=121.31 p95_ns=6188916 p99_ns=6216708
+legacy bytes=0 sample=2 ns/item=90.27 p95_ns=4463625 p99_ns=4467917
+legacy bytes=0 sample=3 ns/item=74.66 p95_ns=3776125 p99_ns=3779916
+legacy bytes=0 sample=4 ns/item=69.49 p95_ns=3392458 p99_ns=3395292
+legacy bytes=0 sample=5 ns/item=64.86 p95_ns=3147000 p99_ns=3147625
+legacy bytes=0 sample=6 ns/item=61.24 p95_ns=2963416 p99_ns=2968916
+legacy bytes=0 sample=7 ns/item=58.20 p95_ns=2870417 p99_ns=2876667
+legacy bytes=1024 sample=1 ns/item=125.36 p95_ns=5999292 p99_ns=6000666
+legacy bytes=1024 sample=2 ns/item=113.37 p95_ns=6420750 p99_ns=6598792
+legacy bytes=1024 sample=3 ns/item=88.09 p95_ns=4255250 p99_ns=4260708
+legacy bytes=1024 sample=4 ns/item=89.99 p95_ns=4348292 p99_ns=4349708
+legacy bytes=1024 sample=5 ns/item=91.17 p95_ns=4398625 p99_ns=4400333
+legacy bytes=1024 sample=6 ns/item=92.21 p95_ns=4452625 p99_ns=4453875
+legacy bytes=1024 sample=7 ns/item=93.02 p95_ns=4483291 p99_ns=4485167
+all-features run=2
+legacy bytes=0 sample=1 ns/item=49.33 p95_ns=2449166 p99_ns=2454875
+legacy bytes=0 sample=2 ns/item=49.89 p95_ns=2478458 p99_ns=2481042
+legacy bytes=0 sample=3 ns/item=50.58 p95_ns=2521291 p99_ns=2529583
+legacy bytes=0 sample=4 ns/item=50.94 p95_ns=2534084 p99_ns=2549084
+legacy bytes=0 sample=5 ns/item=50.78 p95_ns=2506834 p99_ns=2522375
+legacy bytes=0 sample=6 ns/item=50.65 p95_ns=2500708 p99_ns=2511875
+legacy bytes=0 sample=7 ns/item=50.59 p95_ns=2521417 p99_ns=2527667
+legacy bytes=1024 sample=1 ns/item=126.91 p95_ns=6162750 p99_ns=6165333
+legacy bytes=1024 sample=2 ns/item=113.65 p95_ns=6389875 p99_ns=6525584
+legacy bytes=1024 sample=3 ns/item=90.91 p95_ns=4430625 p99_ns=4433333
+legacy bytes=1024 sample=4 ns/item=92.30 p95_ns=4503083 p99_ns=4509917
+legacy bytes=1024 sample=5 ns/item=93.23 p95_ns=4536834 p99_ns=4538791
+legacy bytes=1024 sample=6 ns/item=94.13 p95_ns=4594083 p99_ns=4596500
+legacy bytes=1024 sample=7 ns/item=95.17 p95_ns=4635708 p99_ns=4637916
+all-features run=3
+legacy bytes=0 sample=1 ns/item=49.35 p95_ns=2454500 p99_ns=2459792
+legacy bytes=0 sample=2 ns/item=49.30 p95_ns=2437667 p99_ns=2443708
+legacy bytes=0 sample=3 ns/item=48.45 p95_ns=2358209 p99_ns=2364334
+legacy bytes=0 sample=4 ns/item=49.27 p95_ns=2435000 p99_ns=2440250
+legacy bytes=0 sample=5 ns/item=49.39 p95_ns=2440792 p99_ns=2447000
+legacy bytes=0 sample=6 ns/item=49.52 p95_ns=2441584 p99_ns=2447916
+legacy bytes=0 sample=7 ns/item=49.18 p95_ns=2387208 p99_ns=2403833
+legacy bytes=1024 sample=1 ns/item=123.84 p95_ns=5938083 p99_ns=5940125
+legacy bytes=1024 sample=2 ns/item=111.52 p95_ns=6252583 p99_ns=6374125
+legacy bytes=1024 sample=3 ns/item=88.51 p95_ns=4271458 p99_ns=4272667
+legacy bytes=1024 sample=4 ns/item=90.00 p95_ns=4353458 p99_ns=4355250
+legacy bytes=1024 sample=5 ns/item=90.72 p95_ns=4371959 p99_ns=4373208
+legacy bytes=1024 sample=6 ns/item=91.75 p95_ns=4422625 p99_ns=4423958
+legacy bytes=1024 sample=7 ns/item=92.98 p95_ns=4488417 p99_ns=4489375

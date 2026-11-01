@@ -158,7 +158,10 @@ pub mod prelude {
 
     // Subscriptions (requires "subscriptions" feature)
     #[cfg(feature = "subscriptions")]
-    pub use tui_dispatch_core::{SubKey, SubPauseHandle, Subscriptions};
+    pub use tui_dispatch_core::{
+        ActionChannel, ActionReceiver, ActionSender, BatchConfig, PausePolicy, SubKey,
+        SubPauseHandle, Subscriptions,
+    };
 
     // Debug
     #[cfg(feature = "debug")]

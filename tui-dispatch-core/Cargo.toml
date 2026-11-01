@@ -49,3 +49,13 @@ serde_json = "1.0"
 [[bench]]
 name = "refreshable_resources"
 harness = false
+
+[[bench]]
+name = "stream_forwarding"
+harness = false
+required-features = ["subscriptions"]
+
+[[bench]]
+name = "stream_policies"
+harness = false
+required-features = ["subscriptions"]

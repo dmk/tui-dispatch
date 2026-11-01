@@ -113,6 +113,11 @@ pub mod runtime;
 pub mod store;
 #[cfg(feature = "subscriptions")]
 pub mod subscriptions;
+
+#[cfg(feature = "subscriptions")]
+pub mod action_channel;
+#[cfg(feature = "subscriptions")]
+pub use action_channel::{ActionChannel, ActionReceiver, ActionSender};
 #[cfg(feature = "tasks")]
 pub mod tasks;
 pub mod testing;
@@ -226,7 +231,7 @@ pub use tasks::{TaskKey, TaskManager, TaskPauseHandle};
 
 // Subscription exports (requires "subscriptions" feature)
 #[cfg(feature = "subscriptions")]
-pub use subscriptions::{SubKey, SubPauseHandle, Subscriptions};
+pub use subscriptions::{BatchConfig, PausePolicy, SubKey, SubPauseHandle, Subscriptions};
 
 // Re-export ratatui types for convenience
 pub use ratatui::{
@@ -277,9 +282,13 @@ pub mod prelude {
         DispatchErrorPolicy, EffectContext, PollerConfig, RenderContext, Runtime, RuntimeStore,
     };
     #[cfg(feature = "subscriptions")]
-    pub use crate::subscriptions::{SubKey, SubPauseHandle, Subscriptions};
+    pub use crate::subscriptions::{
+        BatchConfig, PausePolicy, SubKey, SubPauseHandle, Subscriptions,
+    };
     #[cfg(feature = "tasks")]
     pub use crate::tasks::{TaskKey, TaskManager, TaskPauseHandle};
+    #[cfg(feature = "subscriptions")]
+    pub use crate::{ActionChannel, ActionReceiver, ActionSender};
 
     // Re-export ratatui types
     pub use ratatui::{

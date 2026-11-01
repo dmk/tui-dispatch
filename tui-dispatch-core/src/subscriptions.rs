@@ -25,17 +25,187 @@
 //! subs.cancel_all();
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::Action;
+use crate::{Action, ActionSender};
+
+/// Behavior when subscription delivery is paused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PausePolicy {
+    /// Consume and discard items while paused (the legacy behavior).
+    #[default]
+    Drop,
+    /// Retain up to `capacity` source items, then stop polling the source.
+    /// Capacity must be positive. An already assembled batch may also be in flight.
+    Buffer { capacity: usize },
+}
+
+/// Maximum batch size and time from the first item to a partial flush.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatchConfig {
+    max_items: usize,
+    max_delay: Duration,
+}
+
+impl BatchConfig {
+    /// Configure batching. A zero delay flushes each available partial batch.
+    ///
+    /// # Panics
+    /// Panics if `max_items` is zero.
+    pub fn new(max_items: usize, max_delay: Duration) -> Self {
+        assert!(max_items > 0, "batch size must be positive");
+        Self {
+            max_items,
+            max_delay,
+        }
+    }
+}
+
+// Reserve capacity before taking the pause read lock, then commit synchronously.
+// pause()/resume() take the watch write lock, so pause returning is a delivery
+// boundary even on a multi-thread runtime. Never hold that lock across an await
+// or user code. Watching changes also releases blocked Drop sends on pause.
+async fn deliver<A>(
+    tx: &ActionSender<A>,
+    paused: &mut watch::Receiver<bool>,
+    policy: PausePolicy,
+    action: A,
+) -> bool {
+    // Keep legacy unbounded forwarding allocation-free. This read lock makes
+    // the pause check and enqueue atomic with respect to pause().
+    if let ActionSender::Unbounded(sender) = tx {
+        let guard = paused.borrow();
+        if !*guard {
+            return sender.send(action).is_ok();
+        }
+        if policy == PausePolicy::Drop {
+            return !sender.is_closed();
+        }
+    }
+    loop {
+        let is_paused = *paused.borrow_and_update();
+        if is_paused && policy == PausePolicy::Drop {
+            return true;
+        }
+        tokio::select! {
+            biased;
+            _ = tx.closed() => return false,
+            changed = paused.changed() => {
+                if changed.is_err() { return false; }
+            }
+            permit = tx.reserve(), if !is_paused => {
+                let Ok(permit) = permit else { return false; };
+                let guard = paused.borrow();
+                if !*guard {
+                    permit.send(action);
+                    return true;
+                }
+            }
+        }
+    }
+}
+
+async fn forward_stream<S, A>(stream: S, tx: ActionSender<A>, mut paused: watch::Receiver<bool>)
+where
+    S: Stream<Item = A>,
+{
+    tokio::pin!(stream);
+    tokio::select! {
+        biased;
+        _ = tx.closed() => {},
+        _ = async {
+            while let Some(action) = stream.next().await {
+                if !deliver(&tx, &mut paused, PausePolicy::Drop, action).await { break; }
+                tokio::task::consume_budget().await;
+            }
+        } => {},
+    }
+}
+
+async fn forward_batched<S, A, F>(
+    stream: S,
+    tx: ActionSender<A>,
+    mut paused: watch::Receiver<bool>,
+    batch: BatchConfig,
+    policy: PausePolicy,
+    mut action_fn: F,
+) where
+    S: Stream,
+    F: FnMut(Vec<S::Item>) -> A,
+{
+    tokio::pin!(stream);
+    let mut items = VecDeque::new();
+    let mut deadline = None;
+    let mut eof = false;
+    let forward = async {
+        loop {
+            let is_paused = *paused.borrow_and_update();
+            if is_paused && policy == PausePolicy::Drop {
+                items.clear();
+                deadline = None;
+            }
+            if !is_paused
+                && !items.is_empty()
+                && (items.len() >= batch.max_items
+                    || eof
+                    || deadline.is_some_and(|at| tokio::time::Instant::now() >= at))
+            {
+                let count = items.len().min(batch.max_items);
+                let action = action_fn(items.drain(..count).collect());
+                if !deliver(&tx, &mut paused, policy, action).await {
+                    break;
+                }
+                if items.is_empty() {
+                    deadline = None;
+                }
+                continue;
+            }
+            if eof && items.is_empty() {
+                break;
+            }
+            let can_poll = !eof
+                && match (is_paused, policy) {
+                    (true, PausePolicy::Buffer { capacity }) => items.len() < capacity,
+                    _ => true,
+                };
+            tokio::select! {
+                biased;
+                changed = paused.changed() => {
+                    if changed.is_err() { break; }
+                }
+                _ = async { tokio::time::sleep_until(deadline.unwrap()).await },
+                    if !is_paused && deadline.is_some() => {}
+                item = stream.next(), if can_poll => {
+                    match item {
+                        Some(item) => {
+                            if !(*paused.borrow() && policy == PausePolicy::Drop) {
+                                if deadline.is_none() {
+                                    deadline = Some(tokio::time::Instant::now() + batch.max_delay);
+                                }
+                                items.push_back(item);
+                            }
+                        }
+                        None => eof = true,
+                    }
+                    // Immediately-ready sources must still allow pause/cancellation
+                    // to run, including Drop streams that never await channel capacity.
+                    tokio::task::consume_budget().await;
+                }
+            }
+        }
+    };
+    tokio::select! {
+        biased;
+        _ = tx.closed() => {},
+        _ = forward => {},
+    }
+}
 
 /// Identifies a subscription for cancellation.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -72,25 +242,25 @@ impl From<String> for SubKey {
 /// Useful for debug layer integration.
 #[derive(Clone)]
 pub struct SubPauseHandle {
-    paused: Arc<AtomicBool>,
+    paused: watch::Sender<bool>,
 }
 
 impl SubPauseHandle {
     /// Pause all subscriptions.
     ///
-    /// When paused, subscriptions skip emitting actions (ticks are lost, not queued).
+    /// When paused, intervals drop ticks; streams follow their configured pause policy.
     pub fn pause(&self) {
-        self.paused.store(true, Ordering::SeqCst);
+        self.paused.send_replace(true);
     }
 
     /// Resume all subscriptions.
     pub fn resume(&self) {
-        self.paused.store(false, Ordering::SeqCst);
+        self.paused.send_replace(false);
     }
 
     /// Check if subscriptions are paused.
     pub fn is_paused(&self) -> bool {
-        self.paused.load(Ordering::SeqCst)
+        *self.paused.borrow()
     }
 }
 
@@ -102,8 +272,8 @@ impl SubPauseHandle {
 /// - Periodic refresh intervals
 /// - External event streams (websockets, file watchers, etc.)
 ///
-/// Supports pause/resume for debug mode - when paused, subscriptions skip
-/// emitting actions (ticks are lost, not queued).
+/// Supports pause/resume for debug mode. Intervals and legacy streams drop
+/// paused items; streams can opt into bounded, lossless buffering.
 ///
 /// # Type Parameters
 ///
@@ -111,9 +281,9 @@ impl SubPauseHandle {
 pub struct Subscriptions<A> {
     pub(crate) spawner: crate::work::WorkSpawner,
     handles: HashMap<SubKey, JoinHandle<()>>,
-    action_tx: mpsc::UnboundedSender<A>,
-    /// Whether subscriptions are paused (skip emitting)
-    paused: Arc<AtomicBool>,
+    action_tx: ActionSender<A>,
+    /// Synchronizes pause boundaries with delivery and wakes buffered streams.
+    paused: watch::Sender<bool>,
 }
 
 impl<A> Subscriptions<A>
@@ -124,29 +294,35 @@ where
     ///
     /// The `action_tx` channel is used to send actions back to the main loop.
     pub fn new(action_tx: mpsc::UnboundedSender<A>) -> Self {
+        Self::with_channel(action_tx.into())
+    }
+
+    /// Create a manager with bounded or unbounded action delivery.
+    /// Bounded channels stop polling sources while delivery waits for capacity.
+    pub fn with_channel(action_tx: ActionSender<A>) -> Self {
         Self {
             handles: HashMap::new(),
             action_tx,
             spawner: crate::work::WorkSpawner::default(),
-            paused: Arc::new(AtomicBool::new(false)),
+            paused: watch::channel(false).0,
         }
     }
 
     /// Pause all subscriptions.
     ///
-    /// When paused, subscriptions skip emitting actions (ticks are lost, not queued).
+    /// When paused, intervals drop ticks; streams follow their configured pause policy.
     pub fn pause(&self) {
-        self.paused.store(true, Ordering::SeqCst);
+        self.paused.send_replace(true);
     }
 
     /// Resume all subscriptions.
     pub fn resume(&self) {
-        self.paused.store(false, Ordering::SeqCst);
+        self.paused.send_replace(false);
     }
 
     /// Check if subscriptions are paused.
     pub fn is_paused(&self) -> bool {
-        self.paused.load(Ordering::SeqCst)
+        *self.paused.borrow()
     }
 
     /// Get a pause handle for this subscription manager.
@@ -199,7 +375,7 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
-        let paused = self.paused.clone();
+        let mut paused = self.paused.subscribe();
         let handle = self.spawner.spawn(async move {
             let mut interval = tokio::time::interval(duration);
             // Skip the first immediate tick
@@ -208,11 +384,11 @@ where
             loop {
                 interval.tick().await;
                 // Skip if paused
-                if paused.load(Ordering::SeqCst) {
+                if *paused.borrow() {
                     continue;
                 }
                 let action = action_fn();
-                if tx.send(action).is_err() {
+                if !deliver(&tx, &mut paused, PausePolicy::Drop, action).await {
                     // Channel closed, stop the subscription
                     break;
                 }
@@ -252,18 +428,18 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
-        let paused = self.paused.clone();
+        let mut paused = self.paused.subscribe();
         let handle = self.spawner.spawn(async move {
             let mut interval = tokio::time::interval(duration);
 
             loop {
                 interval.tick().await;
                 // Skip if paused
-                if paused.load(Ordering::SeqCst) {
+                if *paused.borrow() {
                     continue;
                 }
                 let action = action_fn();
-                if tx.send(action).is_err() {
+                if !deliver(&tx, &mut paused, PausePolicy::Drop, action).await {
                     // Channel closed, stop the subscription
                     break;
                 }
@@ -292,30 +468,79 @@ where
     where
         S: Stream<Item = A> + Send + 'static,
     {
+        self.stream_with_policy(key, stream, PausePolicy::Drop)
+    }
+
+    /// Forward actions with an explicit pause policy.
+    /// `Buffer` retains source items in order and stops polling when full.
+    pub fn stream_with_policy<S>(
+        &mut self,
+        key: impl Into<SubKey>,
+        stream: S,
+        policy: PausePolicy,
+    ) -> &mut Self
+    where
+        S: Stream<Item = A> + Send + 'static,
+    {
+        if policy == PausePolicy::Drop {
+            let key = key.into();
+            self.cleanup();
+            self.cancel(&key);
+            let handle = self.spawner.spawn(forward_stream(
+                stream,
+                self.action_tx.clone(),
+                self.paused.subscribe(),
+            ));
+            self.handles.insert(key, handle);
+            return self;
+        }
+        self.stream_batched(
+            key,
+            stream,
+            BatchConfig::new(1, Duration::ZERO),
+            policy,
+            |mut items| items.pop().expect("nonempty batch"),
+        )
+    }
+
+    /// Collect source items into actions, flushing on size, deadline, or EOF.
+    ///
+    /// The deadline starts at the first item and does not slide with later items.
+    /// While paused, `Drop` discards items and partial batches; `Buffer` keeps
+    /// polling until its source-item capacity is reached. No action is enqueued
+    /// while paused, including when a bounded send was already waiting.
+    /// Already queued actions remain available to the receiver.
+    ///
+    /// Memory is bounded by `max(policy capacity, batch size)` source items plus
+    /// at most one in-flight batch/action and the output channel. A bounded output
+    /// counts actions, not source items. Cancellation discards unsent work.
+    ///
+    /// # Panics
+    /// Panics if the buffer capacity is zero.
+    pub fn stream_batched<S, F>(
+        &mut self,
+        key: impl Into<SubKey>,
+        stream: S,
+        batch: BatchConfig,
+        policy: PausePolicy,
+        action_fn: F,
+    ) -> &mut Self
+    where
+        S: Stream + Send + 'static,
+        S::Item: Send,
+        F: FnMut(Vec<S::Item>) -> A + Send + 'static,
+    {
+        if let PausePolicy::Buffer { capacity } = policy {
+            assert!(capacity > 0, "pause buffer capacity must be positive");
+        }
         let key = key.into();
-
-        // Clean up finished subscriptions
         self.cleanup();
-
-        // Cancel existing subscription with this key
         self.cancel(&key);
-
         let tx = self.action_tx.clone();
-        let paused = self.paused.clone();
-        let handle = self.spawner.spawn(async move {
-            tokio::pin!(stream);
-            while let Some(action) = stream.next().await {
-                // Skip if paused
-                if paused.load(Ordering::SeqCst) {
-                    continue;
-                }
-                if tx.send(action).is_err() {
-                    // Channel closed, stop the subscription
-                    break;
-                }
-            }
-        });
-
+        let paused = self.paused.subscribe();
+        let handle = self.spawner.spawn(forward_batched(
+            stream, tx, paused, batch, policy, action_fn,
+        ));
         self.handles.insert(key, handle);
         self
     }
@@ -346,19 +571,14 @@ where
         self.cancel(&key);
 
         let tx = self.action_tx.clone();
-        let paused = self.paused.clone();
+        let paused = self.paused.subscribe();
         let handle = self.spawner.spawn(async move {
-            let stream = stream_fn.await;
-            tokio::pin!(stream);
-            while let Some(action) = stream.next().await {
-                // Skip if paused
-                if paused.load(Ordering::SeqCst) {
-                    continue;
-                }
-                if tx.send(action).is_err() {
-                    break;
-                }
-            }
+            let stream = tokio::select! {
+                biased;
+                _ = tx.closed() => return,
+                stream = stream_fn => stream,
+            };
+            forward_stream(stream, tx, paused).await;
         });
 
         self.handles.insert(key, handle);
