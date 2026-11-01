@@ -218,7 +218,7 @@ pub use runtime::{
 };
 
 // Resource exports
-pub use resource::DataResource;
+pub use resource::{DataResource, RefreshableResource, ResourceRequestId};
 
 // Task exports (requires "tasks" feature)
 #[cfg(feature = "tasks")]
@@ -264,7 +264,7 @@ pub mod prelude {
         InvalidKeybinding, KeybindingConflict, KeybindingErrors, Keybindings,
     };
     pub use crate::reducer_compose;
-    pub use crate::resource::DataResource;
+    pub use crate::resource::{DataResource, RefreshableResource, ResourceRequestId};
     #[cfg(feature = "tracing")]
     pub use crate::store::LoggingMiddleware;
     pub use crate::store::{

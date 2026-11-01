@@ -142,7 +142,9 @@ pub mod prelude {
     };
 
     // Effects and state types
-    pub use tui_dispatch_core::{DataResource, NoEffect, ReducerResult};
+    pub use tui_dispatch_core::{
+        DataResource, NoEffect, ReducerResult, RefreshableResource, ResourceRequestId,
+    };
 
     // Runtime helpers
     pub use tui_dispatch_core::{

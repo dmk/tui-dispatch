@@ -1,0 +1,113 @@
+run=1 command=cargo bench -p tui-dispatch-core --bench refreshable_resources --no-default-features --offline
+9 samples x 1000000 operations; 10000 warmup operations
+resource metadata=24 bytes (excluding Vec descriptor and payload)
+begin + failure      payload=       0 bytes  ns/op min=3.013 median=9.542 max=17.517  allocs=0 allocated_bytes=0
+begin + cancel       payload=       0 bytes  ns/op min=8.351 median=8.379 max=9.277  allocs=0 allocated_bytes=0
+stale completion     payload=       0 bytes  ns/op min=0.769 median=0.770 max=0.787  allocs=0 allocated_bytes=0
+reject owned result  payload=       0 bytes  ns/op min=0.806 median=0.811 max=0.888  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+replace owned data   payload=       0 bytes  ns/op min=2.037 median=2.238 max=2.256  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+begin + failure      payload=   65536 bytes  ns/op min=8.169 median=8.615 max=8.860  allocs=0 allocated_bytes=0
+begin + cancel       payload=   65536 bytes  ns/op min=8.403 median=8.436 max=8.473  allocs=0 allocated_bytes=0
+stale completion     payload=   65536 bytes  ns/op min=0.768 median=0.780 max=0.789  allocs=0 allocated_bytes=0
+reject owned result  payload=   65536 bytes  ns/op min=67.688 median=67.688 max=70.312  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+replace owned data   payload=   65536 bytes  ns/op min=67.688 median=67.750 max=70.312  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+begin + failure      payload= 8388608 bytes  ns/op min=8.440 median=8.818 max=8.844  allocs=0 allocated_bytes=0
+begin + cancel       payload= 8388608 bytes  ns/op min=8.314 median=8.346 max=8.374  allocs=0 allocated_bytes=0
+stale completion     payload= 8388608 bytes  ns/op min=0.767 median=0.777 max=0.783  allocs=0 allocated_bytes=0
+reject owned result  payload= 8388608 bytes  ns/op min=33.812 median=49.438 max=57.312  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+replace owned data   payload= 8388608 bytes  ns/op min=28.625 median=31.250 max=46.875  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+
+run=2 command=cargo bench -p tui-dispatch-core --bench refreshable_resources --no-default-features --offline
+9 samples x 1000000 operations; 10000 warmup operations
+resource metadata=24 bytes (excluding Vec descriptor and payload)
+begin + failure      payload=       0 bytes  ns/op min=8.140 median=8.158 max=8.579  allocs=0 allocated_bytes=0
+begin + cancel       payload=       0 bytes  ns/op min=8.422 median=8.470 max=8.488  allocs=0 allocated_bytes=0
+stale completion     payload=       0 bytes  ns/op min=0.759 median=0.778 max=0.779  allocs=0 allocated_bytes=0
+reject owned result  payload=       0 bytes  ns/op min=0.806 median=0.880 max=0.888  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+replace owned data   payload=       0 bytes  ns/op min=2.065 median=2.253 max=2.263  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+begin + failure      payload=   65536 bytes  ns/op min=8.114 median=8.157 max=8.803  allocs=0 allocated_bytes=0
+begin + cancel       payload=   65536 bytes  ns/op min=8.437 median=8.481 max=8.525  allocs=0 allocated_bytes=0
+stale completion     payload=   65536 bytes  ns/op min=0.775 median=0.780 max=0.787  allocs=0 allocated_bytes=0
+reject owned result  payload=   65536 bytes  ns/op min=67.688 median=67.750 max=75.500  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+replace owned data   payload=   65536 bytes  ns/op min=67.688 median=67.688 max=70.312  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+begin + failure      payload= 8388608 bytes  ns/op min=8.156 median=8.828 max=8.857  allocs=0 allocated_bytes=0
+begin + cancel       payload= 8388608 bytes  ns/op min=8.338 median=8.422 max=8.476  allocs=0 allocated_bytes=0
+stale completion     payload= 8388608 bytes  ns/op min=0.771 median=0.774 max=0.791  allocs=0 allocated_bytes=0
+reject owned result  payload= 8388608 bytes  ns/op min=46.875 median=49.500 max=67.688  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+replace owned data   payload= 8388608 bytes  ns/op min=28.688 median=36.438 max=52.125  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+
+run=3 command=cargo bench -p tui-dispatch-core --bench refreshable_resources --no-default-features --offline
+9 samples x 1000000 operations; 10000 warmup operations
+resource metadata=24 bytes (excluding Vec descriptor and payload)
+begin + failure      payload=       0 bytes  ns/op min=8.247 median=8.548 max=8.833  allocs=0 allocated_bytes=0
+begin + cancel       payload=       0 bytes  ns/op min=8.571 median=8.668 max=8.685  allocs=0 allocated_bytes=0
+stale completion     payload=       0 bytes  ns/op min=0.766 median=0.781 max=0.790  allocs=0 allocated_bytes=0
+reject owned result  payload=       0 bytes  ns/op min=0.804 median=0.882 max=1.386  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+replace owned data   payload=       0 bytes  ns/op min=2.060 median=2.266 max=2.284  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+begin + failure      payload=   65536 bytes  ns/op min=8.217 median=8.523 max=8.834  allocs=0 allocated_bytes=0
+begin + cancel       payload=   65536 bytes  ns/op min=8.628 median=8.649 max=8.678  allocs=0 allocated_bytes=0
+stale completion     payload=   65536 bytes  ns/op min=0.776 median=0.780 max=0.799  allocs=0 allocated_bytes=0
+reject owned result  payload=   65536 bytes  ns/op min=70.312 median=70.312 max=72.938  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+replace owned data   payload=   65536 bytes  ns/op min=67.688 median=70.312 max=72.875  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+begin + failure      payload= 8388608 bytes  ns/op min=8.138 median=8.249 max=8.807  allocs=0 allocated_bytes=0
+begin + cancel       payload= 8388608 bytes  ns/op min=8.441 median=8.480 max=8.521  allocs=0 allocated_bytes=0
+stale completion     payload= 8388608 bytes  ns/op min=0.772 median=0.779 max=0.781  allocs=0 allocated_bytes=0
+reject owned result  payload= 8388608 bytes  ns/op min=28.625 median=49.438 max=62.500  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+replace owned data   payload= 8388608 bytes  ns/op min=28.688 median=39.062 max=54.688  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+
+run=1 command=cargo bench -p tui-dispatch-core --bench refreshable_resources --all-features --offline
+9 samples x 1000000 operations; 10000 warmup operations
+resource metadata=24 bytes (excluding Vec descriptor and payload)
+begin + failure      payload=       0 bytes  ns/op min=3.015 median=10.198 max=17.590  allocs=0 allocated_bytes=0
+begin + cancel       payload=       0 bytes  ns/op min=8.354 median=8.362 max=9.206  allocs=0 allocated_bytes=0
+stale completion     payload=       0 bytes  ns/op min=0.765 median=0.771 max=0.782  allocs=0 allocated_bytes=0
+reject owned result  payload=       0 bytes  ns/op min=0.806 median=0.877 max=0.928  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+replace owned data   payload=       0 bytes  ns/op min=2.055 median=2.113 max=2.246  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+begin + failure      payload=   65536 bytes  ns/op min=8.114 median=8.414 max=8.846  allocs=0 allocated_bytes=0
+begin + cancel       payload=   65536 bytes  ns/op min=8.275 median=8.339 max=8.363  allocs=0 allocated_bytes=0
+stale completion     payload=   65536 bytes  ns/op min=0.767 median=0.775 max=0.783  allocs=0 allocated_bytes=0
+reject owned result  payload=   65536 bytes  ns/op min=67.688 median=67.750 max=72.938  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+replace owned data   payload=   65536 bytes  ns/op min=67.688 median=67.688 max=70.312  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+begin + failure      payload= 8388608 bytes  ns/op min=8.153 median=8.737 max=8.854  allocs=0 allocated_bytes=0
+begin + cancel       payload= 8388608 bytes  ns/op min=8.367 median=8.433 max=8.511  allocs=0 allocated_bytes=0
+stale completion     payload= 8388608 bytes  ns/op min=0.771 median=0.778 max=0.781  allocs=0 allocated_bytes=0
+reject owned result  payload= 8388608 bytes  ns/op min=31.250 median=54.688 max=65.062  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+replace owned data   payload= 8388608 bytes  ns/op min=26.062 median=39.062 max=49.438  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+
+run=2 command=cargo bench -p tui-dispatch-core --bench refreshable_resources --all-features --offline
+9 samples x 1000000 operations; 10000 warmup operations
+resource metadata=24 bytes (excluding Vec descriptor and payload)
+begin + failure      payload=       0 bytes  ns/op min=7.942 median=8.433 max=8.832  allocs=0 allocated_bytes=0
+begin + cancel       payload=       0 bytes  ns/op min=8.425 median=8.469 max=8.505  allocs=0 allocated_bytes=0
+stale completion     payload=       0 bytes  ns/op min=0.767 median=0.778 max=0.788  allocs=0 allocated_bytes=0
+reject owned result  payload=       0 bytes  ns/op min=0.809 median=0.865 max=0.890  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+replace owned data   payload=       0 bytes  ns/op min=2.073 median=2.197 max=2.332  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+begin + failure      payload=   65536 bytes  ns/op min=8.123 median=8.175 max=8.768  allocs=0 allocated_bytes=0
+begin + cancel       payload=   65536 bytes  ns/op min=8.414 median=8.496 max=8.515  allocs=0 allocated_bytes=0
+stale completion     payload=   65536 bytes  ns/op min=0.759 median=0.779 max=0.782  allocs=0 allocated_bytes=0
+reject owned result  payload=   65536 bytes  ns/op min=67.688 median=70.312 max=78.125  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+replace owned data   payload=   65536 bytes  ns/op min=67.688 median=67.688 max=70.312  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+begin + failure      payload= 8388608 bytes  ns/op min=8.139 median=8.836 max=9.223  allocs=0 allocated_bytes=0
+begin + cancel       payload= 8388608 bytes  ns/op min=8.352 median=8.475 max=8.527  allocs=0 allocated_bytes=0
+stale completion     payload= 8388608 bytes  ns/op min=0.771 median=0.779 max=0.784  allocs=0 allocated_bytes=0
+reject owned result  payload= 8388608 bytes  ns/op min=46.875 median=52.062 max=59.938  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+replace owned data   payload= 8388608 bytes  ns/op min=36.438 median=44.250 max=52.062  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+
+run=3 command=cargo bench -p tui-dispatch-core --bench refreshable_resources --all-features --offline
+9 samples x 1000000 operations; 10000 warmup operations
+resource metadata=24 bytes (excluding Vec descriptor and payload)
+begin + failure      payload=       0 bytes  ns/op min=8.506 median=8.783 max=8.840  allocs=0 allocated_bytes=0
+begin + cancel       payload=       0 bytes  ns/op min=8.554 median=8.631 max=8.671  allocs=0 allocated_bytes=0
+stale completion     payload=       0 bytes  ns/op min=0.771 median=0.780 max=0.783  allocs=0 allocated_bytes=0
+reject owned result  payload=       0 bytes  ns/op min=0.880 median=0.882 max=0.888  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+replace owned data   payload=       0 bytes  ns/op min=1.986 median=2.248 max=2.256  allocs=0 allocated_bytes=0 setup_payload_bytes=0
+begin + failure      payload=   65536 bytes  ns/op min=8.294 median=8.831 max=8.853  allocs=0 allocated_bytes=0
+begin + cancel       payload=   65536 bytes  ns/op min=8.638 median=8.669 max=8.700  allocs=0 allocated_bytes=0
+stale completion     payload=   65536 bytes  ns/op min=0.774 median=0.780 max=0.790  allocs=0 allocated_bytes=0
+reject owned result  payload=   65536 bytes  ns/op min=67.750 median=70.312 max=72.938  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+replace owned data   payload=   65536 bytes  ns/op min=65.062 median=67.688 max=70.312  allocs=0 allocated_bytes=0 setup_payload_bytes=1114112
+begin + failure      payload= 8388608 bytes  ns/op min=8.194 median=8.834 max=9.027  allocs=0 allocated_bytes=0
+begin + cancel       payload= 8388608 bytes  ns/op min=8.312 median=8.380 max=8.445  allocs=0 allocated_bytes=0
+stale completion     payload= 8388608 bytes  ns/op min=0.772 median=0.776 max=0.779  allocs=0 allocated_bytes=0
+reject owned result  payload= 8388608 bytes  ns/op min=33.812 median=49.500 max=62.500  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336
+replace owned data   payload= 8388608 bytes  ns/op min=28.688 median=36.438 max=57.312  allocs=0 allocated_bytes=0 setup_payload_bytes=142606336

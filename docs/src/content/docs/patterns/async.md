@@ -8,6 +8,7 @@ tui-dispatch provides complementary tools for async operations:
 | Tool | Purpose | Feature Flag |
 |------|---------|--------------|
 | **DataResource** | State type for async data lifecycle | — |
+| **RefreshableResource** | Retained data, typed errors, and stale-result rejection | — |
 | **Effects** | Declarative side effects from reducers | — |
 | **TaskManager** | One-shot async tasks with cancellation | `tasks` |
 | **Subscriptions** | Continuous action sources (timers, streams) | `subscriptions` |
@@ -83,6 +84,73 @@ state.weather.data()          // Option<&T>
 state.weather.error()         // Option<&str>
 state.weather.map(|w| w.temp) // Transform inner value
 ```
+
+## RefreshableResource
+
+Use `RefreshableResource<T, E = String>` when refreshing should keep the previous
+data visible. `begin()` clears the error and returns a `ResourceRequestId`; carry
+that ID through the effect and completion action:
+
+```rust
+use tui_dispatch::prelude::*;
+
+#[derive(Clone, Debug)]
+enum FetchError { Offline }
+
+#[derive(Action, Clone, Debug)]
+enum Action {
+    Fetch,
+    DidFetch(ResourceRequestId, Result<String, FetchError>),
+    Cancel,
+}
+
+enum Effect { Fetch(ResourceRequestId) }
+
+fn reducer(
+    resource: &mut RefreshableResource<String, FetchError>,
+    action: Action,
+) -> ReducerResult<Effect> {
+    match action {
+        Action::Fetch => {
+            let request = resource.begin();
+            ReducerResult::changed().with(Effect::Fetch(request))
+        }
+        Action::DidFetch(request, result) => {
+            if resource.complete(request, result) {
+                ReducerResult::changed()
+            } else {
+                ReducerResult::unchanged()
+            }
+        }
+        Action::Cancel => {
+            if resource.cancel() {
+                ReducerResult::changed()
+            } else {
+                ReducerResult::unchanged()
+            }
+        }
+    }
+}
+```
+
+The effect handler returns `Action::DidFetch(request, result)` with the same ID.
+Only the latest pending request can complete, once. Older, cancelled, and duplicate
+completions return `false` without changing state. An accepted error stops loading
+and preserves data; an accepted success replaces data. Use `data()`, `error()`, and
+`is_loading()` independently to render cached content with a spinner or error.
+`empty()` / `Default` starts without data; `loaded(data)` seeds a cache.
+
+`cancel()` invalidates the pending request without clearing data or error. It does
+not stop the task itself; cancel that separately through `TaskManager` if needed.
+Resource operations require neither payload cloning nor heap allocation (dropping
+replaced data, errors, or rejected results still runs their destructors).
+
+IDs are local to one resource's lifetime. Route completions to their originating
+resource, including a resource key in actions when using a collection. Cloning and
+the optional `serde` support preserve request state for replay. Before restoring an
+older snapshot or replacing a resource with a fresh instance, cancel outstanding
+tasks and discard queued completions from the previous state. `json-schema` supports
+both the resource and its request ID.
 
 ## Cargo Features
 

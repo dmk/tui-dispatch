@@ -1,4 +1,7 @@
-//! DataResource: typed async data lifecycle
+//! Typed async data lifecycles.
+//!
+//! Use [`DataResource`] for a simple loading state, or [`RefreshableResource`]
+//! to retain data while refreshing and reject obsolete request completions.
 //!
 //! A type representing the lifecycle of async-loaded data. Use this instead of
 //! scattering `loading: bool` and `error: Option<String>` across your state.
@@ -209,9 +212,154 @@ impl<T: Clone> DataResource<T> {
     }
 }
 
+/// An opaque request generation belonging to one [`RefreshableResource`].
+///
+/// Carry this through the effect and its completion action. IDs are local to a
+/// resource's lifetime, not globally unique: route each completion to the same
+/// resource that issued it. Cloning or deserializing preserves IDs for replay;
+/// when restoring older state, cancel outstanding tasks and discard their queued
+/// actions before accepting new work. Replacing a resource with a fresh instance
+/// also starts a new lifetime and requires discarding the old completions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct ResourceRequestId(std::num::NonZeroU64);
+
+/// Async data that remains available during refreshes, with typed errors.
+///
+/// [`begin`](Self::begin) supersedes any pending request and clears the previous
+/// error without moving or cloning the retained data. Only the latest pending
+/// request can [`complete`](Self::complete), and only once. A failed refresh
+/// preserves the data and stores the error; a successful refresh replaces the data.
+/// No `Clone` or `Default` bounds on the payload or error are needed for updates.
+///
+/// ```
+/// use tui_dispatch_core::RefreshableResource;
+///
+/// let mut resource = RefreshableResource::<_, &str>::loaded("cached");
+/// let old = resource.begin();
+/// let current = resource.begin();
+/// assert!(!resource.complete(old, Ok("obsolete")));
+/// assert!(resource.complete(current, Err("offline")));
+/// assert_eq!(resource.data(), Some(&"cached"));
+/// assert_eq!(resource.error(), Some(&"offline"));
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct RefreshableResource<T, E = String> {
+    data: Option<T>,
+    error: Option<E>,
+    generation: u64,
+    pending: Option<ResourceRequestId>,
+}
+
+impl<T, E> Default for RefreshableResource<T, E> {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl<T, E> RefreshableResource<T, E> {
+    /// Creates a resource with no data, error, or pending request.
+    pub fn empty() -> Self {
+        Self {
+            data: None,
+            error: None,
+            generation: 0,
+            pending: None,
+        }
+    }
+
+    /// Creates a resource with initial data and no pending request.
+    pub fn loaded(data: T) -> Self {
+        Self {
+            data: Some(data),
+            ..Self::empty()
+        }
+    }
+
+    /// Returns the retained data, including during refreshes and after failures.
+    pub fn data(&self) -> Option<&T> {
+        self.data.as_ref()
+    }
+
+    /// Returns the most recent accepted error, cleared by the next [`begin`](Self::begin).
+    pub fn error(&self) -> Option<&E> {
+        self.error.as_ref()
+    }
+
+    /// Returns whether a request is pending, independently of retained data.
+    pub fn is_loading(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// Starts a new request, retaining data and clearing any error.
+    ///
+    /// Earlier requests become obsolete. This only updates state; the caller
+    /// must launch the effect and may separately cancel superseded tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if all `u64::MAX` generations have been used, before changing state,
+    /// rather than reusing an ID and accepting an obsolete completion.
+    #[must_use]
+    pub fn begin(&mut self) -> ResourceRequestId {
+        let generation = self
+            .generation
+            .checked_add(1)
+            .expect("resource request generation exhausted");
+        let request = ResourceRequestId(std::num::NonZeroU64::new(generation).unwrap());
+        self.generation = generation;
+        self.pending = Some(request);
+        self.error = None;
+        request
+    }
+
+    /// Accepts a result only for the current pending request.
+    ///
+    /// Returns `true` when accepted, including failures. Returns `false` for
+    /// superseded, cancelled, or already completed requests without changing
+    /// state. The supplied result is consumed (and dropped when rejected).
+    pub fn complete(&mut self, request: ResourceRequestId, result: Result<T, E>) -> bool {
+        if self.pending != Some(request) {
+            return false;
+        }
+        self.pending = None;
+        match result {
+            Ok(data) => {
+                self.data = Some(data);
+                self.error = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+        true
+    }
+
+    /// Invalidates the pending request, retaining data and error.
+    ///
+    /// Returns whether a request was pending. This does not cancel the underlying
+    /// task; use the task manager separately if that work should stop as well.
+    pub fn cancel(&mut self) -> bool {
+        self.pending.take().is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exhausted_request_ids_do_not_wrap_or_change_state() {
+        let mut resource = RefreshableResource::<_, &str>::loaded(42);
+        resource.generation = u64::MAX - 1;
+        let last = resource.begin();
+        let before = resource.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| resource.begin()));
+        assert!(result.is_err());
+        assert_eq!(resource, before);
+        assert!(resource.complete(last, Ok(43)));
+    }
 
     #[test]
     fn test_default_is_empty() {
