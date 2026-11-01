@@ -317,6 +317,37 @@ fn handle_api(state: &mut AppState, action: Action) -> ReducerResult<Effect> {
 }
 ```
 
+## Mapping and Combining Results
+
+Use `map_effect` to wrap a child reducer's effects in the parent effect type,
+then `merge` results when multiple reducers contribute to one action:
+
+```rust
+use tui_dispatch::ReducerResult;
+
+enum ChildEffect { Fetch }
+enum Effect { Child(ChildEffect), Save }
+
+fn child_reducer(count: &mut usize) -> ReducerResult<ChildEffect> {
+    *count += 1;
+    ReducerResult::changed().with(ChildEffect::Fetch)
+}
+
+fn parent_reducer(count: &mut usize) -> ReducerResult<Effect> {
+    child_reducer(count)
+        .map_effect(Effect::Child)
+        .merge(ReducerResult::effect(Effect::Save))
+}
+```
+
+`map_effect` consumes each effect in order and preserves `changed`. It accepts
+a stateful closure (`FnMut`) and does not call it for empty results. `merge`
+appends the right result's effects after the left result's and ORs their change
+flags. Effects alone never imply a state change; `unchanged()` is an identity.
+Both helpers move effects without requiring `Clone`. An empty left effect list
+takes the right vector; otherwise merging reuses the left vector's capacity
+where possible.
+
 ## See Also
 
 - [Core Concepts: Action Categories](/tui-dispatch/getting-started/core-concepts/#actioninfer_categories) - Category inference details

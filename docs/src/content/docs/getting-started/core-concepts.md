@@ -129,6 +129,8 @@ ReducerResult::changed()              // State changed, no effects
 ReducerResult::effect(e)              // No change, one effect
 ReducerResult::changed().with(e)      // State changed, one effect
 ReducerResult::effects(v).mark_changed() // State changed, multiple effects
+child.map_effect(Effect::Child)       // Wrap child effects, preserve changed
+left.merge(right)                    // Append effects, OR change flags
 ```
 
 The same `Store` type works for reducers with and without effects:

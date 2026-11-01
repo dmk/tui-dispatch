@@ -100,6 +100,49 @@ impl<E> ReducerResult<E> {
         self
     }
 
+    /// Transform each effect in order, preserving the state change flag.
+    ///
+    /// Consumes the result and moves effects into the mapper; neither effect
+    /// type needs to implement `Clone`. The mapper is not called for an empty
+    /// effect list. Useful for wrapping child effects in a parent effect enum.
+    ///
+    /// ```
+    /// use tui_dispatch_core::ReducerResult;
+    ///
+    /// enum Effect { Child(u8), Save }
+    /// let child = ReducerResult::changed().with(1u8);
+    /// let result = child.map_effect(Effect::Child)
+    ///     .merge(ReducerResult::effect(Effect::Save));
+    /// assert!(result.changed);
+    /// assert_eq!(result.effects.len(), 2);
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn map_effect<F>(self, map: impl FnMut(E) -> F) -> ReducerResult<F> {
+        ReducerResult {
+            changed: self.changed,
+            effects: self.effects.into_iter().map(map).collect(),
+        }
+    }
+
+    /// Combine results, keeping this result's effects before `other`'s effects.
+    ///
+    /// The state change flags are ORed: emitting effects alone never implies
+    /// a state change. Effects are moved, without requiring `Clone`. An empty
+    /// left effect list takes ownership of the right vector; otherwise its
+    /// vector is extended, allocating only if additional capacity is needed.
+    #[inline]
+    #[must_use]
+    pub fn merge(mut self, other: Self) -> Self {
+        self.changed |= other.changed;
+        if self.effects.is_empty() {
+            self.effects = other.effects;
+        } else {
+            self.effects.extend(other.effects);
+        }
+        self
+    }
+
     /// Returns true if there are any effects to process.
     #[inline]
     pub fn has_effects(&self) -> bool {

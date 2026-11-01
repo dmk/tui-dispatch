@@ -92,3 +92,7 @@ errors and deterministic stale-result rejection without payload-size overhead.
 ## Stream delivery
 
 Roadmap item 05 benchmarks and results are documented in [stream_policies.md](stream_policies.md).
+
+## Reducer composition
+
+Roadmap item 06 benchmarks and results are documented in [reducer_composition.md](reducer_composition.md).

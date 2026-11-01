@@ -47,6 +47,10 @@ tokio = { version = "1", default-features = false, features = ["sync", "macros",
 serde_json = "1.0"
 
 [[bench]]
+name = "reducer_composition"
+harness = false
+
+[[bench]]
 name = "refreshable_resources"
 harness = false
 

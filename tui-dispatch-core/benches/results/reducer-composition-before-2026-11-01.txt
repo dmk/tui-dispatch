@@ -1,0 +1,115 @@
+run=1 command=cargo bench -p tui-dispatch-core --bench reducer_composition --no-default-features --offline
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/reducer_composition.rs (target/release/deps/reducer_composition-89d8356492fc679c)
+9 samples x 128 operations; 1 warmup batch; separate allocation probe
+manual map n=0 payload=0                   ns/op min=1.95 median=2.28 max=3.26 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=0 payload=4096                ns/op min=2.27 median=2.28 max=2.61 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=1 payload=0                   ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=24 peak_live_bytes=24
+manual map n=1 payload=4096                ns/op min=2.60 median=2.93 max=32.23 allocs=0 allocated_bytes=0 input_live_bytes=4120 peak_live_bytes=4120
+manual map n=16 payload=0                  ns/op min=2.60 median=2.60 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=384 peak_live_bytes=384
+manual map n=16 payload=4096               ns/op min=2.93 median=3.58 max=4.23 allocs=0 allocated_bytes=0 input_live_bytes=65920 peak_live_bytes=65920
+manual map n=256 payload=0                 ns/op min=2.93 median=2.93 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=6144 peak_live_bytes=6144
+manual map n=4096 payload=0                ns/op min=2.93 median=7.49 max=21.16 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+manual merge 0+0 spare=false               ns/op min=4.23 median=4.56 max=5.53 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual merge 0+16 spare=false              ns/op min=19.21 median=19.53 max=20.51 allocs=1 allocated_bytes=128 input_live_bytes=128 peak_live_bytes=256
+manual merge 16+0 spare=false              ns/op min=3.91 median=3.91 max=4.23 allocs=0 allocated_bytes=0 input_live_bytes=128 peak_live_bytes=128
+manual merge 16+16 spare=false             ns/op min=34.83 median=35.16 max=36.13 allocs=1 allocated_bytes=256 input_live_bytes=256 peak_live_bytes=512
+manual merge 256+256 spare=false           ns/op min=110.67 median=121.74 max=149.09 allocs=1 allocated_bytes=4096 input_live_bytes=4096 peak_live_bytes=8192
+manual merge 4096+4096 spare=false         ns/op min=1432.29 median=1512.70 max=1706.38 allocs=1 allocated_bytes=65536 input_live_bytes=65536 peak_live_bytes=131072
+manual merge 4096+4096 spare=true          ns/op min=531.58 median=548.83 max=661.79 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+run=2 command=cargo bench -p tui-dispatch-core --bench reducer_composition --no-default-features --offline
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/reducer_composition.rs (target/release/deps/reducer_composition-89d8356492fc679c)
+9 samples x 128 operations; 1 warmup batch; separate allocation probe
+manual map n=0 payload=0                   ns/op min=1.95 median=2.27 max=3.26 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=0 payload=4096                ns/op min=2.28 median=2.60 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=1 payload=0                   ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=24 peak_live_bytes=24
+manual map n=1 payload=4096                ns/op min=2.60 median=3.26 max=4.23 allocs=0 allocated_bytes=0 input_live_bytes=4120 peak_live_bytes=4120
+manual map n=16 payload=0                  ns/op min=2.60 median=3.59 max=3.91 allocs=0 allocated_bytes=0 input_live_bytes=384 peak_live_bytes=384
+manual map n=16 payload=4096               ns/op min=3.25 median=3.58 max=4.56 allocs=0 allocated_bytes=0 input_live_bytes=65920 peak_live_bytes=65920
+manual map n=256 payload=0                 ns/op min=2.60 median=2.93 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=6144 peak_live_bytes=6144
+manual map n=4096 payload=0                ns/op min=2.93 median=3.91 max=139.98 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+manual merge 0+0 spare=false               ns/op min=3.91 median=3.91 max=4.55 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual merge 0+16 spare=false              ns/op min=18.55 median=18.55 max=19.20 allocs=1 allocated_bytes=128 input_live_bytes=128 peak_live_bytes=256
+manual merge 16+0 spare=false              ns/op min=3.59 median=3.91 max=3.91 allocs=0 allocated_bytes=0 input_live_bytes=128 peak_live_bytes=128
+manual merge 16+16 spare=false             ns/op min=34.83 median=35.16 max=35.80 allocs=1 allocated_bytes=256 input_live_bytes=256 peak_live_bytes=512
+manual merge 256+256 spare=false           ns/op min=108.73 median=115.23 max=155.59 allocs=1 allocated_bytes=4096 input_live_bytes=4096 peak_live_bytes=8192
+manual merge 4096+4096 spare=false         ns/op min=1393.88 median=2088.54 max=3882.16 allocs=1 allocated_bytes=65536 input_live_bytes=65536 peak_live_bytes=131072
+manual merge 4096+4096 spare=true          ns/op min=574.22 median=697.92 max=1706.70 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+run=3 command=cargo bench -p tui-dispatch-core --bench reducer_composition --no-default-features --offline
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/reducer_composition.rs (target/release/deps/reducer_composition-89d8356492fc679c)
+9 samples x 128 operations; 1 warmup batch; separate allocation probe
+manual map n=0 payload=0                   ns/op min=1.95 median=2.28 max=3.26 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=0 payload=4096                ns/op min=2.27 median=2.60 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=1 payload=0                   ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=24 peak_live_bytes=24
+manual map n=1 payload=4096                ns/op min=2.60 median=2.93 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=4120 peak_live_bytes=4120
+manual map n=16 payload=0                  ns/op min=2.60 median=2.60 max=2.61 allocs=0 allocated_bytes=0 input_live_bytes=384 peak_live_bytes=384
+manual map n=16 payload=4096               ns/op min=2.93 median=3.58 max=6.84 allocs=0 allocated_bytes=0 input_live_bytes=65920 peak_live_bytes=65920
+manual map n=256 payload=0                 ns/op min=2.93 median=3.26 max=3.91 allocs=0 allocated_bytes=0 input_live_bytes=6144 peak_live_bytes=6144
+manual map n=4096 payload=0                ns/op min=2.93 median=3.26 max=27.02 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+manual merge 0+0 spare=false               ns/op min=3.91 median=4.23 max=4.88 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual merge 0+16 spare=false              ns/op min=18.88 median=19.20 max=23.77 allocs=1 allocated_bytes=128 input_live_bytes=128 peak_live_bytes=256
+manual merge 16+0 spare=false              ns/op min=3.91 median=3.91 max=4.55 allocs=0 allocated_bytes=0 input_live_bytes=128 peak_live_bytes=128
+manual merge 16+16 spare=false             ns/op min=33.85 median=34.18 max=49.80 allocs=1 allocated_bytes=256 input_live_bytes=256 peak_live_bytes=512
+manual merge 256+256 spare=false           ns/op min=110.35 median=134.44 max=169.92 allocs=1 allocated_bytes=4096 input_live_bytes=4096 peak_live_bytes=8192
+manual merge 4096+4096 spare=false         ns/op min=1287.77 median=1309.24 max=1474.29 allocs=1 allocated_bytes=65536 input_live_bytes=65536 peak_live_bytes=131072
+manual merge 4096+4096 spare=true          ns/op min=591.48 median=612.95 max=1420.25 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+run=1 command=cargo bench -p tui-dispatch-core --bench reducer_composition --all-features --offline
+   Compiling tui-dispatch-core v0.7.1 (/Users/dmk/Work/fr/rust-tui/tui-dispatch/tui-dispatch-core)
+    Finished `bench` profile [optimized] target(s) in 0.42s
+     Running benches/reducer_composition.rs (target/release/deps/reducer_composition-c58100d851dc18bc)
+9 samples x 128 operations; 1 warmup batch; separate allocation probe
+manual map n=0 payload=0                   ns/op min=4.56 median=4.88 max=5.53 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=0 payload=4096                ns/op min=4.55 median=4.56 max=4.88 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=1 payload=0                   ns/op min=5.20 median=5.53 max=5.54 allocs=0 allocated_bytes=0 input_live_bytes=24 peak_live_bytes=24
+manual map n=1 payload=4096                ns/op min=5.86 median=6.51 max=6.51 allocs=0 allocated_bytes=0 input_live_bytes=4120 peak_live_bytes=4120
+manual map n=16 payload=0                  ns/op min=5.53 median=5.86 max=7.81 allocs=0 allocated_bytes=0 input_live_bytes=384 peak_live_bytes=384
+manual map n=16 payload=4096               ns/op min=6.19 median=11.72 max=38.74 allocs=0 allocated_bytes=0 input_live_bytes=65920 peak_live_bytes=65920
+manual map n=256 payload=0                 ns/op min=2.60 median=3.91 max=3.91 allocs=0 allocated_bytes=0 input_live_bytes=6144 peak_live_bytes=6144
+manual map n=4096 payload=0                ns/op min=5.86 median=7.49 max=24.74 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+manual merge 0+0 spare=false               ns/op min=6.84 median=6.84 max=7.81 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual merge 0+16 spare=false              ns/op min=31.25 median=31.91 max=34.18 allocs=1 allocated_bytes=128 input_live_bytes=128 peak_live_bytes=256
+manual merge 16+0 spare=false              ns/op min=6.51 median=6.84 max=7.49 allocs=0 allocated_bytes=0 input_live_bytes=128 peak_live_bytes=128
+manual merge 16+16 spare=false             ns/op min=59.57 median=61.20 max=61.52 allocs=1 allocated_bytes=256 input_live_bytes=256 peak_live_bytes=512
+manual merge 256+256 spare=false           ns/op min=186.20 median=192.05 max=197.27 allocs=1 allocated_bytes=4096 input_live_bytes=4096 peak_live_bytes=8192
+manual merge 4096+4096 spare=false         ns/op min=1651.37 median=1757.16 max=2739.91 allocs=1 allocated_bytes=65536 input_live_bytes=65536 peak_live_bytes=131072
+manual merge 4096+4096 spare=true          ns/op min=695.64 median=709.96 max=779.30 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+run=2 command=cargo bench -p tui-dispatch-core --bench reducer_composition --all-features --offline
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/reducer_composition.rs (target/release/deps/reducer_composition-c58100d851dc18bc)
+9 samples x 128 operations; 1 warmup batch; separate allocation probe
+manual map n=0 payload=0                   ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=0 payload=4096                ns/op min=2.27 median=2.60 max=2.61 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=1 payload=0                   ns/op min=2.60 median=2.60 max=2.61 allocs=0 allocated_bytes=0 input_live_bytes=24 peak_live_bytes=24
+manual map n=1 payload=4096                ns/op min=2.61 median=2.93 max=3.26 allocs=0 allocated_bytes=0 input_live_bytes=4120 peak_live_bytes=4120
+manual map n=16 payload=0                  ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=384 peak_live_bytes=384
+manual map n=16 payload=4096               ns/op min=3.26 median=3.58 max=3.91 allocs=0 allocated_bytes=0 input_live_bytes=65920 peak_live_bytes=65920
+manual map n=256 payload=0                 ns/op min=2.60 median=2.93 max=3.26 allocs=0 allocated_bytes=0 input_live_bytes=6144 peak_live_bytes=6144
+manual map n=4096 payload=0                ns/op min=2.93 median=3.26 max=5.53 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+manual merge 0+0 spare=false               ns/op min=4.23 median=4.56 max=5.53 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual merge 0+16 spare=false              ns/op min=24.09 median=24.73 max=25.07 allocs=1 allocated_bytes=128 input_live_bytes=128 peak_live_bytes=256
+manual merge 16+0 spare=false              ns/op min=4.55 median=4.55 max=4.88 allocs=0 allocated_bytes=0 input_live_bytes=128 peak_live_bytes=128
+manual merge 16+16 spare=false             ns/op min=43.95 median=44.59 max=45.57 allocs=1 allocated_bytes=256 input_live_bytes=256 peak_live_bytes=512
+manual merge 256+256 spare=false           ns/op min=123.05 median=125.66 max=500.00 allocs=1 allocated_bytes=4096 input_live_bytes=4096 peak_live_bytes=8192
+manual merge 4096+4096 spare=false         ns/op min=1333.01 median=1575.20 max=2310.55 allocs=1 allocated_bytes=65536 input_live_bytes=65536 peak_live_bytes=131072
+manual merge 4096+4096 spare=true          ns/op min=643.55 median=770.18 max=993.49 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+run=3 command=cargo bench -p tui-dispatch-core --bench reducer_composition --all-features --offline
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/reducer_composition.rs (target/release/deps/reducer_composition-c58100d851dc18bc)
+9 samples x 128 operations; 1 warmup batch; separate allocation probe
+manual map n=0 payload=0                   ns/op min=2.28 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=0 payload=4096                ns/op min=1.95 median=2.28 max=2.60 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual map n=1 payload=0                   ns/op min=2.27 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=24 peak_live_bytes=24
+manual map n=1 payload=4096                ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=4120 peak_live_bytes=4120
+manual map n=16 payload=0                  ns/op min=2.60 median=2.61 max=2.93 allocs=0 allocated_bytes=0 input_live_bytes=384 peak_live_bytes=384
+manual map n=16 payload=4096               ns/op min=3.25 median=3.58 max=3.91 allocs=0 allocated_bytes=0 input_live_bytes=65920 peak_live_bytes=65920
+manual map n=256 payload=0                 ns/op min=2.60 median=2.93 max=3.26 allocs=0 allocated_bytes=0 input_live_bytes=6144 peak_live_bytes=6144
+manual map n=4096 payload=0                ns/op min=2.93 median=3.59 max=31.58 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
+manual merge 0+0 spare=false               ns/op min=3.91 median=4.23 max=4.56 allocs=0 allocated_bytes=0 input_live_bytes=0 peak_live_bytes=0
+manual merge 0+16 spare=false              ns/op min=19.53 median=19.86 max=20.51 allocs=1 allocated_bytes=128 input_live_bytes=128 peak_live_bytes=256
+manual merge 16+0 spare=false              ns/op min=3.91 median=3.91 max=4.23 allocs=0 allocated_bytes=0 input_live_bytes=128 peak_live_bytes=128
+manual merge 16+16 spare=false             ns/op min=37.11 median=37.76 max=38.41 allocs=1 allocated_bytes=256 input_live_bytes=256 peak_live_bytes=512
+manual merge 256+256 spare=false           ns/op min=109.38 median=122.40 max=127.28 allocs=1 allocated_bytes=4096 input_live_bytes=4096 peak_live_bytes=8192
+manual merge 4096+4096 spare=false         ns/op min=1237.30 median=1295.90 max=1868.82 allocs=1 allocated_bytes=65536 input_live_bytes=65536 peak_live_bytes=131072
+manual merge 4096+4096 spare=true          ns/op min=494.46 median=498.37 max=544.92 allocs=0 allocated_bytes=0 input_live_bytes=98304 peak_live_bytes=98304
