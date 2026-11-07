@@ -11,7 +11,9 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -1718,10 +1720,19 @@ impl<A: Action> DebugLayer<A> {
         key: KeyEvent,
         state: Option<&S>,
     ) -> Option<Vec<DebugSideEffect<A>>> {
-        // Toggle key always works (even when disabled)
+        // Enhanced keyboard protocols report releases as separate events.
+        // Leave app releases available when debug is closed (e.g. held movement).
+        if key.kind == KeyEventKind::Release {
+            return self.freeze.enabled.then(Vec::new);
+        }
+
+        // Toggle once per press; holding the key must not repeatedly resume/freeze.
         if key.code == self.toggle_key && key.modifiers.is_empty() {
-            let effect = self.toggle();
-            return Some(effect.into_iter().collect());
+            return if key.kind == KeyEventKind::Press {
+                Some(self.toggle().into_iter().collect())
+            } else {
+                Some(vec![])
+            };
         }
 
         // Other commands only work when enabled
@@ -3592,6 +3603,45 @@ mod tests {
         let effect = layer.toggle();
         assert!(effect.is_none()); // No queued actions
         assert!(!layer.is_enabled());
+    }
+
+    #[test]
+    fn test_toggle_key_ignores_releases_and_repeats() {
+        let mut layer: DebugLayer<TestAction> = DebugLayer::simple();
+        let event = |kind| {
+            EventKind::Key(KeyEvent::new_with_kind(
+                KeyCode::F(12),
+                KeyModifiers::NONE,
+                kind,
+            ))
+        };
+
+        layer.handle_event(&event(KeyEventKind::Press));
+        assert!(layer.is_enabled());
+        for kind in [KeyEventKind::Repeat, KeyEventKind::Release] {
+            layer.handle_event(&event(kind));
+            assert!(layer.is_enabled(), "{kind:?} closed the debugger");
+        }
+
+        layer.handle_event(&event(KeyEventKind::Press));
+        assert!(!layer.is_enabled());
+        for kind in [KeyEventKind::Repeat, KeyEventKind::Release] {
+            layer.handle_event(&event(kind));
+            assert!(!layer.is_enabled(), "{kind:?} reopened the debugger");
+        }
+    }
+
+    #[test]
+    fn test_key_releases_pass_to_app_only_when_debug_is_closed() {
+        let mut layer: DebugLayer<TestAction> = DebugLayer::simple();
+        let release = EventKind::Key(KeyEvent::new_with_kind(
+            KeyCode::Left,
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        ));
+        assert!(!layer.handle_event(&release).consumed);
+        layer.set_enabled(true);
+        assert!(layer.handle_event(&release).consumed);
     }
 
     #[test]
