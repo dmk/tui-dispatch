@@ -8,6 +8,7 @@ use std::{
     },
 };
 
+use crate::debug::ComponentSnapshot;
 use serde::Serialize;
 use serde_json::Value;
 use tui_dispatch_core::{Action, Middleware, Store, StoreWithMiddleware};
@@ -72,6 +73,7 @@ struct Shared {
     initial_state: Value,
     capacity: usize,
     history: Mutex<History>,
+    components: Mutex<Option<Vec<ComponentSnapshot>>>,
 }
 
 /// Shared, bounded history with no dependency on rendering.
@@ -93,6 +95,7 @@ impl DebugCollector {
                 enabled: AtomicBool::new(capacity > 0),
                 initial_state,
                 capacity,
+                components: Mutex::new(None),
                 history: Mutex::new(History {
                     records: VecDeque::new(),
                     next_sequence: 1,
@@ -126,6 +129,23 @@ impl DebugCollector {
             .iter()
             .cloned()
             .collect()
+    }
+
+    /// Replace component telemetry with the latest complete rendered frame.
+    /// Call on the UI thread after rendering, using a component registry or
+    /// `ComponentHost::mounted_components()`. Socket workers only copy this
+    /// owned snapshot; they never access UI objects on another thread.
+    /// Disabled collection retains its last published frame.
+    pub fn set_components(&self, components: Vec<ComponentSnapshot>) {
+        if self.is_enabled() {
+            *self.shared.components.lock().unwrap() = Some(components);
+        }
+    }
+
+    /// Latest component frame, or `None` if the app has never published one.
+    /// An empty published frame is distinct from unavailable telemetry.
+    pub fn components(&self) -> Option<Vec<ComponentSnapshot>> {
+        self.shared.components.lock().unwrap().clone()
     }
 
     /// Publish an already serialized boundary from a custom producer.

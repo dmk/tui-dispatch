@@ -15,9 +15,66 @@ use tokio::{
 };
 use tui_dispatch_core::{Action, DispatchError, ReducerResult, Store};
 use tui_dispatch_debug::{
+    debug::ComponentSnapshot,
     observe::{DebugCollector, DebugRecord, DebugStoreExt, DispatchOutcome},
     transport::{DebugClient, DebugServer, SnapshotOutcome, MAX_CLIENTS, MAX_SNAPSHOT_BYTES},
 };
+
+#[tokio::test]
+async fn component_frames_round_trip_without_dispatch_and_survive_reconnect() {
+    bounded(async {
+        let directory = Directory::new();
+        let collector = DebugCollector::new(json!({"count":0}), 8);
+        let server = DebugServer::bind(directory.socket(), collector.clone())
+            .await
+            .unwrap();
+        let mut client = DebugClient::connect(directory.socket()).await.unwrap();
+        assert!(client.snapshot().await.unwrap().components.is_none());
+        let component = ComponentSnapshot {
+            raw_id: 7,
+            type_name: "Player".into(),
+            type_name_full: "game::Player".into(),
+            bound_id: Some("player".into()),
+            last_area: Some(ratatui::layout::Rect::new(2, 3, 40, 12)),
+            debug_entries: vec![("lives".into(), "3".into())],
+        };
+        collector.set_components(vec![component.clone()]);
+        let snapshot = client.snapshot().await.unwrap();
+        assert_eq!(snapshot.components, Some(vec![component.clone()]));
+        assert!(snapshot.history.is_empty());
+        assert_eq!(snapshot.state, json!({"count":0}));
+        drop(client);
+        let mut next = component;
+        next.last_area = None;
+        next.debug_entries[0].1 = "2".into();
+        collector.set_components(vec![next.clone()]);
+        let mut reconnected = DebugClient::connect(directory.socket()).await.unwrap();
+        assert_eq!(
+            reconnected.snapshot().await.unwrap().components,
+            Some(vec![next.clone()])
+        );
+        collector.set_enabled(false);
+        collector.set_components(Vec::new());
+        assert_eq!(collector.components(), Some(vec![next]));
+        collector.set_enabled(true);
+        collector.set_components(Vec::new());
+        assert_eq!(
+            reconnected.snapshot().await.unwrap().components,
+            Some(Vec::new())
+        );
+        server.shutdown().await.unwrap();
+    })
+    .await;
+}
+
+#[test]
+fn older_socket_snapshots_without_component_telemetry_still_decode() {
+    let snapshot: tui_dispatch_debug::records::DebugSnapshot = serde_json::from_value(json!({
+        "state": {"count":0}, "history": [],
+    }))
+    .unwrap();
+    assert!(snapshot.components.is_none());
+}
 
 struct Directory(PathBuf);
 impl Directory {

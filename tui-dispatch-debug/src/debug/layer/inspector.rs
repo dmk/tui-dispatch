@@ -13,8 +13,8 @@ use tui_dispatch_core::{Action, EventKind};
 
 use super::DebugLayer;
 use crate::debug::{
-    ActionLogDisplayEntry, ActionLogOverlay, DebugEntry, DebugOverlay, DebugSection, DebugState,
-    DebugStyle,
+    ActionLogDisplayEntry, ActionLogOverlay, ComponentSnapshot, DebugEntry, DebugOverlay,
+    DebugSection, DebugState, DebugStyle,
 };
 
 #[derive(Clone, Debug)]
@@ -111,6 +111,51 @@ impl DebugInspector {
         }
     }
 
+    /// Refresh component telemetry without interrupting search or open details.
+    /// `None` indicates that the app/source does not supply component snapshots;
+    /// `Some(Vec::new())` indicates a known empty component frame.
+    pub fn update_components(&mut self, components: Option<Vec<ComponentSnapshot>>) {
+        let selected = match self.layer.freeze.overlay.as_ref() {
+            Some(DebugOverlay::Components(view)) => self
+                .layer
+                .components_tree_selected
+                .as_deref()
+                .and_then(|id| id.strip_prefix("comp:"))
+                .and_then(|id| id.parse::<usize>().ok())
+                .and_then(|index| view.components.get(index))
+                .map(|component| (component.bound_id.clone(), component.raw_id)),
+            _ => None,
+        };
+        self.layer.component_snapshotter = components.map(|components| {
+            Box::new(move || components.clone()) as Box<dyn Fn() -> Vec<ComponentSnapshot>>
+        });
+        if matches!(self.layer.freeze.overlay, Some(DebugOverlay::Components(_))) {
+            self.layer.show_components();
+            if let (Some((bound_id, raw_id)), Some(DebugOverlay::Components(view))) =
+                (selected, self.layer.freeze.overlay.as_ref())
+            {
+                if let Some(index) = view.components.iter().position(|component| {
+                    if bound_id.is_some() {
+                        component.bound_id == bound_id
+                    } else {
+                        component.raw_id == raw_id
+                    }
+                }) {
+                    self.layer.components_tree_selected = Some(format!("comp:{index}"));
+                }
+            }
+            self.label_unavailable_components();
+        }
+    }
+
+    fn label_unavailable_components(&mut self) {
+        if self.layer.component_snapshotter.is_none() {
+            if let Some(DebugOverlay::Components(view)) = self.layer.freeze.overlay.as_mut() {
+                view.title = "Components · not published by app".into();
+            }
+        }
+    }
+
     /// Current view, including its selection/search state.
     pub fn overlay(&self) -> Option<&DebugOverlay> {
         self.layer.freeze.overlay.as_ref()
@@ -118,12 +163,19 @@ impl DebugInspector {
 
     /// Handle shared debug navigation; returns true when the client should quit.
     ///
-    /// `a`/`s` switch actions/state, `/` searches, Enter opens details, and
+    /// `a`/`c`/`s` switch actions/components/state, `/` searches, Enter opens details, and
     /// Esc/Backspace return from details. `q` or Ctrl+C quit; Esc also quits from
     /// a list/tree. While editing a query, letters (including q/a/s) are text.
     /// `w` saves the current JSON state using the live layer's local snapshot UI.
     pub fn handle_event(&mut self, event: &EventKind) -> bool {
         self.remember_actions();
+        let detail_binding = match self.layer.freeze.overlay.as_ref() {
+            Some(DebugOverlay::ComponentDetail(detail)) => detail
+                .bound_id
+                .clone()
+                .map(|id| (id, detail.type_name_full.clone())),
+            _ => None,
+        };
         if let EventKind::Key(key) = event {
             if key.kind == KeyEventKind::Release {
                 return false;
@@ -134,6 +186,7 @@ impl DebugInspector {
             let searching = match self.layer.freeze.overlay.as_ref() {
                 Some(DebugOverlay::ActionLog(log)) => log.search_input_active,
                 Some(DebugOverlay::State(_)) => self.layer.state_search_active,
+                Some(DebugOverlay::Components(_)) => self.layer.components_search_active,
                 _ => false,
             };
             if !searching {
@@ -153,7 +206,7 @@ impl DebugInspector {
                 if key.code == KeyCode::Esc
                     && !matches!(
                         self.layer.freeze.overlay,
-                        Some(DebugOverlay::StateDetail(_))
+                        Some(DebugOverlay::StateDetail(_)) | Some(DebugOverlay::ComponentDetail(_))
                     )
                 {
                     return true;
@@ -169,16 +222,27 @@ impl DebugInspector {
                         }
                         return false;
                     }
-                    // Frame freezing, component inspection, mouse-cell capture,
-                    // and frame copying need a local app buffer, not socket data.
-                    KeyCode::F(_) | KeyCode::Char('c' | 'C' | 'i' | 'I' | 'y' | 'Y') => {
-                        return false
-                    }
+                    // Frame freezing, mouse-cell capture, and frame copying
+                    // require a local app buffer rather than socket metadata.
+                    KeyCode::F(_) | KeyCode::Char('i' | 'I' | 'y' | 'Y') => return false,
                     _ => {}
                 }
             }
         }
         self.layer.handle_event_with_state(event, &self.state);
+        // A component may move in the published list while its detail is open.
+        // Return to its binding rather than the old list index.
+        if let (Some((id, type_name)), Some(DebugOverlay::Components(view))) =
+            (detail_binding, self.layer.freeze.overlay.as_ref())
+        {
+            if let Some(index) = view.components.iter().position(|component| {
+                component.bound_id.as_deref() == Some(id.as_str())
+                    && component.type_name_full == type_name
+            }) {
+                self.layer.components_tree_selected = Some(format!("comp:{index}"));
+            }
+        }
+        self.label_unavailable_components();
         self.remember_actions();
         false
     }
@@ -200,7 +264,7 @@ impl DebugInspector {
             );
             if self.layer.freeze.overlay.is_none() {
                 frame.render_widget(
-                    Paragraph::new("a: actions · s: state · q: quit")
+                    Paragraph::new("a: actions · c: components · s: state · q: quit")
                         .style(Style::default().fg(self.layer.style.text_secondary)),
                     area,
                 );
@@ -215,6 +279,7 @@ impl DebugInspector {
         ))];
         for (key, label, style) in [
             ("a", "actions", keys.actions),
+            ("c", "components", keys.components),
             ("s", "state", keys.state),
             ("b", self.layer.banner_position.label(), keys.actions),
             ("q", "quit", keys.toggle),

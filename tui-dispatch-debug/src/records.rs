@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tui_dispatch_core::DispatchError;
 
-/// An atomic view of the last observed state and retained dispatch history.
+/// Consistent dispatch state/history plus the latest published component frame.
 ///
 /// State is the latest collected boundary, or the supplied initial state before
 /// any collection. It may lag the app when collection is disabled. History count
@@ -15,6 +15,10 @@ use tui_dispatch_core::DispatchError;
 pub struct DebugSnapshot {
     pub state: Value,
     pub history: Vec<SnapshotRecord>,
+    /// Latest app-published component frame, independent of dispatch history.
+    /// `None` means unavailable (including older servers and action recordings).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub components: Option<Vec<crate::debug::ComponentSnapshot>>,
 }
 
 /// Owned wire representation of a dispatch record.

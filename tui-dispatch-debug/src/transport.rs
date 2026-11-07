@@ -43,6 +43,7 @@ impl DebugSnapshot {
         Self {
             state,
             history: history.into_iter().map(Into::into).collect(),
+            components: collector.components(),
         }
     }
 }

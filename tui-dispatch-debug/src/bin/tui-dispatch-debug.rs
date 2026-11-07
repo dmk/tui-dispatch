@@ -105,6 +105,7 @@ mod client {
         DebugSnapshot {
             state: history.back().map(|r| r.state.clone()).unwrap_or_default(),
             history: history.iter().cloned().collect(),
+            components: None,
         }
     }
 
@@ -269,6 +270,7 @@ mod client {
                     Some(Ok((next, next_status))) => {
                         status = next_status.clone();
                         inspector.update(next.state.clone(), action_entries(next)?);
+                        inspector.update_components(next.components.clone());
                     }
                     Some(Err(error)) => status = format!("Source error: {error}"),
                     None => {}

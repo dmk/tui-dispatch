@@ -3,7 +3,8 @@ use ratatui::{backend::TestBackend, buffer::Buffer, widgets::Paragraph, Terminal
 use serde_json::json;
 use tui_dispatch_core::EventKind;
 use tui_dispatch_debug::debug::{
-    ActionLogDisplayEntry, ActionLogOverlay, DebugInspector, DebugLayer, DebugOverlay, DebugStyle,
+    ActionLogDisplayEntry, ActionLogOverlay, ComponentSnapshot, DebugInspector, DebugLayer,
+    DebugOverlay, DebugStyle,
 };
 
 fn key(inspector: &mut DebugInspector, code: KeyCode) -> bool {
@@ -65,7 +66,7 @@ fn renders_shared_action_and_state_views_with_the_live_palette() {
     ] {
         assert!(rendered.contains(expected), "missing {expected}");
     }
-    for unavailable in ["resume", "components", "mouse"] {
+    for unavailable in ["resume", "mouse"] {
         assert!(!rendered.contains(unavailable));
     }
     assert!(buffer
@@ -219,12 +220,7 @@ fn search_accepts_shortcut_letters_and_remote_view_cannot_freeze_the_app() {
     }
     assert_eq!(log(&inspector).search_query, "qasciy");
     assert!(!key(&mut inspector, KeyCode::Esc)); // finish editing
-    for code in [
-        KeyCode::F(12),
-        KeyCode::Char('c'),
-        KeyCode::Char('i'),
-        KeyCode::Char('y'),
-    ] {
+    for code in [KeyCode::F(12), KeyCode::Char('i'), KeyCode::Char('y')] {
         assert!(!key(&mut inspector, code));
         assert!(matches!(
             inspector.overlay(),
@@ -238,6 +234,88 @@ fn search_accepts_shortcut_letters_and_remote_view_cannot_freeze_the_app() {
     );
     assert!(!inspector.handle_event(&EventKind::Key(release)));
     assert!(key(&mut inspector, KeyCode::Char('q')));
+}
+
+fn component(raw_id: u32, name: &str, hp: &str) -> ComponentSnapshot {
+    ComponentSnapshot {
+        raw_id,
+        type_name: name.into(),
+        type_name_full: format!("game::{name}"),
+        bound_id: Some(format!("component-{raw_id}")),
+        last_area: Some(ratatui::layout::Rect::new(3, 4, 10, 5)),
+        debug_entries: vec![("hp".into(), hp.into())],
+    }
+}
+
+#[test]
+fn component_search_selection_and_details_survive_new_frames() {
+    let mut inspector = DebugInspector::new().fullscreen();
+    inspector.update_components(Some(vec![
+        component(1, "Enemy", "3"),
+        component(2, "Hud", "0"),
+    ]));
+    assert!(!key(&mut inspector, KeyCode::Char('c')));
+    let screen = text(&render(&mut inspector, 110, 28));
+    assert!(screen.contains("Components"));
+    assert!(screen.contains("Enemy"));
+    assert!(screen.contains("Hud"));
+    key(&mut inspector, KeyCode::Char('/'));
+    for ch in "Enemy".chars() {
+        assert!(!key(&mut inspector, KeyCode::Char(ch)));
+    }
+    inspector.update_components(Some(vec![
+        component(2, "Hud", "0"),
+        component(1, "Enemy", "2"),
+    ]));
+    key(&mut inspector, KeyCode::Enter); // finish query
+    let screen = text(&render(&mut inspector, 110, 28));
+    assert!(screen.contains("Enemy"));
+    assert!(!screen.contains("Hud"));
+    key(&mut inspector, KeyCode::Enter);
+    match inspector.overlay() {
+        Some(DebugOverlay::ComponentDetail(detail)) => {
+            assert_eq!(detail.bound_id.as_deref(), Some("component-1"));
+            assert_eq!(detail.debug_entries, [("hp".into(), "2".into())]);
+        }
+        other => panic!("expected component detail: {other:?}"),
+    }
+    inspector.update_components(Some(vec![
+        component(1, "Enemy", "1"),
+        component(2, "Hud", "0"),
+    ]));
+    match inspector.overlay() {
+        Some(DebugOverlay::ComponentDetail(detail)) => assert_eq!(detail.debug_entries[0].1, "2"),
+        other => panic!("new frame interrupted inspection: {other:?}"),
+    }
+    assert!(!key(&mut inspector, KeyCode::Esc));
+    let screen = text(&render(&mut inspector, 110, 28));
+    assert!(!screen.contains("Hud"), "component filter was lost");
+    key(&mut inspector, KeyCode::Enter);
+    match inspector.overlay() {
+        Some(DebugOverlay::ComponentDetail(detail)) => assert_eq!(detail.debug_entries[0].1, "1"),
+        other => panic!("expected updated component detail: {other:?}"),
+    }
+}
+
+#[test]
+fn components_tab_distinguishes_unavailable_from_a_published_empty_frame() {
+    let mut inspector = DebugInspector::new().fullscreen();
+    key(&mut inspector, KeyCode::Char('c'));
+    assert!(text(&render(&mut inspector, 110, 28)).contains("not published by app"));
+    inspector.update_components(Some(Vec::new()));
+    let screen = text(&render(&mut inspector, 110, 28));
+    assert!(screen.contains("Components"));
+    assert!(!screen.contains("not published by app"));
+    inspector.update_components(None);
+    assert!(text(&render(&mut inspector, 110, 28)).contains("not published by app"));
+    key(&mut inspector, KeyCode::Char('/'));
+    for ch in "cqs".chars() {
+        assert!(!key(&mut inspector, KeyCode::Char(ch)));
+    }
+    assert!(matches!(
+        inspector.overlay(),
+        Some(DebugOverlay::Components(_))
+    ));
 }
 
 #[test]

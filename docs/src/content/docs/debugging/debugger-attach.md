@@ -48,7 +48,7 @@ the in-app debug layer keeps its modal layout. Reusable `DebugInspector` views
 also default to modals; the standalone command explicitly opts into fullscreen
 with `DebugInspector::new().fullscreen()`. It opens on the action log:
 
-- `a` / `s`: toggle the action log / state tree.
+- `a` / `c` / `s`: toggle the action log / components / state tree.
 - `/`: search actions or filter state fields; Enter/Esc finishes typing.
 - `j` / `k`, arrows, PgUp/PgDn: navigate; `n` / `N` move between action matches.
 - Enter: open action or state-field details; Esc/Backspace returns to the list/tree.
@@ -59,8 +59,33 @@ New snapshots preserve search, selection, and expanded state sections. Open
 details stay fixed until you return to the list/tree. Action details include the
 payload, outcome, injecting parent ID, change flag, and serialization errors.
 Elapsed time shows `—` because the current transport does not carry timestamps.
-This interface is read only; frame freezing and local component/cell inspection
-remain part of the in-app debug layer.
+This interface is read only; frame freezing and buffer-cell inspection remain
+part of the in-app debug layer.
+
+The `c` view shows app-published component types, bindings, last rendered areas,
+and local debug entries, with the same filtering and details as the in-app view.
+Publish the latest complete frame on the app's UI thread after rendering. For a
+`ComponentHost`:
+
+```rust
+use tui_dispatch_debug::debug::ComponentSnapshot;
+
+collector.set_components(
+    host.mounted_components().iter()
+        .map(ComponentSnapshot::from_mounted_info)
+        .collect(),
+);
+```
+
+A custom registry can pass its `Vec<ComponentSnapshot>` directly. Only the most
+recent frame is retained; component updates do not need a dispatched action.
+Socket workers copy these owned values without accessing UI objects on another
+thread. State/history and component frames are sampled independently.
+
+If an app has not published component snapshots, the components title says so.
+Older socket servers and action recordings remain readable; they do not supply
+component frames. Space Invaders enables its component registry for
+`--debug-socket` and publishes it after each render, without needing `--debug`.
 
 It polls every 250 ms and retries disconnected sockets every second, retaining
 the last successful snapshot while disconnected. The counter exits after 60

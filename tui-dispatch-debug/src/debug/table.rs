@@ -128,7 +128,7 @@ impl ComponentDetailOverlay {
 }
 
 /// A non-generic snapshot of a single mounted component's debug info.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ComponentSnapshot {
     /// Internal mount handle id
     pub raw_id: u32,
@@ -139,9 +139,41 @@ pub struct ComponentSnapshot {
     /// The component ID name it's bound to, if any
     pub bound_id: Option<String>,
     /// Last rendered area, if any
+    #[serde(default, with = "component_area")]
     pub last_area: Option<Rect>,
     /// Debug state key-value pairs
     pub debug_entries: Vec<(String, String)>,
+}
+
+// Keep the wire format independent of ratatui's optional serde feature.
+mod component_area {
+    use super::Rect;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    struct Area {
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    }
+
+    pub fn serialize<S: Serializer>(area: &Option<Rect>, serializer: S) -> Result<S::Ok, S::Error> {
+        area.map(|rect| Area {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        })
+        .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Rect>, D::Error> {
+        Ok(Option::<Area>::deserialize(deserializer)?
+            .map(|area| Rect::new(area.x, area.y, area.width, area.height)))
+    }
 }
 
 impl ComponentSnapshot {
