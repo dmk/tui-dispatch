@@ -8,6 +8,7 @@ extern crate self as tui_dispatch_debug;
 
 pub mod cli;
 pub mod debug;
+pub mod observe;
 mod pattern_utils;
 pub mod replay;
 pub mod session;

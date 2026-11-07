@@ -5,6 +5,9 @@ description: Powerful debugging tools for TUI applications
 
 The debug layer provides powerful debugging tools for TUI applications: frame freeze, state inspection, cell inspection, and clipboard export.
 
+For action outcomes and state snapshots without rendering, use
+[dispatch observation](../debug-observation/).
+
 ## Quick Start
 
 The easiest way to add debugging is with `Runtime`:

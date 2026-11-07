@@ -63,3 +63,7 @@ required-features = ["subscriptions"]
 name = "stream_policies"
 harness = false
 required-features = ["subscriptions"]
+
+[[bench]]
+name = "debug_dispatch"
+harness = false

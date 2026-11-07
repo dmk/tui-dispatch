@@ -1,5 +1,7 @@
 //! Centralized state store with reducer pattern
 
+#[cfg(feature = "debug")]
+use crate::observe::{DispatchObservation, DispatchObserver, DispatchOutcome};
 use crate::Action;
 use std::marker::PhantomData;
 
@@ -266,6 +268,14 @@ pub(crate) trait MiddlewareDispatchDriver<A: Action> {
     fn cancelled_output(&mut self) -> Self::Output;
     fn after(&mut self, action: &A, result: &Self::Output) -> Vec<A>;
     fn merge_child(&mut self, parent: &mut Self::Output, child: Self::Output);
+    #[cfg(feature = "debug")]
+    fn observe(
+        &mut self,
+        action: &A,
+        depth: usize,
+        outcome: DispatchOutcome,
+        result: Option<&Self::Output>,
+    );
 }
 
 enum DispatchFrame<A: Action, O> {
@@ -292,10 +302,22 @@ where
         match frame {
             DispatchFrame::Pending(action) => {
                 let depth = stack.len();
-                check_dispatch_limits(limits, depth, processed, action.name())?;
+                let limit_result = check_dispatch_limits(limits, depth, processed, action.name());
+                #[cfg(feature = "debug")]
+                let limit_result = limit_result.inspect_err(|error| {
+                    driver.observe(
+                        &action,
+                        depth,
+                        DispatchOutcome::Rejected(error.clone()),
+                        None,
+                    );
+                });
+                limit_result?;
                 processed += 1;
 
                 if !driver.before(&action) {
+                    #[cfg(feature = "debug")]
+                    driver.observe(&action, depth, DispatchOutcome::Cancelled, None);
                     if !stack.is_empty() {
                         continue;
                     }
@@ -303,6 +325,8 @@ where
                 }
 
                 let result = driver.reduce(action.clone());
+                #[cfg(feature = "debug")]
+                driver.observe(&action, depth, DispatchOutcome::Applied, Some(&result));
                 let injected = driver.after(&action, &result).into_iter();
                 stack.push(DispatchFrame::Entered { result, injected });
             }
@@ -562,6 +586,8 @@ macro_rules! reducer_compose {
 pub struct Store<S, A: Action, E = NoEffect> {
     state: S,
     reducer: Reducer<S, A, E>,
+    #[cfg(feature = "debug")]
+    observer: Option<Box<dyn DispatchObserver<S, A>>>,
     _marker: PhantomData<(A, E)>,
 }
 
@@ -571,6 +597,8 @@ impl<S, A: Action, E> Store<S, A, E> {
         Self {
             state,
             reducer,
+            #[cfg(feature = "debug")]
+            observer: None,
             _marker: PhantomData,
         }
     }
@@ -580,7 +608,46 @@ impl<S, A: Action, E> Store<S, A, E> {
     /// The reducer will be called with the current state and action.
     /// Returns the reducer result.
     pub fn dispatch(&mut self, action: A) -> ReducerResult<E> {
+        #[cfg(feature = "debug")]
+        if self
+            .observer
+            .as_ref()
+            .is_some_and(|observer| observer.is_enabled())
+        {
+            let observed = action.clone();
+            let result = (self.reducer)(&mut self.state, action);
+            self.observe(
+                &observed,
+                DispatchObservation {
+                    depth: 0,
+                    changed: result.changed,
+                    outcome: DispatchOutcome::Applied,
+                },
+            );
+            return result;
+        }
         (self.reducer)(&mut self.state, action)
+    }
+
+    /// Install or replace a passive dispatch observer.
+    #[cfg(feature = "debug")]
+    pub fn set_observer(&mut self, observer: impl DispatchObserver<S, A> + 'static) {
+        self.observer = Some(Box::new(observer));
+    }
+
+    /// Remove the current dispatch observer.
+    #[cfg(feature = "debug")]
+    pub fn clear_observer(&mut self) {
+        self.observer = None;
+    }
+
+    #[cfg(feature = "debug")]
+    fn observe(&mut self, action: &A, observation: DispatchObservation) {
+        if let Some(observer) = self.observer.as_mut() {
+            if observer.is_enabled() {
+                observer.observe(action, &self.state, observation);
+            }
+        }
     }
 
     /// Get a reference to the current state
@@ -619,6 +686,18 @@ impl<S, A: Action, E, M: Middleware<S, A>> StoreWithMiddleware<S, A, E, M> {
             middleware,
             dispatch_limits: DispatchLimits::default(),
         }
+    }
+
+    /// Install or replace a passive dispatch observer, including injected actions.
+    #[cfg(feature = "debug")]
+    pub fn set_observer(&mut self, observer: impl DispatchObserver<S, A> + 'static) {
+        self.store.set_observer(observer);
+    }
+
+    /// Remove the current dispatch observer.
+    #[cfg(feature = "debug")]
+    pub fn clear_observer(&mut self) {
+        self.store.clear_observer();
     }
 
     /// Override middleware dispatch limits.
@@ -699,7 +778,26 @@ impl<S, A: Action, E, M: Middleware<S, A>> MiddlewareDispatchDriver<A>
     }
 
     fn reduce(&mut self, action: A) -> Self::Output {
-        self.store.dispatch(action)
+        // The middleware driver reports the boundary with its injection depth.
+        (self.store.reducer)(&mut self.store.state, action)
+    }
+
+    #[cfg(feature = "debug")]
+    fn observe(
+        &mut self,
+        action: &A,
+        depth: usize,
+        outcome: DispatchOutcome,
+        result: Option<&Self::Output>,
+    ) {
+        self.store.observe(
+            action,
+            DispatchObservation {
+                depth,
+                changed: result.is_some_and(|result| result.changed),
+                outcome,
+            },
+        );
     }
 
     fn cancelled_output(&mut self) -> Self::Output {

@@ -1,0 +1,21 @@
+run=1 cwd=/Users/dmk/Work/fr/rust-tui/tui-dispatch
+command=['cargo', 'bench', '--offline', '--target-dir', '/Users/dmk/Work/fr/rust-tui/tui-dispatch/target', '-p', 'tui-dispatch-core', '--bench', 'debug_dispatch', '--no-default-features']
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (target/release/deps/debug_dispatch-579aa8766d6aa6b1)
+debug_feature=false
+plain: median=0.92 min=0.91 max=1.37 ns/dispatch
+middleware: median=21.36 min=20.70 max=22.53 ns/dispatch
+run=2 cwd=/Users/dmk/Work/fr/rust-tui/tui-dispatch
+command=['cargo', 'bench', '--offline', '--target-dir', '/Users/dmk/Work/fr/rust-tui/tui-dispatch/target', '-p', 'tui-dispatch-core', '--bench', 'debug_dispatch', '--no-default-features']
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (target/release/deps/debug_dispatch-579aa8766d6aa6b1)
+debug_feature=false
+plain: median=0.92 min=0.91 max=0.96 ns/dispatch
+middleware: median=22.07 min=21.21 max=37.72 ns/dispatch
+run=3 cwd=/Users/dmk/Work/fr/rust-tui/tui-dispatch
+command=['cargo', 'bench', '--offline', '--target-dir', '/Users/dmk/Work/fr/rust-tui/tui-dispatch/target', '-p', 'tui-dispatch-core', '--bench', 'debug_dispatch', '--no-default-features']
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (target/release/deps/debug_dispatch-579aa8766d6aa6b1)
+debug_feature=false
+plain: median=0.91 min=0.91 max=4.21 ns/dispatch
+middleware: median=22.25 min=21.11 max=25.11 ns/dispatch

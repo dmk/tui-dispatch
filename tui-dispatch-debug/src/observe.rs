@@ -1,0 +1,214 @@
+//! Bounded dispatch collection without an overlay, terminal, or connected client.
+
+use std::{
+    collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
+
+use serde::Serialize;
+use serde_json::Value;
+use tui_dispatch_core::{Action, Middleware, Store, StoreWithMiddleware};
+
+pub use tui_dispatch_core::observe::{DispatchObservation, DispatchObserver, DispatchOutcome};
+
+/// An owned snapshot of one action's dispatch boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DebugRecord {
+    /// Monotonically increasing within this collector, starting at one.
+    pub sequence: u64,
+    /// Action identity within this collector (currently equal to `sequence`).
+    pub action_id: u64,
+    /// The injecting action, if observed by this observer handle.
+    pub parent_action_id: Option<u64>,
+    /// The action's stable variant name.
+    pub name: String,
+    /// Serialized action, including its payload.
+    pub action: Value,
+    /// State immediately after this action, before injected actions run.
+    pub state: Value,
+    /// Whether this action's reducer reported a change, excluding children.
+    pub changed: bool,
+    /// Applied, cancelled, or rejected by dispatch limits.
+    pub outcome: DispatchOutcome,
+    /// Serialization failures; the corresponding value is `null`.
+    pub serialization_errors: Vec<String>,
+}
+
+struct History {
+    records: VecDeque<DebugRecord>,
+    next_sequence: u64,
+    generation: u64,
+}
+
+struct Shared {
+    enabled: AtomicBool,
+    initial_state: Value,
+    capacity: usize,
+    history: Mutex<History>,
+}
+
+/// Shared, bounded history with no dependency on rendering.
+///
+/// Oldest records are evicted when capacity is reached. Capacity bounds record
+/// count, not bytes: full JSON snapshots can be large. Clones share collection
+/// state; each `observer()` has its own injection ancestry. Disabled or zero
+/// capacity collection performs no action/state serialization.
+#[derive(Clone)]
+pub struct DebugCollector {
+    shared: Arc<Shared>,
+}
+
+impl DebugCollector {
+    /// Create a collector with an explicit initial snapshot and record capacity.
+    pub fn new(initial_state: Value, capacity: usize) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                enabled: AtomicBool::new(capacity > 0),
+                initial_state,
+                capacity,
+                history: Mutex::new(History {
+                    records: VecDeque::new(),
+                    next_sequence: 1,
+                    generation: 0,
+                }),
+            }),
+        }
+    }
+
+    /// Initial snapshot supplied at construction (not retained again per action).
+    pub fn initial_state(&self) -> &Value {
+        &self.shared.initial_state
+    }
+
+    /// Create a handle to attach to one store. Handles share history and IDs.
+    pub fn observer(&self) -> DebugObserver {
+        DebugObserver {
+            collector: self.clone(),
+            ancestors: Vec::new(),
+            generation: 0,
+        }
+    }
+
+    /// Copy the retained records in dispatch order.
+    pub fn records(&self) -> Vec<DebugRecord> {
+        self.shared
+            .history
+            .lock()
+            .unwrap()
+            .records
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Enable or disable new collection, retaining existing history.
+    pub fn set_enabled(&self, enabled: bool) {
+        let mut history = self.shared.history.lock().unwrap();
+        self.shared
+            .enabled
+            .store(enabled && self.shared.capacity > 0, Ordering::Release);
+        history.generation = history.generation.wrapping_add(1);
+    }
+
+    /// Whether new dispatches will be collected.
+    pub fn is_enabled(&self) -> bool {
+        self.shared.enabled.load(Ordering::Acquire)
+    }
+}
+
+/// Store observation handle produced by [`DebugCollector::observer`].
+///
+/// State and actions must serialize; effects need no serialization or cloning.
+/// Serialization failures are recorded explicitly and never cancel reduction.
+pub struct DebugObserver {
+    collector: DebugCollector,
+    ancestors: Vec<u64>,
+    generation: u64,
+}
+
+impl<S: Serialize, A: Action + Serialize> DispatchObserver<S, A> for DebugObserver {
+    fn is_enabled(&self) -> bool {
+        self.collector.is_enabled()
+    }
+
+    fn observe(&mut self, action: &A, state: &S, observation: DispatchObservation) {
+        if !self.collector.is_enabled() {
+            return;
+        }
+        // User serializers run outside the history lock. Readers only contend
+        // with bounded history insertion, not full snapshot construction.
+        let mut serialization_errors = Vec::new();
+        let mut serialize = |value: Result<Value, serde_json::Error>, label: &str| {
+            value.unwrap_or_else(|error| {
+                serialization_errors.push(format!("{label}: {error}"));
+                Value::Null
+            })
+        };
+        let action_value = serialize(serde_json::to_value(action), "action");
+        let state_value = serialize(serde_json::to_value(state), "state");
+        let name = action.name().to_owned();
+        let shared = &self.collector.shared;
+        let mut history = shared.history.lock().unwrap();
+        if !shared.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        if self.generation != history.generation {
+            self.ancestors.clear();
+            self.generation = history.generation;
+        }
+        let sequence = history.next_sequence;
+        let Some(next) = sequence.checked_add(1) else {
+            shared.enabled.store(false, Ordering::Release);
+            return;
+        };
+        history.next_sequence = next;
+        self.ancestors.truncate(observation.depth);
+        let parent_action_id = observation
+            .depth
+            .checked_sub(1)
+            .and_then(|index| self.ancestors.get(index))
+            .copied();
+        // Missing ancestors can occur if collection was enabled inside a chain.
+        self.ancestors.resize(observation.depth, 0);
+        self.ancestors.push(sequence);
+        let parent_action_id = parent_action_id.filter(|id| *id != 0);
+        let record = DebugRecord {
+            sequence,
+            action_id: sequence,
+            parent_action_id,
+            name,
+            action: action_value,
+            state: state_value,
+            changed: observation.changed,
+            outcome: observation.outcome,
+            serialization_errors,
+        };
+        if history.records.len() == shared.capacity {
+            history.records.pop_front();
+        }
+        history.records.push_back(record);
+    }
+}
+
+/// Attach passive collection to a store before passing it to `Runtime::from_store`.
+pub trait DebugStoreExt<S, A: Action>: Sized {
+    /// Install an observer without changing middleware or dispatch behavior.
+    fn with_observer(self, observer: impl DispatchObserver<S, A> + 'static) -> Self;
+}
+
+impl<S, A: Action, E> DebugStoreExt<S, A> for Store<S, A, E> {
+    fn with_observer(mut self, observer: impl DispatchObserver<S, A> + 'static) -> Self {
+        self.set_observer(observer);
+        self
+    }
+}
+
+impl<S, A: Action, E, M: Middleware<S, A>> DebugStoreExt<S, A> for StoreWithMiddleware<S, A, E, M> {
+    fn with_observer(mut self, observer: impl DispatchObserver<S, A> + 'static) -> Self {
+        self.set_observer(observer);
+        self
+    }
+}

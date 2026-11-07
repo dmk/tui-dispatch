@@ -108,6 +108,8 @@ pub mod component;
 pub mod event;
 pub mod features;
 pub mod keybindings;
+#[cfg(feature = "debug")]
+pub mod observe;
 pub mod resource;
 pub mod runtime;
 pub mod store;

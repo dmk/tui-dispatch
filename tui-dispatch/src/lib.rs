@@ -90,7 +90,7 @@ pub use tui_dispatch_core::*;
 
 // Debug utilities
 #[cfg(feature = "debug")]
-pub use tui_dispatch_debug::debug;
+pub use tui_dispatch_debug::{debug, observe};
 #[cfg(not(feature = "debug"))]
 pub mod debug {
     pub use tui_dispatch_core::__macro_support::{
