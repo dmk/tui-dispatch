@@ -43,12 +43,14 @@ impl DebugState for InspectorState {
     }
 }
 
-/// Fullscreen read-only inspector using the same state tree, search, syntax
-/// colors, scrolling, details, and status bar as [`DebugLayer`].
+/// Read-only inspector using the same modal state tree, search, syntax colors,
+/// scrolling, details, and status bar as [`DebugLayer`].
 ///
 /// Feed it owned state and newest-first action entries. No application actions
 /// are dispatched and no task/freeze handles are attached. Updates preserve
 /// search/selection; an open detail remains stable until the user goes back.
+/// Embedded views are modal by default. The standalone client explicitly opts
+/// into [`fullscreen`](Self::fullscreen) presentation.
 pub struct DebugInspector {
     layer: DebugLayer<InspectorAction>,
     state: InspectorState,
@@ -65,7 +67,6 @@ impl DebugInspector {
     /// Start in the action list, ready for state/history supplied by a client.
     pub fn new() -> Self {
         let mut layer = DebugLayer::simple().with_state_snapshots::<InspectorState>();
-        layer.overlay_fullscreen = true;
         layer.freeze.enable();
         let actions = ActionLogOverlay::from_entries(Vec::new(), "Action Log");
         layer
@@ -76,6 +77,13 @@ impl DebugInspector {
             state: InspectorState(Value::Null),
             actions,
         }
+    }
+
+    /// Fill the terminal when running as a standalone debugger.
+    /// Embedded inspectors should retain the default modal presentation.
+    pub fn fullscreen(mut self) -> Self {
+        self.layer.overlay_fullscreen = true;
+        self
     }
 
     /// Apply the same palette used to customize a live debug layer.
@@ -185,16 +193,18 @@ impl DebugInspector {
     /// `status` is shown in the shared status bar (for example connection state).
     pub fn render(&mut self, frame: &mut Frame, status: &str) {
         let (area, banner) = self.layer.split_for_banner(frame.area());
-        frame.render_widget(
-            Block::default().style(Style::default().bg(self.layer.style.overlay_bg_dark)),
-            area,
-        );
-        if self.layer.freeze.overlay.is_none() {
+        if self.layer.overlay_fullscreen {
             frame.render_widget(
-                Paragraph::new("a: actions · s: state · q: quit")
-                    .style(Style::default().fg(self.layer.style.text_secondary)),
+                Block::default().style(Style::default().bg(self.layer.style.overlay_bg_dark)),
                 area,
             );
+            if self.layer.freeze.overlay.is_none() {
+                frame.render_widget(
+                    Paragraph::new("a: actions · s: state · q: quit")
+                        .style(Style::default().fg(self.layer.style.text_secondary)),
+                    area,
+                );
+            }
         }
         self.layer.render_current_overlay(frame, area);
 

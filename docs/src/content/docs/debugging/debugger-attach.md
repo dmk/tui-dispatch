@@ -44,7 +44,9 @@ cargo run -p tui-dispatch-debug --bin tui-dispatch-debug -- /tmp/my-tui-debug/ap
 
 The debugger reuses the live debug layer's action log, state tree, detail views,
 syntax colors, scrollbars, and status bar. Standalone views fill the terminal;
-the in-app debug layer keeps its modal layout. It opens on the action log:
+the in-app debug layer keeps its modal layout. Reusable `DebugInspector` views
+also default to modals; the standalone command explicitly opts into fullscreen
+with `DebugInspector::new().fullscreen()`. It opens on the action log:
 
 - `a` / `s`: toggle the action log / state tree.
 - `/`: search actions or filter state fields; Enter/Esc finishes typing.

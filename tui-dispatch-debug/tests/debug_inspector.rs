@@ -1,9 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+use ratatui::{backend::TestBackend, buffer::Buffer, widgets::Paragraph, Terminal};
 use serde_json::json;
 use tui_dispatch_core::EventKind;
 use tui_dispatch_debug::debug::{
-    ActionLogDisplayEntry, ActionLogOverlay, DebugInspector, DebugOverlay, DebugStyle,
+    ActionLogDisplayEntry, ActionLogOverlay, DebugInspector, DebugLayer, DebugOverlay, DebugStyle,
 };
 
 fn key(inspector: &mut DebugInspector, code: KeyCode) -> bool {
@@ -44,7 +44,7 @@ fn text(buffer: &Buffer) -> String {
 
 #[test]
 fn renders_shared_action_and_state_views_with_the_live_palette() {
-    let mut inspector = DebugInspector::new();
+    let mut inspector = DebugInspector::new().fullscreen();
     inspector.update(json!({"count":42,"label":"hello"}), entries(&[2, 1]));
     let buffer = render(&mut inspector, 110, 28);
     let rendered = text(&buffer);
@@ -82,6 +82,64 @@ fn renders_shared_action_and_state_views_with_the_live_palette() {
     }
     // Exercise shared view clipping on a small terminal.
     render(&mut inspector, 12, 3);
+}
+
+#[test]
+fn embedded_inspector_keeps_modals_and_the_application_behind_them() {
+    let mut inspector = DebugInspector::default();
+    inspector.update(json!({"count":42}), entries(&[1]));
+    let mut terminal = Terminal::new(TestBackend::new(110, 28)).unwrap();
+    for title in ["Action Log", "Application State"] {
+        terminal
+            .draw(|frame| {
+                frame.render_widget(Paragraph::new("application behind debugger"), frame.area());
+                inspector.render(frame, "Embedded");
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let first_row: String = (0..110).map(|x| buffer[(x, 0)].symbol()).collect();
+        assert!(first_row.contains("application behind debugger"));
+        assert!(!first_row.contains(title));
+        assert!(text(buffer).contains(title));
+        key(&mut inspector, KeyCode::Char('s'));
+    }
+}
+
+#[test]
+fn interactive_debug_layer_keeps_action_and_state_overlays_modal() {
+    #[derive(Clone, Debug)]
+    struct AppAction;
+    impl tui_dispatch_core::Action for AppAction {
+        fn name(&self) -> &'static str {
+            "AppAction"
+        }
+    }
+    let mut layer = DebugLayer::<AppAction>::simple();
+    layer.handle_event(&EventKind::Key(KeyEvent::new(
+        KeyCode::F(12),
+        KeyModifiers::NONE,
+    )));
+    assert!(layer.is_enabled());
+    layer.show_action_log();
+    let mut terminal = Terminal::new(TestBackend::new(110, 28)).unwrap();
+    for title in ["Action Log", "Application State"] {
+        terminal
+            .draw(|frame| {
+                layer.render_state(frame, &(), |frame, area| {
+                    frame.render_widget(Paragraph::new("application behind debugger"), area);
+                });
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let first_row: String = (0..110).map(|x| buffer[(x, 0)].symbol()).collect();
+        assert!(first_row.contains("application behind debugger"));
+        assert!(!first_row.contains(title));
+        assert!(text(buffer).contains(title));
+        layer.handle_event_with_state(
+            &EventKind::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
+            &(),
+        );
+    }
 }
 
 #[test]

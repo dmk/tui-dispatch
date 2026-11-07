@@ -257,7 +257,7 @@ mod client {
             }
         }
         let _reader = ReaderGuard(reader);
-        let mut inspector = DebugInspector::new();
+        let mut inspector = DebugInspector::new().fullscreen();
         let mut status = "Connecting…".to_owned();
         let mut tick = tokio::time::interval(Duration::from_millis(50));
         let mut first_draw = true;
