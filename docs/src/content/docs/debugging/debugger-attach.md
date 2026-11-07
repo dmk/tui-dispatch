@@ -75,6 +75,9 @@ let snapshot = client.snapshot().await?;
 println!("{} retained actions", snapshot.history.len());
 ```
 
+The debugger also opens [recording files](../recording-files/) with
+`--recording session.tuidbg`; add `--follow` to watch an active recording.
+
 Late attachment includes the collector's retained history. Each snapshot contains
 a consistent history and its last state, or the supplied initial state if history
 is empty. Disabled collection retains its last observed state; it does not track

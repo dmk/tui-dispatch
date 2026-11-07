@@ -1,5 +1,8 @@
 # Debug observation performance
 
+For item 09 recording throughput, live-follow latency, and streaming memory,
+see [Recording performance](recording.md).
+
 For item 08's dispatch comparison, Unix socket latency, and slow-client memory
 baseline, see [Debugger attachment performance](transport.md).
 

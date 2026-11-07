@@ -51,6 +51,7 @@ export default defineConfig({
             { label: 'Debug Sessions', slug: 'debugging/debug-sessions' },
             { label: 'Dispatch Observation', slug: 'debugging/debug-observation' },
             { label: 'Standalone Debugger', slug: 'debugging/debugger-attach' },
+            { label: 'Recording Files', slug: 'debugging/recording-files' },
             { label: 'Feature Flags', slug: 'debugging/feature-flags' },
           ],
         },

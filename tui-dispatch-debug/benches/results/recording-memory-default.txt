@@ -1,0 +1,205 @@
+Allocation accounting; separate from uninstrumented timing; records are streamed, never accumulated
+
+TUI_DEBUG_RECORDING_COUNT=512 cargo bench --offline -p tui-dispatch-debug --bench debug_recording_memory (run 1)
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording_memory.rs (target/release/deps/debug_recording_memory-2d0c165c6fb27640)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=512 file_bytes=99852
+  append_flush_us/record: median=1.976 min=1.689 max=2.040
+  offline_us/record: median=0.557 min=0.545 max=0.772
+  write_MiB/s=94.13
+state=0 payload=0 flush_every=64 records=512 file_bytes=99852
+  append_flush_us/record: median=0.601 min=0.596 max=0.631
+  offline_us/record: median=0.544 min=0.537 max=0.561
+  write_MiB/s=309.34
+state=4096 payload=256 flush_every=1 records=512 file_bytes=2328076
+  append_flush_us/record: median=4.936 min=4.788 max=5.264
+  offline_us/record: median=1.500 min=1.475 max=1.667
+  write_MiB/s=878.47
+state=4096 payload=256 flush_every=64 records=512 file_bytes=2328076
+  append_flush_us/record: median=4.848 min=4.733 max=5.435
+  offline_us/record: median=1.472 min=1.447 max=1.494
+  write_MiB/s=894.49
+state=65536 payload=4096 flush_every=1 records=512 file_bytes=35751436
+  append_flush_us/record: median=38.020 min=36.314 max=69.107
+  offline_us/record: median=12.350 min=11.795 max=15.396
+  write_MiB/s=1751.52
+state=65536 payload=4096 flush_every=64 records=512 file_bytes=35751436
+  append_flush_us/record: median=38.275 min=36.562 max=51.376
+  offline_us/record: median=12.233 min=11.826 max=15.063
+  write_MiB/s=1739.82
+state=0 follow_catchup_us/record=0.743
+state=4096 follow_catchup_us/record=3.868
+state=65536 follow_catchup_us/record=21.800
+live_append_flush_delivery_ms p50=8.634 p95=9.140 p99=10.108
+owned_heap_peak=345729 live_after_runtime_drop=1868
+
+TUI_DEBUG_RECORDING_COUNT=512 cargo bench --offline -p tui-dispatch-debug --bench debug_recording_memory (run 2)
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording_memory.rs (target/release/deps/debug_recording_memory-2d0c165c6fb27640)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=512 file_bytes=99852
+  append_flush_us/record: median=1.752 min=1.726 max=1.927
+  offline_us/record: median=0.550 min=0.536 max=0.561
+  write_MiB/s=106.17
+state=0 payload=0 flush_every=64 records=512 file_bytes=99852
+  append_flush_us/record: median=0.529 min=0.477 max=0.566
+  offline_us/record: median=0.529 min=0.526 max=0.539
+  write_MiB/s=351.82
+state=4096 payload=256 flush_every=1 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.473 min=5.314 max=5.690
+  offline_us/record: median=1.542 min=1.517 max=1.953
+  write_MiB/s=792.38
+state=4096 payload=256 flush_every=64 records=512 file_bytes=2328076
+  append_flush_us/record: median=4.936 min=4.706 max=5.215
+  offline_us/record: median=1.555 min=1.503 max=1.664
+  write_MiB/s=878.53
+state=65536 payload=4096 flush_every=1 records=512 file_bytes=35751436
+  append_flush_us/record: median=39.694 min=37.849 max=56.009
+  offline_us/record: median=12.685 min=11.652 max=15.466
+  write_MiB/s=1677.65
+state=65536 payload=4096 flush_every=64 records=512 file_bytes=35751436
+  append_flush_us/record: median=38.044 min=36.766 max=55.374
+  offline_us/record: median=12.716 min=11.948 max=16.252
+  write_MiB/s=1750.40
+state=0 follow_catchup_us/record=0.713
+state=4096 follow_catchup_us/record=4.021
+state=65536 follow_catchup_us/record=21.315
+live_append_flush_delivery_ms p50=8.831 p95=9.122 p99=10.071
+owned_heap_peak=345729 live_after_runtime_drop=1868
+
+TUI_DEBUG_RECORDING_COUNT=512 cargo bench --offline -p tui-dispatch-debug --bench debug_recording_memory (run 3)
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording_memory.rs (target/release/deps/debug_recording_memory-2d0c165c6fb27640)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=512 file_bytes=99852
+  append_flush_us/record: median=1.679 min=1.654 max=1.945
+  offline_us/record: median=0.557 min=0.533 max=0.574
+  write_MiB/s=110.77
+state=0 payload=0 flush_every=64 records=512 file_bytes=99852
+  append_flush_us/record: median=0.560 min=0.526 max=0.683
+  offline_us/record: median=0.540 min=0.528 max=0.557
+  write_MiB/s=332.38
+state=4096 payload=256 flush_every=1 records=512 file_bytes=2328076
+  append_flush_us/record: median=4.941 min=4.767 max=5.254
+  offline_us/record: median=1.488 min=1.458 max=1.912
+  write_MiB/s=877.63
+state=4096 payload=256 flush_every=64 records=512 file_bytes=2328076
+  append_flush_us/record: median=4.974 min=4.821 max=5.204
+  offline_us/record: median=1.483 min=1.461 max=1.949
+  write_MiB/s=871.89
+state=65536 payload=4096 flush_every=1 records=512 file_bytes=35751436
+  append_flush_us/record: median=43.133 min=35.817 max=115.154
+  offline_us/record: median=12.864 min=12.084 max=14.651
+  write_MiB/s=1543.87
+state=65536 payload=4096 flush_every=64 records=512 file_bytes=35751436
+  append_flush_us/record: median=38.457 min=36.374 max=42.110
+  offline_us/record: median=12.950 min=11.986 max=15.230
+  write_MiB/s=1731.60
+state=0 follow_catchup_us/record=0.885
+state=4096 follow_catchup_us/record=3.943
+state=65536 follow_catchup_us/record=24.734
+live_append_flush_delivery_ms p50=8.380 p95=9.096 p99=10.122
+owned_heap_peak=345729 live_after_runtime_drop=1868
+
+TUI_DEBUG_RECORDING_COUNT=4096 cargo bench --offline -p tui-dispatch-debug --bench debug_recording_memory (run 1)
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording_memory.rs (target/release/deps/debug_recording_memory-2d0c165c6fb27640)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=4096 file_bytes=798732
+  append_flush_us/record: median=1.483 min=1.462 max=1.503
+  offline_us/record: median=0.542 min=0.532 max=0.574
+  write_MiB/s=125.37
+state=0 payload=0 flush_every=64 records=4096 file_bytes=798732
+  append_flush_us/record: median=0.463 min=0.447 max=0.484
+  offline_us/record: median=0.542 min=0.537 max=0.567
+  write_MiB/s=402.07
+state=4096 payload=256 flush_every=1 records=4096 file_bytes=18624524
+  append_flush_us/record: median=7.414 min=5.868 max=8.294
+  offline_us/record: median=1.646 min=1.521 max=1.838
+  write_MiB/s=584.87
+state=4096 payload=256 flush_every=64 records=4096 file_bytes=18624524
+  append_flush_us/record: median=5.452 min=5.309 max=5.952
+  offline_us/record: median=1.682 min=1.585 max=1.742
+  write_MiB/s=795.41
+state=65536 payload=4096 flush_every=1 records=4096 file_bytes=286011404
+  append_flush_us/record: median=347.250 min=42.102 max=689.101
+  offline_us/record: median=13.523 min=12.956 max=68.292
+  write_MiB/s=191.77
+state=65536 payload=4096 flush_every=64 records=4096 file_bytes=286011404
+  append_flush_us/record: median=128.851 min=40.322 max=816.119
+  offline_us/record: median=13.401 min=13.240 max=20.240
+  write_MiB/s=516.81
+state=0 follow_catchup_us/record=0.676
+state=4096 follow_catchup_us/record=3.918
+state=65536 follow_catchup_us/record=25.019
+live_append_flush_delivery_ms p50=8.381 p95=9.108 p99=10.065
+owned_heap_peak=345729 live_after_runtime_drop=1868
+
+TUI_DEBUG_RECORDING_COUNT=4096 cargo bench --offline -p tui-dispatch-debug --bench debug_recording_memory (run 2)
+    Finished `bench` profile [optimized] target(s) in 0.08s
+     Running benches/debug_recording_memory.rs (target/release/deps/debug_recording_memory-2d0c165c6fb27640)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=4096 file_bytes=798732
+  append_flush_us/record: median=1.486 min=1.463 max=1.517
+  offline_us/record: median=0.536 min=0.527 max=0.550
+  write_MiB/s=125.16
+state=0 payload=0 flush_every=64 records=4096 file_bytes=798732
+  append_flush_us/record: median=0.462 min=0.451 max=0.480
+  offline_us/record: median=0.529 min=0.525 max=0.546
+  write_MiB/s=402.53
+state=4096 payload=256 flush_every=1 records=4096 file_bytes=18624524
+  append_flush_us/record: median=6.038 min=6.003 max=6.844
+  offline_us/record: median=1.658 min=1.542 max=1.698
+  write_MiB/s=718.17
+state=4096 payload=256 flush_every=64 records=4096 file_bytes=18624524
+  append_flush_us/record: median=5.488 min=5.400 max=5.675
+  offline_us/record: median=1.555 min=1.488 max=1.647
+  write_MiB/s=790.12
+state=65536 payload=4096 flush_every=1 records=4096 file_bytes=286011404
+  append_flush_us/record: median=201.049 min=40.787 max=736.789
+  offline_us/record: median=13.499 min=13.299 max=13.644
+  write_MiB/s=331.22
+state=65536 payload=4096 flush_every=64 records=4096 file_bytes=286011404
+  append_flush_us/record: median=248.276 min=50.254 max=904.204
+  offline_us/record: median=13.587 min=13.213 max=14.443
+  write_MiB/s=268.22
+state=0 follow_catchup_us/record=1.906
+state=4096 follow_catchup_us/record=4.547
+state=65536 follow_catchup_us/record=24.891
+live_append_flush_delivery_ms p50=8.653 p95=9.107 p99=10.072
+owned_heap_peak=345729 live_after_runtime_drop=1868
+
+TUI_DEBUG_RECORDING_COUNT=4096 cargo bench --offline -p tui-dispatch-debug --bench debug_recording_memory (run 3)
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording_memory.rs (target/release/deps/debug_recording_memory-2d0c165c6fb27640)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=4096 file_bytes=798732
+  append_flush_us/record: median=1.507 min=1.482 max=1.553
+  offline_us/record: median=0.533 min=0.525 max=0.544
+  write_MiB/s=123.39
+state=0 payload=0 flush_every=64 records=4096 file_bytes=798732
+  append_flush_us/record: median=0.478 min=0.466 max=0.480
+  offline_us/record: median=0.537 min=0.521 max=0.550
+  write_MiB/s=388.76
+state=4096 payload=256 flush_every=1 records=4096 file_bytes=18624524
+  append_flush_us/record: median=5.470 min=5.359 max=8.196
+  offline_us/record: median=1.552 min=1.540 max=1.681
+  write_MiB/s=792.72
+state=4096 payload=256 flush_every=64 records=4096 file_bytes=18624524
+  append_flush_us/record: median=5.612 min=5.548 max=5.742
+  offline_us/record: median=1.536 min=1.478 max=1.707
+  write_MiB/s=772.68
+state=65536 payload=4096 flush_every=1 records=4096 file_bytes=286011404
+  append_flush_us/record: median=222.688 min=39.696 max=633.086
+  offline_us/record: median=15.245 min=12.951 max=20.082
+  write_MiB/s=299.04
+state=65536 payload=4096 flush_every=64 records=4096 file_bytes=286011404
+  append_flush_us/record: median=368.056 min=64.905 max=852.669
+  offline_us/record: median=13.622 min=13.184 max=19.772
+  write_MiB/s=180.93
+state=0 follow_catchup_us/record=0.688
+state=4096 follow_catchup_us/record=4.673
+state=65536 follow_catchup_us/record=24.728
+live_append_flush_delivery_ms p50=8.166 p95=9.081 p99=9.886
+owned_heap_peak=346012 live_after_runtime_drop=1868

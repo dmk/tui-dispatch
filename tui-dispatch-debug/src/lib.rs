@@ -10,6 +10,8 @@ pub mod cli;
 pub mod debug;
 pub mod observe;
 mod pattern_utils;
+pub mod recording;
+pub mod records;
 pub mod replay;
 pub mod session;
 pub mod snapshot;

@@ -12,17 +12,14 @@ use std::{
     time::Duration,
 };
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
     sync::oneshot,
     task::{JoinHandle, JoinSet},
 };
-use tui_dispatch_core::DispatchError;
 
-use crate::observe::{DebugCollector, DebugRecord, DispatchOutcome};
+use crate::observe::DebugCollector;
 
 /// Maximum serialized snapshot size. Oversized replies close the connection.
 pub const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
@@ -31,85 +28,7 @@ pub const MAX_CLIENTS: usize = 8;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const SNAPSHOT_REQUEST: u8 = 1;
 
-/// An atomic view of the last observed state and retained dispatch history.
-///
-/// State is the latest collected boundary, or the supplied initial state before
-/// any collection. It may lag the app when collection is disabled. History count
-/// is bounded by the collector; snapshots are limited to [`MAX_SNAPSHOT_BYTES`]
-/// on the wire. Every request returns the full retained history.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DebugSnapshot {
-    pub state: Value,
-    pub history: Vec<SnapshotRecord>,
-}
-
-/// Owned wire representation of a dispatch record.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SnapshotRecord {
-    pub sequence: u64,
-    pub action_id: u64,
-    pub parent_action_id: Option<u64>,
-    pub name: String,
-    pub action: Value,
-    pub state: Value,
-    pub changed: bool,
-    pub outcome: SnapshotOutcome,
-    pub serialization_errors: Vec<String>,
-}
-
-/// Dispatch outcomes with owned rejection details for use across processes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SnapshotOutcome {
-    Applied,
-    Cancelled,
-    DepthExceeded {
-        max_depth: usize,
-        action: String,
-    },
-    ActionBudgetExceeded {
-        max_actions: usize,
-        processed: usize,
-        action: String,
-    },
-    /// Preserves diagnostic text if core adds another outcome.
-    Other(String),
-}
-
-impl From<DebugRecord> for SnapshotRecord {
-    fn from(record: DebugRecord) -> Self {
-        let outcome = match record.outcome {
-            DispatchOutcome::Applied => SnapshotOutcome::Applied,
-            DispatchOutcome::Cancelled => SnapshotOutcome::Cancelled,
-            DispatchOutcome::Rejected(DispatchError::DepthExceeded { max_depth, action }) => {
-                SnapshotOutcome::DepthExceeded {
-                    max_depth,
-                    action: action.into(),
-                }
-            }
-            DispatchOutcome::Rejected(DispatchError::ActionBudgetExceeded {
-                max_actions,
-                processed,
-                action,
-            }) => SnapshotOutcome::ActionBudgetExceeded {
-                max_actions,
-                processed,
-                action: action.into(),
-            },
-            other => SnapshotOutcome::Other(format!("{other:?}")),
-        };
-        Self {
-            sequence: record.sequence,
-            action_id: record.action_id,
-            parent_action_id: record.parent_action_id,
-            name: record.name,
-            action: record.action,
-            state: record.state,
-            changed: record.changed,
-            outcome,
-            serialization_errors: record.serialization_errors,
-        }
-    }
-}
+pub use crate::records::{DebugSnapshot, SnapshotOutcome, SnapshotRecord};
 
 impl DebugSnapshot {
     fn collect(collector: &DebugCollector) -> Self {

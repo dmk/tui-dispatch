@@ -1,0 +1,101 @@
+2026-11-04; base ecb678b3c23782d07f2db7f50640521aad607e6f plus item 09 working changes
+cargo bench --offline -p tui-dispatch-debug --bench debug_recording
+
+run 1
+    Finished `bench` profile [optimized] target(s) in 0.12s
+     Running benches/debug_recording.rs (target/release/deps/debug_recording-bcafce434fba3b5e)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=512 file_bytes=99852
+  append_flush_us/record: median=1.752 min=1.657 max=2.132
+  offline_us/record: median=0.535 min=0.532 max=0.541
+  write_MiB/s=106.14
+state=0 payload=0 flush_every=64 records=512 file_bytes=99852
+  append_flush_us/record: median=0.541 min=0.518 max=0.661
+  offline_us/record: median=0.528 min=0.512 max=0.545
+  write_MiB/s=344.04
+state=4096 payload=256 flush_every=1 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.098 min=4.970 max=5.293
+  offline_us/record: median=1.517 min=1.504 max=1.772
+  write_MiB/s=850.57
+state=4096 payload=256 flush_every=64 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.155 min=4.925 max=5.567
+  offline_us/record: median=1.547 min=1.484 max=1.889
+  write_MiB/s=841.21
+state=65536 payload=4096 flush_every=1 records=512 file_bytes=35751436
+  append_flush_us/record: median=42.884 min=38.387 max=93.477
+  offline_us/record: median=14.116 min=12.221 max=15.863
+  write_MiB/s=1552.86
+state=65536 payload=4096 flush_every=64 records=512 file_bytes=35751436
+  append_flush_us/record: median=50.080 min=46.665 max=75.849
+  offline_us/record: median=14.112 min=12.937 max=20.590
+  write_MiB/s=1329.71
+state=0 follow_catchup_us/record=0.752
+state=4096 follow_catchup_us/record=3.882
+state=65536 follow_catchup_us/record=24.417
+live_append_flush_delivery_ms p50=8.601 p95=9.071 p99=9.104
+
+run 2
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording.rs (target/release/deps/debug_recording-bcafce434fba3b5e)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=512 file_bytes=99852
+  append_flush_us/record: median=1.721 min=1.619 max=1.826
+  offline_us/record: median=0.539 min=0.522 max=0.548
+  write_MiB/s=108.05
+state=0 payload=0 flush_every=64 records=512 file_bytes=99852
+  append_flush_us/record: median=0.530 min=0.506 max=0.588
+  offline_us/record: median=0.527 min=0.514 max=0.533
+  write_MiB/s=350.74
+state=4096 payload=256 flush_every=1 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.618 min=5.335 max=5.869
+  offline_us/record: median=1.501 min=1.449 max=1.822
+  write_MiB/s=771.85
+state=4096 payload=256 flush_every=64 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.167 min=4.737 max=5.232
+  offline_us/record: median=1.469 min=1.453 max=1.681
+  write_MiB/s=839.17
+state=65536 payload=4096 flush_every=1 records=512 file_bytes=35751436
+  append_flush_us/record: median=46.322 min=36.427 max=111.649
+  offline_us/record: median=12.323 min=12.041 max=15.223
+  write_MiB/s=1437.60
+state=65536 payload=4096 flush_every=64 records=512 file_bytes=35751436
+  append_flush_us/record: median=43.545 min=38.095 max=57.023
+  offline_us/record: median=12.476 min=12.181 max=13.797
+  write_MiB/s=1529.29
+state=0 follow_catchup_us/record=0.722
+state=4096 follow_catchup_us/record=3.996
+state=65536 follow_catchup_us/record=22.439
+live_append_flush_delivery_ms p50=8.556 p95=9.095 p99=9.711
+
+run 3
+    Finished `bench` profile [optimized] target(s) in 0.07s
+     Running benches/debug_recording.rs (target/release/deps/debug_recording-bcafce434fba3b5e)
+7 batches after one warmup; hot OS page cache; setup/open/finish excluded; append includes serialization; no fsync
+state=0 payload=0 flush_every=1 records=512 file_bytes=99852
+  append_flush_us/record: median=1.766 min=1.615 max=1.964
+  offline_us/record: median=0.522 min=0.519 max=0.542
+  write_MiB/s=105.33
+state=0 payload=0 flush_every=64 records=512 file_bytes=99852
+  append_flush_us/record: median=0.548 min=0.510 max=0.711
+  offline_us/record: median=0.519 min=0.516 max=0.538
+  write_MiB/s=339.69
+state=4096 payload=256 flush_every=1 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.137 min=4.911 max=5.732
+  offline_us/record: median=1.504 min=1.472 max=1.862
+  write_MiB/s=844.09
+state=4096 payload=256 flush_every=64 records=512 file_bytes=2328076
+  append_flush_us/record: median=5.072 min=4.810 max=6.047
+  offline_us/record: median=1.495 min=1.442 max=1.905
+  write_MiB/s=854.92
+state=65536 payload=4096 flush_every=1 records=512 file_bytes=35751436
+  append_flush_us/record: median=52.240 min=38.962 max=61.014
+  offline_us/record: median=12.770 min=12.065 max=13.148
+  write_MiB/s=1274.73
+state=65536 payload=4096 flush_every=64 records=512 file_bytes=35751436
+  append_flush_us/record: median=39.606 min=37.271 max=46.295
+  offline_us/record: median=12.788 min=11.803 max=15.243
+  write_MiB/s=1681.35
+state=0 follow_catchup_us/record=0.714
+state=4096 follow_catchup_us/record=3.896
+state=65536 follow_catchup_us/record=21.447
+live_append_flush_delivery_ms p50=8.222 p95=9.115 p99=9.157
