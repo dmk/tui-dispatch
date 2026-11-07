@@ -1,4 +1,4 @@
-//! Read-only, pull-based debugger attachment over a private Unix socket.
+//! Snapshot collection and live debugger controls over a private Unix socket.
 //!
 //! Collection is independent of the server and never waits for a client. Each
 //! request copies one consistent retained history; there is no per-action queue.
@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 
+use crate::control::{ControlSession, ControlStatus, DebugCommand};
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
@@ -27,6 +29,15 @@ pub const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_CLIENTS: usize = 8;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const SNAPSHOT_REQUEST: u8 = 1;
+const CONTROL_REQUEST: u8 = 2;
+const MAX_CONTROL_BYTES: usize = 4096;
+const MAX_CONTROL_REPLY_BYTES: usize = MAX_CONTROL_BYTES * 2;
+
+#[derive(Serialize, Deserialize)]
+enum ControlReply {
+    Accepted(ControlStatus),
+    Rejected(String),
+}
 
 pub use crate::records::{DebugSnapshot, SnapshotOutcome, SnapshotRecord};
 
@@ -44,6 +55,7 @@ impl DebugSnapshot {
             state,
             history: history.into_iter().map(Into::into).collect(),
             components: collector.components(),
+            control: collector.control_status(),
         }
     }
 }
@@ -68,7 +80,7 @@ impl Drop for SocketPath {
     }
 }
 
-/// A read-only attachment server. Keep it alive alongside the app's runtime.
+/// An attachment server. Keep it alive alongside the app's runtime.
 ///
 /// Binding never removes an existing entry, including a stale socket or symlink.
 /// Use an absolute path in a directory owned by the app's user. The socket has
@@ -171,17 +183,46 @@ impl Write for Frame {
 
 async fn serve_client(mut stream: UnixStream, collector: DebugCollector) -> io::Result<()> {
     let mut frame = Frame(Vec::new());
+    let controls = ControlSession::new(collector.clone())?;
     loop {
-        if stream.read_u8().await? != SNAPSHOT_REQUEST {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "unknown debugger request",
-            ));
-        }
-        let snapshot = DebugSnapshot::collect(&collector);
+        let request = stream.read_u8().await?;
         frame.0.clear();
-        serde_json::to_writer(&mut frame, &snapshot)?;
-        drop(snapshot);
+        match request {
+            SNAPSHOT_REQUEST => {
+                let snapshot = DebugSnapshot::collect(&collector);
+                serde_json::to_writer(&mut frame, &snapshot)?;
+            }
+            CONTROL_REQUEST => {
+                let command: DebugCommand = tokio::time::timeout(IO_TIMEOUT, async {
+                    let len = stream.read_u32().await? as usize;
+                    if len > MAX_CONTROL_BYTES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "debug command exceeds frame limit",
+                        ));
+                    }
+                    let mut bytes = vec![0; len];
+                    stream.read_exact(&mut bytes).await?;
+                    serde_json::from_slice(&bytes)
+                        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+                })
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "debug command read timed out")
+                })??;
+                let reply = match controls.command(command) {
+                    Ok(status) => ControlReply::Accepted(status),
+                    Err(error) => ControlReply::Rejected(error.to_string()),
+                };
+                serde_json::to_writer(&mut frame, &reply)?;
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "unknown debugger request",
+                ))
+            }
+        }
         tokio::time::timeout(IO_TIMEOUT, async {
             stream.write_u32(frame.0.len() as u32).await?;
             stream.write_all(&frame.0).await
@@ -208,6 +249,49 @@ impl DebugClient {
             ready: true,
             bytes: Vec::new(),
         })
+    }
+
+    /// Submit a live command on this connection. Dropping the connection
+    /// releases its pause and highlight requests. Rejections leave it usable;
+    /// interrupted I/O invalidates it just like an interrupted snapshot.
+    pub async fn command(&mut self, command: DebugCommand) -> io::Result<ControlStatus> {
+        let payload = serde_json::to_vec(&command)?;
+        if payload.len() > MAX_CONTROL_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "debug command exceeds frame limit",
+            ));
+        }
+        if !self.ready {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "reconnect after an interrupted request",
+            ));
+        }
+        self.ready = false;
+        let reply: ControlReply = tokio::time::timeout(IO_TIMEOUT, async {
+            self.stream.write_u8(CONTROL_REQUEST).await?;
+            self.stream.write_u32(payload.len() as u32).await?;
+            self.stream.write_all(&payload).await?;
+            let len = self.stream.read_u32().await? as usize;
+            if len > MAX_CONTROL_REPLY_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "debug reply exceeds frame limit",
+                ));
+            }
+            self.bytes.resize(len, 0);
+            self.stream.read_exact(&mut self.bytes).await?;
+            serde_json::from_slice(&self.bytes)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "debug command timed out"))??;
+        self.ready = true;
+        match reply {
+            ControlReply::Accepted(status) => Ok(status),
+            ControlReply::Rejected(error) => Err(io::Error::new(io::ErrorKind::Unsupported, error)),
+        }
     }
 
     /// Request a full snapshot with a five-second I/O deadline.

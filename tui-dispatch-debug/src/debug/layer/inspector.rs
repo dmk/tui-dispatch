@@ -1,4 +1,5 @@
 //! Read-only data adapter for the live debug layer's existing views.
+use crate::control::{ComponentTarget, ControlStatus, DebugCommand};
 use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::{
     style::Style,
@@ -43,11 +44,12 @@ impl DebugState for InspectorState {
     }
 }
 
-/// Read-only inspector using the same modal state tree, search, syntax colors,
+/// State inspector using the same modal state tree, search, syntax colors,
 /// scrolling, details, and status bar as [`DebugLayer`].
 ///
 /// Feed it owned state and newest-first action entries. No application actions
-/// are dispatched and no task/freeze handles are attached. Updates preserve
+/// are dispatched by this view. Optional live commands go to its socket client.
+/// Updates preserve
 /// search/selection; an open detail remains stable until the user goes back.
 /// Embedded views are modal by default. The standalone client explicitly opts
 /// into [`fullscreen`](Self::fullscreen) presentation.
@@ -55,6 +57,9 @@ pub struct DebugInspector {
     layer: DebugLayer<InspectorAction>,
     state: InspectorState,
     actions: ActionLogOverlay,
+    remote: Option<ControlStatus>,
+    pause_toggle: bool,
+    sent_highlight: Option<ComponentTarget>,
 }
 
 impl Default for DebugInspector {
@@ -67,6 +72,7 @@ impl DebugInspector {
     /// Start in the action list, ready for state/history supplied by a client.
     pub fn new() -> Self {
         let mut layer = DebugLayer::simple().with_state_snapshots::<InspectorState>();
+        layer.component_highlight_local = false;
         layer.freeze.enable();
         let actions = ActionLogOverlay::from_entries(Vec::new(), "Action Log");
         layer
@@ -76,6 +82,9 @@ impl DebugInspector {
             layer,
             state: InspectorState(Value::Null),
             actions,
+            remote: None,
+            pause_toggle: false,
+            sent_highlight: None,
         }
     }
 
@@ -161,12 +170,60 @@ impl DebugInspector {
         self.layer.freeze.overlay.as_ref()
     }
 
+    /// Update live app capabilities/confirmed pause state from a socket snapshot.
+    pub fn update_control_status(&mut self, status: Option<ControlStatus>) {
+        if self.remote.is_none() && status.is_some() {
+            self.layer.freeze.clear_message();
+        }
+        self.remote = status;
+    }
+
+    fn selected_component(&self) -> Option<ComponentTarget> {
+        let (raw_id, bound_id) = match self.layer.freeze.overlay.as_ref()? {
+            DebugOverlay::Components(view) => {
+                let id = self.layer.components_tree_selected.as_deref()?;
+                let index = id
+                    .strip_prefix("comp:")
+                    .or_else(|| {
+                        id.strip_prefix("entry:")
+                            .and_then(|id| id.split(':').next())
+                    })?
+                    .parse::<usize>()
+                    .ok()?;
+                let component = view.components.get(index)?;
+                (component.raw_id, component.bound_id.clone())
+            }
+            DebugOverlay::ComponentDetail(detail) => (detail.raw_id, detail.bound_id.clone()),
+            _ => return None,
+        };
+        Some(ComponentTarget {
+            raw_id: if bound_id.is_some() { 0 } else { raw_id },
+            bound_id,
+        })
+    }
+
+    /// Coalesced live requests: at most one pause toggle and one selection
+    /// change per UI pass. The client sends these on its persistent connection.
+    pub fn take_commands(&mut self) -> Vec<DebugCommand> {
+        let mut commands = Vec::new();
+        if std::mem::take(&mut self.pause_toggle) {
+            commands.push(DebugCommand::TogglePause);
+        }
+        let highlight = self.remote.as_ref().and_then(|_| self.selected_component());
+        if highlight != self.sent_highlight {
+            self.sent_highlight = highlight.clone();
+            commands.push(DebugCommand::Highlight(highlight));
+        }
+        commands
+    }
+
     /// Handle shared debug navigation; returns true when the client should quit.
     ///
     /// `a`/`c`/`s` switch actions/components/state, `/` searches, Enter opens details, and
     /// Esc/Backspace return from details. `q` or Ctrl+C quit; Esc also quits from
     /// a list/tree. While editing a query, letters (including q/a/s) are text.
     /// `w` saves the current JSON state using the live layer's local snapshot UI.
+    /// `P` requests app pause/resume when the source supports live controls.
     pub fn handle_event(&mut self, event: &EventKind) -> bool {
         self.remember_actions();
         let detail_binding = match self.layer.freeze.overlay.as_ref() {
@@ -190,6 +247,19 @@ impl DebugInspector {
                 _ => false,
             };
             if !searching {
+                if matches!(key.code, KeyCode::Char('p' | 'P')) {
+                    if key.kind == KeyEventKind::Press {
+                        if self.remote.is_some() {
+                            self.pause_toggle = !self.pause_toggle;
+                            self.layer.freeze.clear_message();
+                        } else {
+                            self.layer
+                                .freeze
+                                .set_message("App controls unavailable for this source");
+                        }
+                    }
+                    return false;
+                }
                 if matches!(key.code, KeyCode::Char('q' | 'Q')) {
                     return true;
                 }
@@ -287,6 +357,17 @@ impl DebugInspector {
             left.push(StatusBarItem::span(Span::styled(format!(" {key} "), style)));
             left.push(StatusBarItem::span(Span::styled(
                 format!(" {label} "),
+                self.layer.style.label_style,
+            )));
+        }
+        if let Some(remote) = &self.remote {
+            left.push(StatusBarItem::span(Span::styled(" P ", keys.toggle)));
+            left.push(StatusBarItem::span(Span::styled(
+                if remote.pause_requested {
+                    " resume "
+                } else {
+                    " pause "
+                },
                 self.layer.style.label_style,
             )));
         }

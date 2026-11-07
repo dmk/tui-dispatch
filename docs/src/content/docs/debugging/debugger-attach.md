@@ -1,6 +1,6 @@
 ---
 title: Standalone debugger
-description: Attach a read-only debugger through a Unix socket
+description: Inspect and control a running app through a Unix socket
 ---
 
 On Unix, an app can expose its `DebugCollector` through `DebugServer`. Run the
@@ -49,6 +49,7 @@ also default to modals; the standalone command explicitly opts into fullscreen
 with `DebugInspector::new().fullscreen()`. It opens on the action log:
 
 - `a` / `c` / `s`: toggle the action log / components / state tree.
+- `P` / `p`: pause/resume the app when live controls are attached.
 - `/`: search actions or filter state fields; Enter/Esc finishes typing.
 - `j` / `k`, arrows, PgUp/PgDn: navigate; `n` / `N` move between action matches.
 - Enter: open action or state-field details; Esc/Backspace returns to the list/tree.
@@ -59,8 +60,40 @@ New snapshots preserve search, selection, and expanded state sections. Open
 details stay fixed until you return to the list/tree. Action details include the
 payload, outcome, injecting parent ID, change flag, and serialization errors.
 Elapsed time shows `—` because the current transport does not carry timestamps.
-This interface is read only; frame freezing and buffer-cell inspection remain
-part of the in-app debug layer.
+Action/state data is inspected without injecting app actions. The live socket
+also supports processing pause and app-side component highlighting. Frozen-frame
+copying and buffer-cell inspection remain part of the in-app debug layer.
+
+Enable live controls by connecting the collector to the app's runtime adapter:
+
+```rust
+use tui_dispatch_debug::debug::DebugLayer;
+
+let debug = DebugLayer::<AppAction>::simple()
+    .active(in_app_debug_enabled)
+    .with_remote_debug(collector.clone());
+let runtime = Runtime::from_store(store).with_debug(debug);
+```
+
+This works even when the in-app overlay is inactive. Space Invaders attaches it
+when using `--debug-socket`. Plain snapshot servers and recordings remain
+inspectable without enabling live controls.
+
+`P` pauses processing at the next dispatch boundary, after the current reducer,
+synchronous middleware injections, and emitted effects finish. Pending root
+actions stay queued. In-flight tasks may finish; their completions are retained
+until resume. Subscription pause policies still apply (interval ticks are
+dropped while paused). App input is intercepted while processing is paused;
+debugger controls and resize/highlight redraws continue. The status bar confirms
+`PAUSED`; while editing a search query, `P` is text rather than a command.
+
+Selecting a component sends its binding/mount ID back to the app. The app uses
+its latest published bounds to draw a cyan outline on its own buffer. The
+debugger never paints app-coordinate outlines on its UI. Changing selection,
+opening details, or switching away from components updates/clears the outline;
+highlighting also works while paused. Disconnecting releases that connection's
+pause/highlight requests, so closing a debugger resumes an app it paused and
+clears its outline. Snapshot-only clients do not affect another client's controls.
 
 The `c` view shows app-published component types, bindings, last rendered areas,
 and local debug entries, with the same filtering and details as the in-app view.
@@ -120,8 +153,8 @@ collection never waits for socket I/O. Copying a requested history briefly holds
 the collector's lock; serialization and network writes happen after it is released.
 Snapshot copies still scale with state size and the history capacity.
 
-This first transport returns the full retained history on every request. It is
-read only and its wire format is currently unversioned. Recording, state diffs,
-cursor/gap negotiation, and execution controls are later roadmap
-items. With the facade's `debug` feature, the transport is also available at
+This transport returns the full retained history on every request. Its wire
+format is currently unversioned. State diffs, cursor/gap negotiation, stepping,
+action injection, and state restoration remain later roadmap items. With the
+facade's `debug` feature, the transport is also available at
 `tui_dispatch::transport`.

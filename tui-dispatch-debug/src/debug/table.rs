@@ -99,6 +99,8 @@ pub struct StateEntryDetail {
 /// Detail view for a single mounted component.
 #[derive(Debug, Clone)]
 pub struct ComponentDetailOverlay {
+    /// App mount ID, independent of this view's list index.
+    pub raw_id: u32,
     /// Index in the components list (for restoring selection on back)
     pub index: usize,
     /// Short type name
@@ -117,6 +119,7 @@ impl ComponentDetailOverlay {
     /// Create from a component snapshot.
     pub fn from_snapshot(snap: &ComponentSnapshot, index: usize) -> Self {
         Self {
+            raw_id: snap.raw_id,
             index,
             type_name: snap.type_name.clone(),
             type_name_full: snap.type_name_full.clone(),

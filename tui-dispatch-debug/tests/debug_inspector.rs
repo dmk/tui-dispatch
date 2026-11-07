@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{backend::TestBackend, buffer::Buffer, widgets::Paragraph, Terminal};
 use serde_json::json;
 use tui_dispatch_core::EventKind;
+use tui_dispatch_debug::control::{ComponentTarget, ControlStatus, DebugCommand};
 use tui_dispatch_debug::debug::{
     ActionLogDisplayEntry, ActionLogOverlay, ComponentSnapshot, DebugInspector, DebugLayer,
     DebugOverlay, DebugStyle,
@@ -316,6 +317,64 @@ fn components_tab_distinguishes_unavailable_from_a_published_empty_frame() {
         inspector.overlay(),
         Some(DebugOverlay::Components(_))
     ));
+}
+
+#[test]
+fn remote_pause_and_selection_emit_commands_without_viewer_highlights() {
+    let mut inspector = DebugInspector::new();
+    inspector.update_control_status(Some(ControlStatus {
+        paused: false,
+        pause_requested: false,
+        highlight: None,
+    }));
+    let mut enemy = component(7, "Enemy", "3");
+    enemy.last_area = Some(ratatui::layout::Rect::new(0, 0, 110, 27));
+    inspector.update_components(Some(vec![enemy]));
+    key(&mut inspector, KeyCode::Char('c'));
+    assert_eq!(
+        inspector.take_commands(),
+        vec![DebugCommand::Highlight(Some(ComponentTarget {
+            raw_id: 0,
+            bound_id: Some("component-7".into()),
+        }))]
+    );
+    let mut terminal = Terminal::new(TestBackend::new(110, 28)).unwrap();
+    terminal
+        .draw(|frame| {
+            frame.render_widget(Paragraph::new("debugger background"), frame.area());
+            inspector.render(frame, "Connected");
+        })
+        .unwrap();
+    let first_row: String = (0..110)
+        .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
+        .collect();
+    assert!(
+        first_row.starts_with("debugger background"),
+        "app bounds must not be painted in the debugger"
+    );
+    key(&mut inspector, KeyCode::Char('P'));
+    assert_eq!(inspector.take_commands(), vec![DebugCommand::TogglePause]);
+    let repeat =
+        KeyEvent::new_with_kind(KeyCode::Char('P'), KeyModifiers::NONE, KeyEventKind::Repeat);
+    inspector.handle_event(&EventKind::Key(repeat));
+    assert!(inspector.take_commands().is_empty());
+    key(&mut inspector, KeyCode::Char('/'));
+    key(&mut inspector, KeyCode::Char('p'));
+    assert!(
+        !inspector
+            .take_commands()
+            .contains(&DebugCommand::TogglePause),
+        "P is text while searching"
+    );
+    key(&mut inspector, KeyCode::Enter);
+    key(&mut inspector, KeyCode::Char('s'));
+    assert_eq!(
+        inspector.take_commands(),
+        vec![DebugCommand::Highlight(None)]
+    );
+    inspector.update_control_status(None);
+    key(&mut inspector, KeyCode::Char('P'));
+    assert!(inspector.take_commands().is_empty());
 }
 
 #[test]

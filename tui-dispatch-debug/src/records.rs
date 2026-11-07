@@ -19,6 +19,9 @@ pub struct DebugSnapshot {
     /// `None` means unavailable (including older servers and action recordings).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub components: Option<Vec<crate::debug::ComponentSnapshot>>,
+    /// Live controls are unavailable in recordings and older/read-only servers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<crate::control::ControlStatus>,
 }
 
 /// Owned wire representation of a dispatch record.

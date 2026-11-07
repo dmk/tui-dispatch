@@ -436,6 +436,8 @@ pub struct DebugLayer<A> {
     banner_position: BannerPosition,
     /// Standalone inspectors use the entire content area instead of a modal.
     overlay_fullscreen: bool,
+    component_highlight_local: bool,
+    remote: Option<crate::control::RemoteAttachment>,
     /// Style configuration
     style: DebugStyle,
     /// Whether the debug layer is active (can be disabled for release builds)
@@ -527,6 +529,8 @@ impl<A: Action> DebugLayer<A> {
             freeze: DebugFreeze::new(),
             banner_position: BannerPosition::Bottom,
             overlay_fullscreen: false,
+            component_highlight_local: true,
+            remote: None,
             style: DebugStyle::default(),
             active: true,
             action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
@@ -663,6 +667,75 @@ impl<A: Action> DebugLayer<A> {
     {
         self.component_snapshotter = Some(Box::new(snapshotter));
         self
+    }
+
+    /// Attach live socket controls to this app's runtime adapter. Works even
+    /// when the local overlay is inactive. The runtime applies pause requests
+    /// at dispatch boundaries and redraws remote selections on the app buffer.
+    pub fn with_remote_debug(mut self, collector: crate::observe::DebugCollector) -> Self {
+        self.remote = Some(crate::control::RemoteAttachment::new(collector));
+        self
+    }
+
+    pub(super) fn remote_notify(&self) -> Option<std::sync::Arc<tokio::sync::Notify>> {
+        self.remote
+            .as_ref()
+            .map(|remote| remote.shared.notify.clone())
+    }
+
+    pub(super) fn remote_processing_paused(&self) -> bool {
+        self.remote.as_ref().is_some_and(|remote| remote.paused())
+    }
+
+    pub(super) fn request_remote_redraw(&self) {
+        if let Some(remote) = &self.remote {
+            remote.shared.redraw();
+        }
+    }
+
+    pub(super) fn process_remote_controls(
+        &mut self,
+        action_tx: &tokio::sync::mpsc::UnboundedSender<A>,
+    ) -> bool {
+        let previous = self.remote_processing_paused();
+        let Some(paused) = self.remote.as_mut().and_then(|remote| remote.pending()) else {
+            return false;
+        };
+        if previous != paused {
+            if paused {
+                #[cfg(feature = "tasks")]
+                if let Some(handle) = &self.task_handle {
+                    handle.pause();
+                }
+                #[cfg(feature = "subscriptions")]
+                if let Some(handle) = &self.sub_handle {
+                    handle.pause();
+                }
+            } else if !self.freeze.enabled {
+                #[cfg(feature = "tasks")]
+                if let Some(handle) = &self.task_handle {
+                    for action in handle.resume() {
+                        let _ = action_tx.send(action);
+                    }
+                }
+                #[cfg(feature = "subscriptions")]
+                if let Some(handle) = &self.sub_handle {
+                    handle.resume();
+                }
+            }
+        }
+        if let Some(remote) = &self.remote {
+            remote.applied(paused);
+        }
+        let _ = action_tx; // Task delivery is feature-gated.
+        true
+    }
+
+    pub(super) fn render_remote_highlight(&self, frame: &mut Frame) {
+        if let Some(area) = self.remote.as_ref().and_then(|remote| remote.highlight()) {
+            let clip = frame.area();
+            highlight_rect(frame.buffer_mut(), area, clip);
+        }
     }
 
     /// Connect a `ComponentHost` directly for the components debug tab.
@@ -2076,12 +2149,16 @@ impl<A: Action> DebugLayer<A> {
         if self.freeze.enabled {
             // Disable: resume tasks/subs
             #[cfg(feature = "subscriptions")]
-            if let Some(ref handle) = self.sub_handle {
-                handle.resume();
+            if !self.remote_processing_paused() {
+                if let Some(ref handle) = self.sub_handle {
+                    handle.resume();
+                }
             }
 
             #[cfg(feature = "tasks")]
-            let task_queued = if let Some(ref handle) = self.task_handle {
+            let task_queued = if self.remote_processing_paused() {
+                vec![]
+            } else if let Some(ref handle) = self.task_handle {
                 handle.resume()
             } else {
                 vec![]
@@ -2361,12 +2438,12 @@ impl<A: Action> DebugLayer<A> {
                     // Highlight the selected component's render area on the
                     // dimmed background, drawn before the modal so it sits
                     // underneath.
-                    if let Some(idx) = self
-                        .components_tree_selected
-                        .as_ref()
-                        .and_then(|id| id.strip_prefix("comp:"))
-                        .and_then(|n| n.parse::<usize>().ok())
-                    {
+                    if let Some(idx) = self.component_highlight_local.then_some(()).and_then(|_| {
+                        self.components_tree_selected
+                            .as_ref()
+                            .and_then(|id| id.strip_prefix("comp:"))
+                            .and_then(|n| n.parse::<usize>().ok())
+                    }) {
                         if let Some(comp) = components.components.get(idx) {
                             if let Some(area) = comp.last_area {
                                 highlight_rect(frame.buffer_mut(), area, app_area);

@@ -4,7 +4,7 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
 };
 
@@ -74,6 +74,7 @@ struct Shared {
     capacity: usize,
     history: Mutex<History>,
     components: Mutex<Option<Vec<ComponentSnapshot>>>,
+    remote: OnceLock<Arc<crate::control::RemoteShared>>,
 }
 
 /// Shared, bounded history with no dependency on rendering.
@@ -96,6 +97,7 @@ impl DebugCollector {
                 initial_state,
                 capacity,
                 components: Mutex::new(None),
+                remote: OnceLock::new(),
                 history: Mutex::new(History {
                     records: VecDeque::new(),
                     next_sequence: 1,
@@ -146,6 +148,31 @@ impl DebugCollector {
     /// An empty published frame is distinct from unavailable telemetry.
     pub fn components(&self) -> Option<Vec<ComponentSnapshot>> {
         self.shared.components.lock().unwrap().clone()
+    }
+
+    pub(crate) fn remote(&self) -> Option<&Arc<crate::control::RemoteShared>> {
+        self.shared.remote.get()
+    }
+
+    pub(crate) fn remote_or_init(&self) -> Arc<crate::control::RemoteShared> {
+        self.shared
+            .remote
+            .get_or_init(crate::control::RemoteShared::new)
+            .clone()
+    }
+
+    pub(crate) fn component_area(
+        &self,
+        target: &crate::control::ComponentTarget,
+    ) -> Option<ratatui::layout::Rect> {
+        self.shared
+            .components
+            .lock()
+            .unwrap()
+            .as_ref()?
+            .iter()
+            .find(|component| target.matches(component))
+            .and_then(|component| component.last_area)
     }
 
     /// Publish an already serialized boundary from a custom producer.

@@ -13,7 +13,8 @@ use crate::store::NoEffect;
 use crate::{Action, BindingContext};
 
 use super::core::{
-    draw_frame, EffectContext, RenderContext, Runtime, RuntimeRunGuard, RuntimeStore,
+    draw_frame, wait_debug_control, EffectContext, RenderContext, Runtime, RuntimeRunGuard,
+    RuntimeStore,
 };
 
 /// Runtime routing mode that routes raw events through an [`EventBus`].
@@ -141,8 +142,10 @@ where
             event_task,
         };
         let runtime = &mut *guard.runtime;
+        let debug_notifications = runtime.shell.debug_notifications();
 
         loop {
+            runtime.shell.process_debug_controls();
             if runtime.shell.should_render {
                 let bus = &mut runtime.routing.bus;
                 draw_frame(
@@ -155,6 +158,7 @@ where
             }
 
             tokio::select! {
+                _ = wait_debug_control(&debug_notifications), if debug_notifications.is_some() => {},
                 Some(raw_event) = event_rx.recv() => {
                     let bus = &mut runtime.routing.bus;
                     let kb = &runtime.routing.keybindings;
@@ -165,7 +169,7 @@ where
                     );
                 }
 
-                Some(action) = runtime.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv(), if !runtime.shell.debug_processing_paused() => {
                     if should_quit(&action) {
                         break;
                     }
@@ -237,8 +241,10 @@ where
             event_task,
         };
         let runtime = &mut *guard.runtime;
+        let debug_notifications = runtime.shell.debug_notifications();
 
         loop {
+            runtime.shell.process_debug_controls();
             if runtime.shell.should_render {
                 let bus = &mut runtime.routing.bus;
                 draw_frame(
@@ -251,6 +257,7 @@ where
             }
 
             tokio::select! {
+                _ = wait_debug_control(&debug_notifications), if debug_notifications.is_some() => {},
                 Some(raw_event) = event_rx.recv() => {
                     let bus = &mut runtime.routing.bus;
                     let kb = &runtime.routing.keybindings;
@@ -261,7 +268,7 @@ where
                     );
                 }
 
-                Some(action) = runtime.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv(), if !runtime.shell.debug_processing_paused() => {
                     if should_quit(&action) {
                         break;
                     }

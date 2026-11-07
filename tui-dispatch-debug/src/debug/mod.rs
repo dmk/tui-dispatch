@@ -386,6 +386,7 @@ where
         self.render_state(frame, state, |f, area| {
             render_fn(f, area, state, render_ctx);
         });
+        self.render_remote_highlight(frame);
     }
 
     fn handle_event(
@@ -394,10 +395,23 @@ where
         state: &S,
         action_tx: &tokio::sync::mpsc::UnboundedSender<A>,
     ) -> Option<bool> {
-        self.handle_event_with_state(event, state)
+        let handled = self
+            .handle_event_with_state(event, state)
             .dispatch_queued(|action| {
                 let _ = action_tx.send(action);
-            })
+            });
+        if handled.is_none() && self.remote_processing_paused() {
+            if matches!(event, tui_dispatch_core::EventKind::Resize(_, _)) {
+                // Keep viewport actions queued for resume, while redrawing
+                // immediately through the out-of-band control wakeup.
+                self.request_remote_redraw();
+                None
+            } else {
+                Some(false)
+            }
+        } else {
+            handled
+        }
     }
 
     fn log_action(&mut self, action: &A) {
@@ -405,7 +419,17 @@ where
     }
 
     fn is_enabled(&self) -> bool {
-        DebugLayer::is_enabled(self)
+        DebugLayer::is_enabled(self) || self.remote_processing_paused()
+    }
+
+    fn control_notify(&self) -> Option<std::sync::Arc<tokio::sync::Notify>> {
+        self.remote_notify()
+    }
+    fn process_controls(&mut self, action_tx: &tokio::sync::mpsc::UnboundedSender<A>) -> bool {
+        self.process_remote_controls(action_tx)
+    }
+    fn processing_paused(&self) -> bool {
+        self.remote_processing_paused()
     }
 
     #[cfg(feature = "tasks")]

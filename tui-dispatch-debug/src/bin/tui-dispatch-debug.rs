@@ -1,4 +1,4 @@
-//! Standalone read-only debugger; the app keeps ownership of its terminal.
+//! Standalone debugger; the app keeps ownership of its terminal and execution.
 
 mod client {
     use std::{
@@ -19,6 +19,7 @@ mod client {
     use tokio::sync::watch;
     use tui_dispatch_core::{process_raw_event, RawEvent};
     use tui_dispatch_debug::{
+        control::{ComponentTarget, DebugCommand},
         debug::{ActionLogDisplayEntry, DebugInspector},
         recording::RecordingReader,
         records::{DebugSnapshot, SnapshotOutcome, SnapshotRecord},
@@ -86,6 +87,65 @@ mod client {
 
     type Update = Option<Result<(Arc<DebugSnapshot>, String), String>>;
 
+    #[derive(Clone, Default)]
+    struct ControlIntent {
+        pause_parity: bool,
+        highlight: Option<ComponentTarget>,
+    }
+
+    #[cfg(unix)]
+    async fn live_connection(
+        client: &mut DebugClient,
+        sender: &watch::Sender<Update>,
+        controls: &mut watch::Receiver<ControlIntent>,
+    ) -> io::Result<()> {
+        let mut previous = controls.borrow_and_update().clone();
+        let mut available = false;
+        let mut poll = tokio::time::interval(Duration::from_millis(250));
+        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let mut command_error = None;
+            tokio::select! {
+                _ = poll.tick() => {},
+                changed = controls.changed() => {
+                    if changed.is_err() { return Ok(()); }
+                    let current = controls.borrow_and_update().clone();
+                    if available {
+                        let mut requests = Vec::new();
+                        if current.pause_parity != previous.pause_parity { requests.push(DebugCommand::TogglePause); }
+                        if current.highlight != previous.highlight { requests.push(DebugCommand::Highlight(current.highlight.clone())); }
+                        for request in requests {
+                            if let Err(error) = client.command(request).await {
+                                if error.kind() == io::ErrorKind::Unsupported { command_error = Some(error.to_string()); }
+                                else { return Err(error); }
+                            }
+                        }
+                    }
+                    previous = current;
+                }
+            }
+            // Never cancel an in-flight socket request to process UI input: the
+            // watch slot coalesces new selection/toggle intentions until it ends.
+            let snapshot = client.snapshot().await?;
+            let was_available = available;
+            available = snapshot.control.is_some();
+            if available && !was_available {
+                previous = controls.borrow_and_update().clone();
+                if previous.highlight.is_some() {
+                    let _ = client
+                        .command(DebugCommand::Highlight(previous.highlight.clone()))
+                        .await;
+                }
+            }
+            let status = command_error
+                .map(|error| format!("Control: {error}"))
+                .unwrap_or_else(|| "Connected".into());
+            if sender.send(Some(Ok((Arc::new(snapshot), status)))).is_err() {
+                return Ok(());
+            }
+        }
+    }
+
     async fn socket_snapshot(path: &std::path::Path) -> io::Result<DebugSnapshot> {
         #[cfg(unix)]
         {
@@ -106,6 +166,7 @@ mod client {
             state: history.back().map(|r| r.state.clone()).unwrap_or_default(),
             history: history.iter().cloned().collect(),
             components: None,
+            control: None,
         }
     }
 
@@ -195,9 +256,14 @@ mod client {
         execute!(io::stdout(), EnterAlternateScreen)?;
         let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
         let (sender, mut receiver) = watch::channel(None);
+        let (control_sender, control_receiver) = watch::channel(ControlIntent::default());
         // A watch slot retains only the latest snapshot. Slow rendering never
         // creates a backlog, and network waits cannot prevent keyboard handling.
         let reader = tokio::spawn(async move {
+            #[cfg(unix)]
+            let mut control_receiver = control_receiver;
+            #[cfg(not(unix))]
+            let _ = control_receiver;
             if let Some(path) = args.recording {
                 let result = if args.follow {
                     follow_recording(&path, args.history_limit as usize, &sender).await
@@ -221,26 +287,15 @@ mod client {
             #[cfg(unix)]
             loop {
                 match DebugClient::connect(args.socket.as_ref().unwrap()).await {
-                    Ok(mut client) => loop {
-                        match client.snapshot().await {
-                            Ok(snapshot) => {
-                                if sender
-                                    .send(Some(Ok((
-                                        Arc::new(snapshot),
-                                        "Connected · read only".into(),
-                                    ))))
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            Err(error) => {
-                                let _ = sender.send(Some(Err(error.to_string())));
-                                break;
-                            }
+                    Ok(mut client) => {
+                        if let Err(error) =
+                            live_connection(&mut client, &sender, &mut control_receiver).await
+                        {
+                            let _ = sender.send(Some(Err(error.to_string())));
+                        } else {
+                            return;
                         }
-                        tokio::time::sleep(Duration::from_millis(250)).await;
-                    },
+                    }
                     Err(error) => {
                         let _ = sender.send(Some(Err(error.to_string())));
                     }
@@ -268,11 +323,29 @@ mod client {
             if receiver.has_changed().unwrap_or(false) {
                 match receiver.borrow_and_update().as_ref() {
                     Some(Ok((next, next_status))) => {
-                        status = next_status.clone();
+                        status = match &next.control {
+                            Some(control) if control.paused != control.pause_requested => format!(
+                                "{next_status} · {}",
+                                if control.pause_requested {
+                                    "pausing…"
+                                } else {
+                                    "resuming…"
+                                }
+                            ),
+                            Some(control) => format!(
+                                "{next_status} · {}",
+                                if control.paused { "PAUSED" } else { "running" }
+                            ),
+                            None => format!("{next_status} · read only"),
+                        };
                         inspector.update(next.state.clone(), action_entries(next)?);
                         inspector.update_components(next.components.clone());
+                        inspector.update_control_status(next.control.clone());
                     }
-                    Some(Err(error)) => status = format!("Source error: {error}"),
+                    Some(Err(error)) => {
+                        status = format!("Source error: {error}");
+                        inspector.update_control_status(None);
+                    }
                     None => {}
                 }
                 redraw = true;
@@ -288,6 +361,13 @@ mod client {
                     return Ok(());
                 }
                 redraw = true;
+            }
+            for command in inspector.take_commands() {
+                control_sender.send_modify(|intent| match command {
+                    DebugCommand::TogglePause => intent.pause_parity = !intent.pause_parity,
+                    DebugCommand::Highlight(ref target) => intent.highlight = target.clone(),
+                    DebugCommand::SetPaused(_) => {} // The inspector emits toggles only.
+                });
             }
             if !redraw {
                 continue;

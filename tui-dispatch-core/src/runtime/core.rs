@@ -50,7 +50,7 @@ impl Default for PollerConfig {
 #[derive(Debug, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct RenderContext {
-    /// Whether the debug overlay is currently active.
+    /// Whether a debug overlay or remote processing pause owns app input focus.
     pub debug_enabled: bool,
 }
 
@@ -116,6 +116,21 @@ pub trait DebugAdapter<S, A>: 'static {
 
     fn log_action(&mut self, action: &A);
     fn is_enabled(&self) -> bool;
+
+    /// Optional out-of-band debugger wakeups, including while actions are paused.
+    fn control_notify(&self) -> Option<std::sync::Arc<tokio::sync::Notify>> {
+        None
+    }
+
+    /// Apply pending debugger requests at a dispatch boundary. Return true to redraw.
+    fn process_controls(&mut self, _action_tx: &mpsc::UnboundedSender<A>) -> bool {
+        false
+    }
+
+    /// Keep root actions queued while debugger processing is paused.
+    fn processing_paused(&self) -> bool {
+        false
+    }
 
     #[cfg(feature = "tasks")]
     fn with_task_manager(self, _tasks: &TaskManager<A>) -> Self
@@ -237,6 +252,29 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
         }
     }
 
+    pub(crate) fn debug_notifications(&self) -> Option<std::sync::Arc<tokio::sync::Notify>> {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = &self.debug {
+            return debug.control_notify();
+        }
+        None
+    }
+
+    pub(crate) fn process_debug_controls(&mut self) {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = &mut self.debug {
+            self.should_render |= debug.process_controls(&self.action_tx);
+        }
+    }
+
+    pub(crate) fn debug_processing_paused(&self) -> bool {
+        #[cfg(feature = "debug")]
+        if let Some(debug) = &self.debug {
+            return debug.processing_paused();
+        }
+        false
+    }
+
     pub(crate) fn enqueue_outcome(&mut self, outcome: EventOutcome<A>) {
         if outcome.needs_render {
             self.should_render = true;
@@ -291,6 +329,14 @@ impl<S: 'static, A: Action> RuntimeShell<S, A> {
             return;
         }
         self.enqueue_outcome(map(&event, state).into());
+    }
+}
+
+pub(super) async fn wait_debug_control(notify: &Option<std::sync::Arc<tokio::sync::Notify>>) {
+    if let Some(notify) = notify {
+        notify.notified().await;
+    } else {
+        std::future::pending::<()>().await;
     }
 }
 
@@ -613,8 +659,10 @@ where
             event_task,
         };
         let runtime = &mut *guard.runtime;
+        let debug_notifications = runtime.shell.debug_notifications();
 
         loop {
+            runtime.shell.process_debug_controls();
             if runtime.shell.should_render {
                 draw_frame(
                     &mut runtime.shell,
@@ -625,11 +673,12 @@ where
             }
 
             tokio::select! {
+                _ = wait_debug_control(&debug_notifications), if debug_notifications.is_some() => {},
                 Some(raw_event) = event_rx.recv() => {
                     runtime.shell.process_event(raw_event, runtime.store.state(), &mut map_event);
                 }
 
-                Some(action) = runtime.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv(), if !runtime.shell.debug_processing_paused() => {
                     if should_quit(&action) {
                         break;
                     }
@@ -677,8 +726,10 @@ where
             event_task,
         };
         let runtime = &mut *guard.runtime;
+        let debug_notifications = runtime.shell.debug_notifications();
 
         loop {
+            runtime.shell.process_debug_controls();
             if runtime.shell.should_render {
                 draw_frame(
                     &mut runtime.shell,
@@ -689,11 +740,12 @@ where
             }
 
             tokio::select! {
+                _ = wait_debug_control(&debug_notifications), if debug_notifications.is_some() => {},
                 Some(raw_event) = event_rx.recv() => {
                     runtime.shell.process_event(raw_event, runtime.store.state(), &mut map_event);
                 }
 
-                Some(action) = runtime.shell.action_rx.recv() => {
+                Some(action) = runtime.shell.action_rx.recv(), if !runtime.shell.debug_processing_paused() => {
                     if should_quit(&action) {
                         break;
                     }
