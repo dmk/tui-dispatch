@@ -20,9 +20,9 @@ mod client {
     use tui_dispatch_core::{process_raw_event, RawEvent};
     use tui_dispatch_debug::{
         control::{ComponentTarget, DebugCommand},
-        debug::{ActionLogDisplayEntry, DebugInspector},
+        debug::DebugInspector,
         recording::RecordingReader,
-        records::{DebugSnapshot, SnapshotOutcome, SnapshotRecord},
+        records::{DebugSnapshot, SnapshotRecord},
     };
 
     #[cfg(unix)]
@@ -54,35 +54,6 @@ mod client {
             let _ = disable_raw_mode();
             let _ = execute!(io::stdout(), LeaveAlternateScreen, crossterm::cursor::Show);
         }
-    }
-
-    fn action_entries(snapshot: &DebugSnapshot) -> serde_json::Result<Vec<ActionLogDisplayEntry>> {
-        snapshot
-            .history
-            .iter()
-            .rev()
-            .map(|record| {
-                let outcome = match record.outcome {
-                    SnapshotOutcome::Applied => "applied",
-                    SnapshotOutcome::Cancelled => "cancelled",
-                    _ => "rejected",
-                };
-                Ok(ActionLogDisplayEntry {
-                    sequence: record.sequence,
-                    name: record.name.clone(),
-                    params: format!("[{outcome}] {}", record.action),
-                    params_detail: serde_json::to_string_pretty(&serde_json::json!({
-                        "action": record.action,
-                        "outcome": record.outcome,
-                        "changed": record.changed,
-                        "parent_action_id": record.parent_action_id,
-                        "serialization_errors": record.serialization_errors,
-                    }))?,
-                    // The current wire format has no dispatch timestamps.
-                    elapsed: "—".into(),
-                })
-            })
-            .collect()
     }
 
     type Update = Option<Result<(Arc<DebugSnapshot>, String), String>>;
@@ -338,9 +309,7 @@ mod client {
                             ),
                             None => format!("{next_status} · read only"),
                         };
-                        inspector.update(next.state.clone(), action_entries(next)?);
-                        inspector.update_components(next.components.clone());
-                        inspector.update_control_status(next.control.clone());
+                        inspector.update_snapshot(Arc::clone(next));
                     }
                     Some(Err(error)) => {
                         status = format!("Source error: {error}");

@@ -1,0 +1,25 @@
+command: cargo bench --offline -p tui-dispatch-debug --bench debug_inspection_memory
+run=1
+owned bytes; input moved into view; no socket/watch copy or terminal; conservative realloc peaks
+history=64 state=0 retained=152967 update_peak=153195 update_allocs=1426 diff_allocs=9 open=128906 after_16_refreshes=136458
+history=64 state=4096 retained=536449 update_peak=540520 update_allocs=1685 diff_allocs=9 open=473414 after_16_refreshes=504006
+history=64 state=65536 retained=6434689 update_peak=6500200 update_allocs=1685 diff_allocs=9 open=5645894 after_16_refreshes=6168006
+history=1024 state=0 retained=2253447 update_peak=2253675 update_allocs=22546 diff_allocs=9 open=1831946 after_16_refreshes=1952778
+history=1024 state=4096 retained=8143489 update_peak=8147560 update_allocs=26645 diff_allocs=9 open=6845898 after_16_refreshes=7335370
+history=1024 state=65536 retained=98828929 update_peak=98894440 update_allocs=26645 diff_allocs=9 open=82059978 after_16_refreshes=90413770
+run=2
+owned bytes; input moved into view; no socket/watch copy or terminal; conservative realloc peaks
+history=64 state=0 retained=152967 update_peak=153195 update_allocs=1426 diff_allocs=9 open=128906 after_16_refreshes=136458
+history=64 state=4096 retained=536449 update_peak=540520 update_allocs=1685 diff_allocs=9 open=473414 after_16_refreshes=504006
+history=64 state=65536 retained=6434689 update_peak=6500200 update_allocs=1685 diff_allocs=9 open=5645894 after_16_refreshes=6168006
+history=1024 state=0 retained=2253447 update_peak=2253675 update_allocs=22546 diff_allocs=9 open=1831946 after_16_refreshes=1952778
+history=1024 state=4096 retained=8143489 update_peak=8147560 update_allocs=26645 diff_allocs=9 open=6845898 after_16_refreshes=7335370
+history=1024 state=65536 retained=98828929 update_peak=98894440 update_allocs=26645 diff_allocs=9 open=82059978 after_16_refreshes=90413770
+run=3
+owned bytes; input moved into view; no socket/watch copy or terminal; conservative realloc peaks
+history=64 state=0 retained=152967 update_peak=153195 update_allocs=1426 diff_allocs=9 open=128906 after_16_refreshes=136458
+history=64 state=4096 retained=536449 update_peak=540520 update_allocs=1685 diff_allocs=9 open=473414 after_16_refreshes=504006
+history=64 state=65536 retained=6434689 update_peak=6500200 update_allocs=1685 diff_allocs=9 open=5645894 after_16_refreshes=6168006
+history=1024 state=0 retained=2253447 update_peak=2253675 update_allocs=22546 diff_allocs=9 open=1831946 after_16_refreshes=1952778
+history=1024 state=4096 retained=8143489 update_peak=8147560 update_allocs=26645 diff_allocs=9 open=6845898 after_16_refreshes=7335370
+history=1024 state=65536 retained=98828929 update_peak=98894440 update_allocs=26645 diff_allocs=9 open=82059978 after_16_refreshes=90413770

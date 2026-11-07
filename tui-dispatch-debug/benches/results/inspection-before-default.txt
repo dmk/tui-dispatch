@@ -1,0 +1,36 @@
+source: git archive 7a51246e3465faee963b31a88cf12a0cfe795c73, display-only benchmark added; Cargo.lock copied from measured working tree
+cwd: /tmp/tui-inspection-baseline-voxt4apk
+command: cargo bench --offline --locked -p tui-dispatch-debug --target-dir /Users/dmk/Work/fr/rust-tui/tui-dispatch/target --bench debug_inspection
+run=1
+one warmup + seven samples; microseconds/op; release; test backend 120x30
+history=64 state=0 display_update: us median=32.926 min=28.745 max=35.241
+history=64 state=0 search: us median=85.452 min=76.665 max=112.315
+history=64 state=0 list_draw: us median=376.197 min=374.762 max=452.602
+history=1024 state=4096 display_update: us median=191.159 min=190.322 max=192.506
+history=1024 state=4096 search: us median=699.130 min=697.536 max=701.841
+history=1024 state=4096 list_draw: us median=2923.772 min=2899.762 max=2955.701
+history=1024 state=65536 display_update: us median=208.160 min=207.420 max=210.020
+history=1024 state=65536 search: us median=699.600 min=698.674 max=710.917
+history=1024 state=65536 list_draw: us median=2914.598 min=2888.164 max=2935.075
+run=2
+one warmup + seven samples; microseconds/op; release; test backend 120x30
+history=64 state=0 display_update: us median=12.259 min=12.124 max=12.362
+history=64 state=0 search: us median=45.788 min=45.443 max=46.069
+history=64 state=0 list_draw: us median=380.839 min=379.991 max=381.949
+history=1024 state=4096 display_update: us median=190.820 min=190.202 max=193.327
+history=1024 state=4096 search: us median=712.009 min=703.189 max=721.112
+history=1024 state=4096 list_draw: us median=2925.836 min=2884.740 max=2981.233
+history=1024 state=65536 display_update: us median=206.145 min=205.319 max=207.021
+history=1024 state=65536 search: us median=701.122 min=700.160 max=703.490
+history=1024 state=65536 list_draw: us median=3029.350 min=2954.223 max=3138.945
+run=3
+one warmup + seven samples; microseconds/op; release; test backend 120x30
+history=64 state=0 display_update: us median=12.189 min=12.129 max=12.424
+history=64 state=0 search: us median=44.686 min=44.552 max=45.680
+history=64 state=0 list_draw: us median=375.707 min=374.391 max=378.518
+history=1024 state=4096 display_update: us median=187.437 min=187.184 max=188.173
+history=1024 state=4096 search: us median=778.115 min=685.404 max=780.703
+history=1024 state=4096 list_draw: us median=2883.491 min=2863.729 max=2925.346
+history=1024 state=65536 display_update: us median=206.494 min=202.176 max=208.452
+history=1024 state=65536 search: us median=681.551 min=681.039 max=685.095
+history=1024 state=65536 list_draw: us median=2886.204 min=2864.862 max=2948.870

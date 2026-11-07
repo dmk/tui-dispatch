@@ -58,7 +58,44 @@ with `DebugInspector::new().fullscreen()`. It opens on the action log:
 
 New snapshots preserve search, selection, and expanded state sections. Open
 details stay fixed until you return to the list/tree. Action details include the
-payload, outcome, injecting parent ID, change flag, and serialization errors.
+payload, state at that dispatch boundary, state diff, outcome, injecting parent
+ID, change flag, and serialization errors. Diffs compare the selected record to
+the preceding retained dispatch, including actions hidden by search. The `s`
+tab continues to show the latest application state.
+
+Diff paths are JSON pointers: `/items/0/name` addresses an array element, `~0`
+escapes `~`, and `~1` escapes `/`. The empty pointer means the root value changed.
+Arrays compare by index; added/removed containers appear as whole subtrees.
+Missing `before` or `after` fields mean addition or removal; explicit JSON null
+remains a captured value. An empty diff means the state is unchanged. If the
+preceding record was evicted, a sequence gap exists, or state serialization
+failed, the diff is marked unavailable. The oldest socket/recording entry usually
+has no baseline; these sources do not include the state before their first record.
+
+Embedded clients can use the same typed view:
+
+```rust
+use tui_dispatch_debug::debug::DebugInspector;
+
+let mut inspector = DebugInspector::new(); // modal; add .fullscreen() if desired
+inspector.update_snapshot(snapshot); // owned DebugSnapshot, history oldest first
+inspector.set_search("Fetch");
+if let Some(state) = inspector.selected_state() {
+    println!("Selected boundary: {state}");
+}
+// Forward events with handle_event(), and draw with render(frame, status).
+```
+
+`selected_payload()`, `selected_record()`, and `selected_diff()` expose the
+selection. `select_sequence(n)` selects a visible record and returns false if it
+is hidden or absent. `with_initial_state(value)` supplies a known baseline for
+sequence 1 of that source. `update_snapshot` replaces history, preserving search
+and selection; an open detail retains one selected record and its predecessor
+even after eviction. Start a new inspector when switching sources. Callers
+control the retained history size. Clients may pass an `Arc<DebugSnapshot>` to
+share history with the view without copying it. Diffs and historical state formatting happen
+on demand when opening details, rather than for every record on each refresh.
+
 Elapsed time shows `—` because the current transport does not carry timestamps.
 Action/state data is inspected without injecting app actions. The live socket
 also supports processing pause and app-side component highlighting. Frozen-frame
@@ -154,7 +191,7 @@ the collector's lock; serialization and network writes happen after it is releas
 Snapshot copies still scale with state size and the history capacity.
 
 This transport returns the full retained history on every request. Its wire
-format is currently unversioned. State diffs, cursor/gap negotiation, stepping,
+format is currently unversioned. Cursor/gap negotiation, stepping,
 action injection, and state restoration remain later roadmap items. With the
 facade's `debug` feature, the transport is also available at
 `tui_dispatch::transport`.

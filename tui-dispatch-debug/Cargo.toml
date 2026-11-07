@@ -50,3 +50,11 @@ harness = false
 [[bench]]
 name = "debug_recording_memory"
 harness = false
+
+[[bench]]
+name = "debug_inspection"
+harness = false
+
+[[bench]]
+name = "debug_inspection_memory"
+harness = false

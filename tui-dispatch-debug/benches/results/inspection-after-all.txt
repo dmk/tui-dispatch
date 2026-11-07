@@ -1,0 +1,85 @@
+command: cargo bench --offline -p tui-dispatch-debug --bench debug_inspection --all-features
+run=1
+one warmup + seven samples; microseconds/op; release; test backend 120x30
+history=64 state=0 display_update: us median=33.001 min=28.776 max=33.350
+history=64 state=0 search: us median=85.311 min=75.690 max=115.632
+history=64 state=0 list_draw: us median=381.217 min=380.297 max=457.119
+history=1024 state=4096 display_update: us median=188.430 min=186.845 max=189.142
+history=1024 state=4096 search: us median=682.040 min=680.482 max=699.079
+history=1024 state=4096 list_draw: us median=3046.841 min=3032.169 max=3111.867
+history=1024 state=65536 display_update: us median=204.440 min=203.776 max=205.948
+history=1024 state=65536 search: us median=693.079 min=681.396 max=695.362
+history=1024 state=65536 list_draw: us median=3113.066 min=3015.882 max=3119.652
+history=64 state=0 payload=0 snapshot_clone: us median=10.901 min=10.854 max=10.979
+history=64 state=0 payload=0 typed_update: us median=57.172 min=56.870 max=57.734
+history=64 state=0 payload=0 shared_refresh: us median=51.984 min=51.891 max=52.177
+history=64 state=0 payload=0 selected_diff: us median=0.260 min=0.259 max=0.262
+history=64 state=0 payload=0 open_close_detail: us median=11.422 min=11.406 max=11.474
+history=1024 state=4096 payload=256 snapshot_clone: us median=325.443 min=311.896 max=360.344
+history=1024 state=4096 payload=256 typed_update: us median=1416.109 min=1341.281 max=1515.490
+history=1024 state=4096 payload=256 shared_refresh: us median=1138.552 min=1135.599 max=1145.792
+history=1024 state=4096 payload=256 selected_diff: us median=0.349 min=0.348 max=0.352
+history=1024 state=4096 payload=256 open_close_detail: us median=169.854 min=169.474 max=171.286
+history=1024 state=65536 payload=4096 snapshot_clone: us median=2110.193 min=1821.385 max=2455.552
+history=1024 state=65536 payload=4096 typed_update: us median=5702.619 min=5612.135 max=5778.542
+history=1024 state=65536 payload=4096 shared_refresh: us median=5354.125 min=5106.516 max=5705.661
+history=1024 state=65536 payload=4096 selected_diff: us median=1.505 min=1.497 max=1.530
+history=1024 state=65536 payload=4096 open_close_detail: us median=957.057 min=775.422 max=1304.635
+array_nodes=64 one_change_diff: us median=2.506 min=2.498 max=2.601
+array_nodes=4096 one_change_diff: us median=140.970 min=140.712 max=142.335
+run=2
+one warmup + seven samples; microseconds/op; release; test backend 120x30
+history=64 state=0 display_update: us median=12.025 min=12.004 max=12.280
+history=64 state=0 search: us median=44.688 min=44.658 max=45.033
+history=64 state=0 list_draw: us median=384.165 min=382.982 max=384.471
+history=1024 state=4096 display_update: us median=195.146 min=194.532 max=195.766
+history=1024 state=4096 search: us median=710.099 min=706.354 max=722.232
+history=1024 state=4096 list_draw: us median=3075.810 min=3069.566 max=3126.526
+history=1024 state=65536 display_update: us median=210.598 min=210.029 max=211.807
+history=1024 state=65536 search: us median=704.152 min=700.962 max=709.091
+history=1024 state=65536 list_draw: us median=3095.263 min=3072.829 max=3125.592
+history=64 state=0 payload=0 snapshot_clone: us median=10.641 min=10.599 max=10.662
+history=64 state=0 payload=0 typed_update: us median=56.292 min=56.239 max=57.187
+history=64 state=0 payload=0 shared_refresh: us median=50.906 min=50.682 max=51.057
+history=64 state=0 payload=0 selected_diff: us median=0.261 min=0.260 max=0.261
+history=64 state=0 payload=0 open_close_detail: us median=11.344 min=11.307 max=12.260
+history=1024 state=4096 payload=256 snapshot_clone: us median=321.787 min=309.208 max=359.979
+history=1024 state=4096 payload=256 typed_update: us median=1328.396 min=1280.187 max=1383.959
+history=1024 state=4096 payload=256 shared_refresh: us median=1130.859 min=1128.401 max=1138.568
+history=1024 state=4096 payload=256 selected_diff: us median=0.347 min=0.346 max=0.347
+history=1024 state=4096 payload=256 open_close_detail: us median=171.167 min=170.974 max=172.224
+history=1024 state=65536 payload=4096 snapshot_clone: us median=2459.479 min=1811.255 max=2479.776
+history=1024 state=65536 payload=4096 typed_update: us median=5499.932 min=5379.859 max=5664.812
+history=1024 state=65536 payload=4096 shared_refresh: us median=5147.828 min=5029.906 max=5310.818
+history=1024 state=65536 payload=4096 selected_diff: us median=1.484 min=1.483 max=1.485
+history=1024 state=65536 payload=4096 open_close_detail: us median=968.000 min=781.031 max=1307.589
+array_nodes=64 one_change_diff: us median=2.467 min=2.464 max=2.470
+array_nodes=4096 one_change_diff: us median=139.418 min=139.041 max=140.130
+run=3
+one warmup + seven samples; microseconds/op; release; test backend 120x30
+history=64 state=0 display_update: us median=11.701 min=11.674 max=12.169
+history=64 state=0 search: us median=43.133 min=43.010 max=43.326
+history=64 state=0 list_draw: us median=381.441 min=380.507 max=382.229
+history=1024 state=4096 display_update: us median=189.089 min=187.992 max=189.216
+history=1024 state=4096 search: us median=694.319 min=692.930 max=710.424
+history=1024 state=4096 list_draw: us median=3135.404 min=3059.103 max=3206.863
+history=1024 state=65536 display_update: us median=211.008 min=210.216 max=212.001
+history=1024 state=65536 search: us median=724.451 min=712.565 max=736.708
+history=1024 state=65536 list_draw: us median=3072.227 min=3049.895 max=3162.259
+history=64 state=0 payload=0 snapshot_clone: us median=11.125 min=11.115 max=11.161
+history=64 state=0 payload=0 typed_update: us median=57.740 min=57.578 max=58.396
+history=64 state=0 payload=0 shared_refresh: us median=52.365 min=52.156 max=52.812
+history=64 state=0 payload=0 selected_diff: us median=0.256 min=0.256 max=0.258
+history=64 state=0 payload=0 open_close_detail: us median=11.510 min=11.490 max=11.547
+history=1024 state=4096 payload=256 snapshot_clone: us median=324.245 min=317.396 max=363.521
+history=1024 state=4096 payload=256 typed_update: us median=1427.084 min=1391.062 max=1517.234
+history=1024 state=4096 payload=256 shared_refresh: us median=1176.495 min=1158.240 max=1183.297
+history=1024 state=4096 payload=256 selected_diff: us median=0.346 min=0.345 max=0.348
+history=1024 state=4096 payload=256 open_close_detail: us median=174.328 min=174.188 max=174.714
+history=1024 state=65536 payload=4096 snapshot_clone: us median=1895.943 min=1824.839 max=2591.833
+history=1024 state=65536 payload=4096 typed_update: us median=5733.937 min=5635.485 max=5817.948
+history=1024 state=65536 payload=4096 shared_refresh: us median=5271.271 min=5113.057 max=5449.036
+history=1024 state=65536 payload=4096 selected_diff: us median=1.540 min=1.536 max=1.554
+history=1024 state=65536 payload=4096 open_close_detail: us median=858.557 min=792.932 max=1435.234
+array_nodes=64 one_change_diff: us median=2.435 min=2.430 max=2.446
+array_nodes=4096 one_change_diff: us median=139.802 min=139.333 max=140.484
