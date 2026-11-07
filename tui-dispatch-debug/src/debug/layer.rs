@@ -47,6 +47,9 @@ use tui_dispatch_core::subscriptions::SubPauseHandle;
 use tui_dispatch_core::tasks::TaskPauseHandle;
 use tui_dispatch_core::{Action, Component, EventKind};
 
+mod inspector;
+pub use inspector::DebugInspector;
+
 type StateSnapshotter = Box<dyn Fn(&dyn Any, &Path) -> crate::SnapshotResult<()> + 'static>;
 
 #[derive(Debug, Clone)]
@@ -429,6 +432,8 @@ pub struct DebugLayer<A> {
     freeze: DebugFreeze<A>,
     /// Where the debug banner is rendered
     banner_position: BannerPosition,
+    /// Standalone inspectors use the entire content area instead of a modal.
+    overlay_fullscreen: bool,
     /// Style configuration
     style: DebugStyle,
     /// Whether the debug layer is active (can be disabled for release builds)
@@ -519,6 +524,7 @@ impl<A: Action> DebugLayer<A> {
             toggle_key,
             freeze: DebugFreeze::new(),
             banner_position: BannerPosition::Bottom,
+            overlay_fullscreen: false,
             style: DebugStyle::default(),
             active: true,
             action_log: ActionLog::new(ActionLogConfig::with_capacity(100)),
@@ -1476,8 +1482,6 @@ impl<A: Action> DebugLayer<A> {
     ) where
         F: FnMut(&mut Frame, Rect),
     {
-        let modal_area = self.overlay_modal_area(app_area);
-        let mut modal = Modal::new();
         let mut render_content = |frame: &mut Frame, content_area: Rect| {
             if content_area.height == 0 || content_area.width == 0 {
                 return;
@@ -1518,6 +1522,18 @@ impl<A: Action> DebugLayer<A> {
             render_body(frame, body_area);
         };
 
+        if self.overlay_fullscreen {
+            frame.render_widget(
+                ratatui::widgets::Block::default()
+                    .style(Style::default().bg(self.style.overlay_bg)),
+                app_area,
+            );
+            render_content(frame, app_area);
+            return;
+        }
+
+        let modal_area = self.overlay_modal_area(app_area);
+        let mut modal = Modal::new();
         modal.render(
             frame,
             app_area,
@@ -2304,11 +2320,18 @@ impl<A: Action> DebugLayer<A> {
     }
 
     fn render_debug_overlay(&mut self, frame: &mut Frame, app_area: Rect, banner_area: Rect) {
+        self.render_current_overlay(frame, app_area);
+        self.render_banner(frame, banner_area);
+    }
+
+    fn render_current_overlay(&mut self, frame: &mut Frame, app_area: Rect) {
         let overlay = self.freeze.overlay.clone();
 
         // Only dim when there's an overlay open
         if let Some(ref overlay) = overlay {
-            dim_buffer(frame.buffer_mut(), self.style.dim_factor);
+            if !self.overlay_fullscreen {
+                dim_buffer(frame.buffer_mut(), self.style.dim_factor);
+            }
 
             match overlay {
                 DebugOverlay::Inspect(table) => {
@@ -2349,9 +2372,6 @@ impl<A: Action> DebugLayer<A> {
                 }
             }
         }
-
-        // Render banner
-        self.render_banner(frame, banner_area);
     }
 
     fn render_banner(&self, frame: &mut Frame, banner_area: Rect) {
@@ -2411,6 +2431,21 @@ impl<A: Action> DebugLayer<A> {
             )));
         }
 
+        self.render_banner_items(frame, banner_area, &left_items, &right_items);
+    }
+
+    fn render_banner_items(
+        &self,
+        frame: &mut Frame,
+        banner_area: Rect,
+        left_items: &[StatusBarItem<'_>],
+        right_items: &[StatusBarItem<'_>],
+    ) {
+        if banner_area.height == 0 || banner_area.width == 0 {
+            return;
+        }
+        let label_style = self.style.label_style;
+        let keys = &self.style.key_styles;
         let style = StatusBarStyle {
             base: BaseStyle {
                 border: None,
@@ -2424,11 +2459,11 @@ impl<A: Action> DebugLayer<A> {
             separator: label_style,
         };
 
-        let left = StatusBarSection::items(&left_items).with_separator("");
+        let left = StatusBarSection::items(left_items).with_separator("");
         let right = if right_items.is_empty() {
             StatusBarSection::empty()
         } else {
-            StatusBarSection::items(&right_items).with_separator("")
+            StatusBarSection::items(right_items).with_separator("")
         };
 
         let mut status_bar = StatusBar::new();

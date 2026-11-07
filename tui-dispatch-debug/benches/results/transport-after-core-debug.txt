@@ -1,0 +1,20 @@
+cwd=/Users/dmk/Work/fr/rust-tui/tui-dispatch
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline --target-dir /Users/dmk/Work/fr/rust-tui/tui-dispatch/target -p tui-dispatch-core --bench debug_dispatch --no-default-features --features debug
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (target/release/deps/debug_dispatch-f3615cdab2549505)
+debug_feature=true
+plain: median=0.99 min=0.99 max=1.01 ns/dispatch
+middleware: median=20.31 min=20.25 max=20.89 ns/dispatch
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (target/release/deps/debug_dispatch-f3615cdab2549505)
+debug_feature=true
+plain: median=1.00 min=0.99 max=1.00 ns/dispatch
+middleware: median=25.04 min=23.84 max=25.56 ns/dispatch
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (target/release/deps/debug_dispatch-f3615cdab2549505)
+debug_feature=true
+plain: median=1.00 min=0.99 max=1.03 ns/dispatch
+middleware: median=19.35 min=19.33 max=19.37 ns/dispatch

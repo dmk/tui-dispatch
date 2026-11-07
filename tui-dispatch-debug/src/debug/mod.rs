@@ -138,7 +138,7 @@ pub use config::{
     default_debug_keybindings, default_debug_keybindings_with_toggle, DebugConfig, DebugStyle,
     KeyStyles, ScrollbarStyle, StatusItem,
 };
-pub use layer::{BannerPosition, DebugLayer, DebugOutcome};
+pub use layer::{BannerPosition, DebugInspector, DebugLayer, DebugOutcome};
 pub use state::{DebugEntry, DebugSection, DebugState, DebugWrapper};
 
 // Action logging

@@ -1,0 +1,211 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+use serde_json::json;
+use tui_dispatch_core::EventKind;
+use tui_dispatch_debug::debug::{
+    ActionLogDisplayEntry, ActionLogOverlay, DebugInspector, DebugOverlay, DebugStyle,
+};
+
+fn key(inspector: &mut DebugInspector, code: KeyCode) -> bool {
+    inspector.handle_event(&EventKind::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+}
+fn entries(sequences: &[u64]) -> Vec<ActionLogDisplayEntry> {
+    sequences
+        .iter()
+        .map(|sequence| ActionLogDisplayEntry {
+            sequence: *sequence,
+            name: if *sequence <= 2 { "Load" } else { "Done" }.into(),
+            params: format!("[applied] {{\"amount\":{sequence}}}"),
+            params_detail: format!("{{\"amount\":{sequence}}}"),
+            elapsed: "—".into(),
+        })
+        .collect()
+}
+fn log(inspector: &DebugInspector) -> &ActionLogOverlay {
+    match inspector.overlay() {
+        Some(DebugOverlay::ActionLog(log)) => log,
+        other => panic!("expected action list, got {other:?}"),
+    }
+}
+fn render(inspector: &mut DebugInspector, width: u16, height: u16) -> Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| inspector.render(frame, "Connected · read only"))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+fn text(buffer: &Buffer) -> String {
+    buffer
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>()
+}
+
+#[test]
+fn renders_shared_action_and_state_views_with_the_live_palette() {
+    let mut inspector = DebugInspector::new();
+    inspector.update(json!({"count":42,"label":"hello"}), entries(&[2, 1]));
+    let buffer = render(&mut inspector, 110, 28);
+    let rendered = text(&buffer);
+    let first_row: String = (0..110).map(|x| buffer[(x, 0)].symbol()).collect();
+    assert!(
+        first_row.contains("Action Log"),
+        "view must start at the top edge"
+    );
+    assert_eq!(buffer[(0, 0)].bg, DebugStyle::default().overlay_bg);
+    assert_eq!(buffer[(109, 25)].bg, DebugStyle::default().overlay_bg);
+    for expected in [
+        "Action Log",
+        "Load",
+        "amount",
+        "DEBUG",
+        "Connected",
+        "read only",
+    ] {
+        assert!(rendered.contains(expected), "missing {expected}");
+    }
+    for unavailable in ["resume", "components", "mouse"] {
+        assert!(!rendered.contains(unavailable));
+    }
+    assert!(buffer
+        .content
+        .iter()
+        .any(|cell| cell.bg == DebugStyle::default().overlay_bg));
+    key(&mut inspector, KeyCode::Char('s'));
+    let state_buffer = render(&mut inspector, 110, 28);
+    let first_row: String = (0..110).map(|x| state_buffer[(x, 0)].symbol()).collect();
+    assert!(first_row.contains("Application State"));
+    let rendered = text(&state_buffer);
+    for expected in ["Application State", "count", "42", "label", "hello"] {
+        assert!(rendered.contains(expected), "missing {expected}");
+    }
+    // Exercise shared view clipping on a small terminal.
+    render(&mut inspector, 12, 3);
+}
+
+#[test]
+fn incoming_history_preserves_search_selection_and_open_details() {
+    let mut inspector = DebugInspector::new();
+    inspector.update(json!(0), entries(&[3, 2, 1]));
+    key(&mut inspector, KeyCode::Char('/'));
+    for ch in "Load".chars() {
+        assert!(!key(&mut inspector, KeyCode::Char(ch)));
+    }
+    // A poll while editing must leave the query active.
+    inspector.update(json!(1), entries(&[4, 3, 2, 1]));
+    assert_eq!(log(&inspector).search_query, "Load");
+    assert!(log(&inspector).search_input_active);
+    key(&mut inspector, KeyCode::Enter);
+    key(&mut inspector, KeyCode::Down);
+    assert_eq!(log(&inspector).get_selected().unwrap().sequence, 1);
+    inspector.update(json!(2), entries(&[5, 4, 3, 2, 1]));
+    assert_eq!(log(&inspector).get_selected().unwrap().sequence, 1);
+    assert_eq!(log(&inspector).search_match_count(), 2);
+    key(&mut inspector, KeyCode::Enter);
+    inspector.update(json!(3), entries(&[5, 4, 3, 2]));
+    match inspector.overlay() {
+        Some(DebugOverlay::ActionDetail(detail)) => {
+            assert_eq!(detail.sequence, 1);
+            assert!(detail.params.contains("1"));
+        }
+        other => panic!("poll replaced the selected detail: {other:?}"),
+    }
+    assert!(!key(&mut inspector, KeyCode::Esc));
+    assert_eq!(log(&inspector).search_query, "Load");
+    assert_eq!(log(&inspector).get_selected().unwrap().sequence, 2);
+}
+
+#[test]
+fn state_search_and_details_survive_refresh_and_return_to_current_state() {
+    let mut inspector = DebugInspector::new();
+    inspector.update(json!({"count":1,"other":9}), entries(&[1]));
+    key(&mut inspector, KeyCode::Char('s'));
+    render(&mut inspector, 100, 24);
+    key(&mut inspector, KeyCode::Char('/'));
+    for ch in "count".chars() {
+        key(&mut inspector, KeyCode::Char(ch));
+    }
+    inspector.update(json!({"count":2,"other":9}), entries(&[2, 1]));
+    assert!(text(&render(&mut inspector, 100, 24)).contains("count"));
+    key(&mut inspector, KeyCode::Enter); // finish search
+    key(&mut inspector, KeyCode::Down); // select the field below its section
+    key(&mut inspector, KeyCode::Enter);
+    match inspector.overlay() {
+        Some(DebugOverlay::StateDetail(detail)) => assert_eq!(detail.value, "2"),
+        other => panic!("expected state field detail: {other:?}"),
+    }
+    inspector.update(json!({"count":3,"other":9}), entries(&[3, 2, 1]));
+    match inspector.overlay() {
+        Some(DebugOverlay::StateDetail(detail)) => assert_eq!(detail.value, "2"),
+        other => panic!("poll replaced the state detail: {other:?}"),
+    }
+    assert!(!key(&mut inspector, KeyCode::Esc));
+    let rendered = text(&render(&mut inspector, 100, 24));
+    assert!(rendered.contains("count"));
+    assert!(!rendered.contains("other"), "state filter was lost");
+    key(&mut inspector, KeyCode::Enter);
+    match inspector.overlay() {
+        Some(DebugOverlay::StateDetail(detail)) => assert_eq!(detail.value, "3"),
+        other => panic!("expected refreshed state detail: {other:?}"),
+    }
+}
+
+#[test]
+fn search_accepts_shortcut_letters_and_remote_view_cannot_freeze_the_app() {
+    let mut inspector = DebugInspector::new();
+    inspector.update(json!(0), entries(&[1]));
+    key(&mut inspector, KeyCode::Char('/'));
+    for ch in "qasciy".chars() {
+        assert!(!key(&mut inspector, KeyCode::Char(ch)));
+    }
+    assert_eq!(log(&inspector).search_query, "qasciy");
+    assert!(!key(&mut inspector, KeyCode::Esc)); // finish editing
+    for code in [
+        KeyCode::F(12),
+        KeyCode::Char('c'),
+        KeyCode::Char('i'),
+        KeyCode::Char('y'),
+    ] {
+        assert!(!key(&mut inspector, code));
+        assert!(matches!(
+            inspector.overlay(),
+            Some(DebugOverlay::ActionLog(_))
+        ));
+    }
+    let release = KeyEvent::new_with_kind(
+        KeyCode::Char('q'),
+        KeyModifiers::NONE,
+        KeyEventKind::Release,
+    );
+    assert!(!inspector.handle_event(&EventKind::Key(release)));
+    assert!(key(&mut inspector, KeyCode::Char('q')));
+}
+
+#[test]
+fn newest_follow_and_empty_history_are_safe_across_reconnects() {
+    let mut inspector = DebugInspector::new();
+    inspector.update(json!(1), entries(&[1]));
+    inspector.update(json!(2), entries(&[2, 1]));
+    assert_eq!(log(&inspector).get_selected().unwrap().sequence, 2);
+    inspector.update(json!(null), Vec::new());
+    assert!(log(&inspector).entries.is_empty());
+    assert_eq!(log(&inspector).selected, 0);
+    render(&mut inspector, 80, 24);
+    inspector.update(json!(1), entries(&[1]));
+    assert_eq!(log(&inspector).get_selected().unwrap().sequence, 1);
+}
+
+#[test]
+fn a_filter_with_no_matches_does_not_open_an_unrelated_action() {
+    let mut inspector = DebugInspector::new();
+    inspector.update(json!(1), entries(&[1]));
+    key(&mut inspector, KeyCode::Char('/'));
+    key(&mut inspector, KeyCode::Char('z'));
+    key(&mut inspector, KeyCode::Enter);
+    key(&mut inspector, KeyCode::Enter);
+    assert!(log(&inspector).get_selected().is_none());
+    inspector.update(json!(2), entries(&[2, 1]));
+    key(&mut inspector, KeyCode::Enter);
+    assert!(log(&inspector).get_selected().is_none());
+}

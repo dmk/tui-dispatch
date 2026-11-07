@@ -1,0 +1,21 @@
+cwd=/tmp/tui-item08-parent-iyn219u4
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline --target-dir /Users/dmk/Work/fr/rust-tui/tui-dispatch/target -p tui-dispatch-core --bench debug_dispatch --no-default-features --features debug
+run=1
+   Compiling tui-dispatch-core v0.7.1 (/private/tmp/tui-item08-parent-iyn219u4/tui-dispatch-core)
+    Finished `bench` profile [optimized] target(s) in 0.75s
+     Running benches/debug_dispatch.rs (/Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_dispatch-f3615cdab2549505)
+debug_feature=true
+plain: median=2.29 min=1.92 max=2.87 ns/dispatch
+middleware: median=20.76 min=20.52 max=22.70 ns/dispatch
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/debug_dispatch.rs (/Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_dispatch-f3615cdab2549505)
+debug_feature=true
+plain: median=1.02 min=1.01 max=1.03 ns/dispatch
+middleware: median=20.71 min=20.53 max=22.62 ns/dispatch
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.05s
+     Running benches/debug_dispatch.rs (/Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_dispatch-f3615cdab2549505)
+debug_feature=true
+plain: median=1.00 min=0.99 max=1.01 ns/dispatch
+middleware: median=21.26 min=21.13 max=22.38 ns/dispatch

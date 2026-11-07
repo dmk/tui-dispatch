@@ -19,7 +19,7 @@ tui-dispatch-shared.workspace = true
 tui-dispatch-components.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -33,4 +33,12 @@ tui-dispatch-macros.workspace = true
 
 [[bench]]
 name = "debug_observation"
+harness = false
+
+[[bench]]
+name = "debug_transport"
+harness = false
+
+[[bench]]
+name = "debug_transport_memory"
 harness = false

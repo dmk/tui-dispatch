@@ -49,6 +49,8 @@ export default defineConfig({
           items: [
             { label: 'Debug Layer', slug: 'debugging/debug-layer' },
             { label: 'Debug Sessions', slug: 'debugging/debug-sessions' },
+            { label: 'Dispatch Observation', slug: 'debugging/debug-observation' },
+            { label: 'Standalone Debugger', slug: 'debugging/debugger-attach' },
             { label: 'Feature Flags', slug: 'debugging/feature-flags' },
           ],
         },

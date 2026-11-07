@@ -61,6 +61,26 @@ A minesweeper game demonstrating middleware cancel/inject patterns.
 - Cancel/inject action patterns
 - Grid-based UI rendering
 
+To inspect the game with the [standalone debugger](/debugging/debugger-attach/),
+start it with a socket path in a private directory:
+
+```sh
+mkdir -p -m 700 /tmp/minesweeper-debug
+cargo run -p minesweeper-example -- --debug-socket /tmp/minesweeper-debug/app.sock
+```
+
+Then, from the repository root in another terminal:
+
+```sh
+cargo run -p tui-dispatch-debug --bin tui-dispatch-debug -- /tmp/minesweeper-debug/app.sock
+```
+
+Play in the game terminal; the debugger shows the last 64 action boundaries and
+their state snapshots, including middleware cancellations and injected reveals.
+For a predictable cancellation, flag a cell with `f`, then press Space on it.
+Quitting the debugger leaves the game running; quitting the game removes its
+socket. Add `--once` to the debugger command to print one JSON snapshot instead.
+
 ## Running Examples
 
 From the repository root:

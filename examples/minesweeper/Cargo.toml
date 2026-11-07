@@ -13,3 +13,7 @@ tui-dispatch-components = { path = "../../tui-dispatch-components" }
 ratatui = "0.30"
 crossterm = "0.29"
 rand = "0.10"
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

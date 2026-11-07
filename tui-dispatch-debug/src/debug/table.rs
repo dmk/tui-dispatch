@@ -356,6 +356,11 @@ impl ActionLogOverlay {
             })
             .collect();
 
+        Self::from_entries(entries, title)
+    }
+
+    /// Create a view from owned entries, newest first (for example from a socket).
+    pub fn from_entries(entries: Vec<ActionLogDisplayEntry>, title: impl Into<String>) -> Self {
         Self {
             title: title.into(),
             entries,
@@ -366,6 +371,26 @@ impl ActionLogOverlay {
             search_match_index: 0,
             search_input_active: false,
         }
+    }
+
+    /// Refresh entries while retaining the query and selected sequence, if kept.
+    /// A view following the newest entry continues following new arrivals.
+    pub fn replace_entries(&mut self, entries: Vec<ActionLogDisplayEntry>) {
+        let selected_sequence = self.get_selected().map(|entry| entry.sequence);
+        let follow_newest = self.selected == 0 && !self.has_search_query();
+        self.entries = entries;
+        self.selected = if follow_newest {
+            0
+        } else {
+            selected_sequence
+                .and_then(|sequence| {
+                    self.entries
+                        .iter()
+                        .position(|entry| entry.sequence == sequence)
+                })
+                .unwrap_or_else(|| self.selected.min(self.entries.len().saturating_sub(1)))
+        };
+        self.rebuild_search_matches();
     }
 
     /// Scroll up (select previous entry)
@@ -442,6 +467,9 @@ impl ActionLogOverlay {
 
     /// Get the currently selected entry
     pub fn get_selected(&self) -> Option<&ActionLogDisplayEntry> {
+        if self.has_search_query() && !self.is_search_match(self.selected) {
+            return None;
+        }
         self.entries.get(self.selected)
     }
 

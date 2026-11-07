@@ -13,6 +13,8 @@ mod pattern_utils;
 pub mod replay;
 pub mod session;
 pub mod snapshot;
+#[cfg(unix)]
+pub mod transport;
 
 pub use cli::DebugCliArgs;
 pub use replay::ReplayItem;

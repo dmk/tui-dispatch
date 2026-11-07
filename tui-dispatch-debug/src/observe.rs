@@ -37,6 +37,30 @@ pub struct DebugRecord {
     pub serialization_errors: Vec<String>,
 }
 
+impl DebugRecord {
+    /// Construct an applied dispatch record for a custom producer.
+    /// [`DebugCollector::publish`] assigns collector-local sequence/action IDs.
+    pub fn dispatch(
+        sequence: u64,
+        name: impl Into<String>,
+        action: Value,
+        state: Value,
+        changed: bool,
+    ) -> Self {
+        Self {
+            sequence,
+            action_id: sequence,
+            parent_action_id: None,
+            name: name.into(),
+            action,
+            state,
+            changed,
+            outcome: DispatchOutcome::Applied,
+            serialization_errors: Vec::new(),
+        }
+    }
+}
+
 struct History {
     records: VecDeque<DebugRecord>,
     next_sequence: u64,
@@ -102,6 +126,30 @@ impl DebugCollector {
             .iter()
             .cloned()
             .collect()
+    }
+
+    /// Publish an already serialized boundary from a custom producer.
+    ///
+    /// Prefer `observer()` for stores. Disabled collection ignores the record.
+    /// The supplied sequence and action ID are replaced with collector-local IDs;
+    /// an optional parent ID must already refer to this collector's ID space.
+    pub fn publish(&self, mut record: DebugRecord) {
+        let mut history = self.shared.history.lock().unwrap();
+        if !self.shared.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        let sequence = history.next_sequence;
+        let Some(next) = sequence.checked_add(1) else {
+            self.shared.enabled.store(false, Ordering::Release);
+            return;
+        };
+        history.next_sequence = next;
+        record.sequence = sequence;
+        record.action_id = sequence;
+        if history.records.len() == self.shared.capacity {
+            history.records.pop_front();
+        }
+        history.records.push_back(record);
     }
 
     /// Enable or disable new collection, retaining existing history.

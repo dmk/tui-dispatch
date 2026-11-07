@@ -1,0 +1,62 @@
+parent=399e5a1725c6a35c18130ee95e83a5d9e69e9238 cwd=/tmp/tui-item08-parent-iyn219u4
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline --target-dir /Users/dmk/Work/fr/rust-tui/tui-dispatch/target -p tui-dispatch-debug --bench debug_observation --all-features
+run=1
+   Compiling tui-dispatch-core v0.7.1 (/private/tmp/tui-item08-parent-iyn219u4/tui-dispatch-core)
+   Compiling tui-dispatch-components v0.7.1 (/private/tmp/tui-item08-parent-iyn219u4/tui-dispatch-components)
+   Compiling tui-dispatch-debug v0.7.1 (/private/tmp/tui-item08-parent-iyn219u4/tui-dispatch-debug)
+    Finished `bench` profile [optimized] target(s) in 2.02s
+     Running benches/debug_observation.rs (/Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_observation-1ddc259b5f6849b7)
+9 x 256 dispatches; one warmup; reads clone full history; separate allocator probe
+state=0 payload=0 capacity=64 enabled=false read_every=0: median=8.30 min=6.84 max=8.46 ns/dispatch allocs/op=0.00 bytes/op=0 retained=232 peak=232
+state=0 payload=0 capacity=1 enabled=true read_every=0: median=597.17 min=574.71 max=713.54 ns/dispatch allocs/op=7.00 bytes/op=1289 retained=2321 peak=3610
+state=0 payload=0 capacity=64 enabled=true read_every=0: median=621.42 min=593.10 max=692.06 ns/dispatch allocs/op=7.00 bytes/op=1289 retained=95048 peak=96337
+state=0 payload=0 capacity=64 enabled=true read_every=1: median=12866.54 min=11707.52 max=17241.05 ns/dispatch allocs/op=456.00 bytes/op=96073 retained=95048 peak=189832
+state=0 payload=0 capacity=64 enabled=true read_every=256: median=232.91 min=227.38 max=284.67 ns/dispatch allocs/op=8.75 bytes/op=1659 retained=95048 peak=189832
+state=4096 payload=256 capacity=64 enabled=false read_every=0: median=31.41 min=23.60 max=31.57 ns/dispatch allocs/op=1.00 bytes/op=256 retained=4584 peak=4840
+state=4096 payload=256 capacity=1 enabled=true read_every=0: median=448.24 min=314.29 max=679.52 ns/dispatch allocs/op=11.00 bytes/op=6153 retained=11025 peak=16922
+state=4096 payload=256 capacity=64 enabled=true read_every=0: median=365.89 min=348.80 max=386.39 ns/dispatch allocs/op=11.00 bytes/op=6153 retained=377928 peak=383825
+state=4096 payload=256 capacity=64 enabled=true read_every=1: median=20633.46 min=20216.63 max=24340.82 ns/dispatch allocs/op=588.00 bytes/op=379465 retained=377928 peak=751240
+state=4096 payload=256 capacity=64 enabled=true read_every=256: median=438.15 min=417.64 max=983.89 ns/dispatch allocs/op=13.25 bytes/op=7611 retained=377928 peak=751240
+state=65536 payload=4096 capacity=64 enabled=false read_every=0: median=65.59 min=57.45 max=76.34 ns/dispatch allocs/op=1.00 bytes/op=4096 retained=69864 peak=73960
+state=65536 payload=4096 capacity=1 enabled=true read_every=0: median=1378.09 min=1332.20 max=1538.41 ns/dispatch allocs/op=11.00 bytes/op=79113 retained=141585 peak=216602
+state=65536 payload=4096 capacity=64 enabled=true read_every=0: median=1471.19 min=1430.66 max=2551.43 ns/dispatch allocs/op=11.00 bytes/op=79113 retained=4621128 peak=4696145
+state=65536 payload=4096 capacity=64 enabled=true read_every=1: median=110109.70 min=101686.52 max=118008.62 ns/dispatch allocs/op=588.00 bytes/op=4630345 retained=4621128 peak=9172360
+state=65536 payload=4096 capacity=64 enabled=true read_every=256: median=2192.87 min=2041.02 max=2381.19 ns/dispatch allocs/op=13.25 bytes/op=96891 retained=4621128 peak=9172360
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.08s
+     Running benches/debug_observation.rs (/Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_observation-1ddc259b5f6849b7)
+9 x 256 dispatches; one warmup; reads clone full history; separate allocator probe
+state=0 payload=0 capacity=64 enabled=false read_every=0: median=3.58 min=3.42 max=4.39 ns/dispatch allocs/op=0.00 bytes/op=0 retained=232 peak=232
+state=0 payload=0 capacity=1 enabled=true read_every=0: median=213.05 min=186.36 max=357.42 ns/dispatch allocs/op=7.00 bytes/op=1289 retained=2321 peak=3610
+state=0 payload=0 capacity=64 enabled=true read_every=0: median=204.91 min=197.10 max=212.07 ns/dispatch allocs/op=7.00 bytes/op=1289 retained=95048 peak=96337
+state=0 payload=0 capacity=64 enabled=true read_every=1: median=11217.29 min=11076.98 max=14079.59 ns/dispatch allocs/op=456.00 bytes/op=96073 retained=95048 peak=189832
+state=0 payload=0 capacity=64 enabled=true read_every=256: median=230.30 min=224.93 max=285.48 ns/dispatch allocs/op=8.75 bytes/op=1659 retained=95048 peak=189832
+state=4096 payload=256 capacity=64 enabled=false read_every=0: median=21.65 min=21.48 max=26.86 ns/dispatch allocs/op=1.00 bytes/op=256 retained=4584 peak=4840
+state=4096 payload=256 capacity=1 enabled=true read_every=0: median=315.92 min=312.82 max=676.43 ns/dispatch allocs/op=11.00 bytes/op=6153 retained=11025 peak=16922
+state=4096 payload=256 capacity=64 enabled=true read_every=0: median=366.54 min=347.33 max=419.43 ns/dispatch allocs/op=11.00 bytes/op=6153 retained=377928 peak=383825
+state=4096 payload=256 capacity=64 enabled=true read_every=1: median=21374.51 min=20170.25 max=25063.31 ns/dispatch allocs/op=588.00 bytes/op=379465 retained=377928 peak=751240
+state=4096 payload=256 capacity=64 enabled=true read_every=256: median=447.59 min=437.17 max=556.80 ns/dispatch allocs/op=13.25 bytes/op=7611 retained=377928 peak=751240
+state=65536 payload=4096 capacity=64 enabled=false read_every=0: median=57.46 min=57.29 max=76.17 ns/dispatch allocs/op=1.00 bytes/op=4096 retained=69864 peak=73960
+state=65536 payload=4096 capacity=1 enabled=true read_every=0: median=1389.32 min=1312.18 max=1778.64 ns/dispatch allocs/op=11.00 bytes/op=79113 retained=141585 peak=216602
+state=65536 payload=4096 capacity=64 enabled=true read_every=0: median=1470.05 min=1386.88 max=1660.32 ns/dispatch allocs/op=11.00 bytes/op=79113 retained=4621128 peak=4696145
+state=65536 payload=4096 capacity=64 enabled=true read_every=1: median=119492.84 min=96919.92 max=135122.23 ns/dispatch allocs/op=588.00 bytes/op=4630345 retained=4621128 peak=9172360
+state=65536 payload=4096 capacity=64 enabled=true read_every=256: median=1799.97 min=1765.30 max=1870.77 ns/dispatch allocs/op=13.25 bytes/op=96891 retained=4621128 peak=9172360
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/debug_observation.rs (/Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_observation-1ddc259b5f6849b7)
+9 x 256 dispatches; one warmup; reads clone full history; separate allocator probe
+state=0 payload=0 capacity=64 enabled=false read_every=0: median=3.09 min=2.93 max=3.26 ns/dispatch allocs/op=0.00 bytes/op=0 retained=232 peak=232
+state=0 payload=0 capacity=1 enabled=true read_every=0: median=204.10 min=203.12 max=407.23 ns/dispatch allocs/op=7.00 bytes/op=1289 retained=2321 peak=3610
+state=0 payload=0 capacity=64 enabled=true read_every=0: median=206.70 min=205.57 max=207.85 ns/dispatch allocs/op=7.00 bytes/op=1289 retained=95048 peak=96337
+state=0 payload=0 capacity=64 enabled=true read_every=1: median=10824.87 min=10704.92 max=11980.79 ns/dispatch allocs/op=456.00 bytes/op=96073 retained=95048 peak=189832
+state=0 payload=0 capacity=64 enabled=true read_every=256: median=230.80 min=229.66 max=240.40 ns/dispatch allocs/op=8.75 bytes/op=1659 retained=95048 peak=189832
+state=4096 payload=256 capacity=64 enabled=false read_every=0: median=21.97 min=21.81 max=22.14 ns/dispatch allocs/op=1.00 bytes/op=256 retained=4584 peak=4840
+state=4096 payload=256 capacity=1 enabled=true read_every=0: median=302.25 min=299.16 max=312.83 ns/dispatch allocs/op=11.00 bytes/op=6153 retained=11025 peak=16922
+state=4096 payload=256 capacity=64 enabled=true read_every=0: median=346.68 min=344.40 max=426.92 ns/dispatch allocs/op=11.00 bytes/op=6153 retained=377928 peak=383825
+state=4096 payload=256 capacity=64 enabled=true read_every=1: median=19353.52 min=19244.30 max=19757.98 ns/dispatch allocs/op=588.00 bytes/op=379465 retained=377928 peak=751240
+state=4096 payload=256 capacity=64 enabled=true read_every=256: median=426.27 min=423.67 max=437.01 ns/dispatch allocs/op=13.25 bytes/op=7611 retained=377928 peak=751240
+state=65536 payload=4096 capacity=64 enabled=false read_every=0: median=59.57 min=56.64 max=65.27 ns/dispatch allocs/op=1.00 bytes/op=4096 retained=69864 peak=73960
+state=65536 payload=4096 capacity=1 enabled=true read_every=0: median=1277.83 min=1269.20 max=1328.12 ns/dispatch allocs/op=11.00 bytes/op=79113 retained=141585 peak=216602
+state=65536 payload=4096 capacity=64 enabled=true read_every=0: median=1328.77 min=1319.17 max=1429.85 ns/dispatch allocs/op=11.00 bytes/op=79113 retained=4621128 peak=4696145
+state=65536 payload=4096 capacity=64 enabled=true read_every=1: median=90409.02 min=82872.56 max=99753.42 ns/dispatch allocs/op=588.00 bytes/op=4630345 retained=4621128 peak=9172360
+state=65536 payload=4096 capacity=64 enabled=true read_every=256: median=1850.75 min=1761.72 max=1992.35 ns/dispatch allocs/op=13.25 bytes/op=96891 retained=4621128 peak=9172360

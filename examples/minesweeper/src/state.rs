@@ -1,6 +1,6 @@
 use rand::seq::SliceRandom;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub enum Difficulty {
     Beginner,
     Intermediate,
@@ -25,7 +25,7 @@ impl Difficulty {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct Cell {
     pub mine: bool,
     pub revealed: bool,
@@ -33,13 +33,14 @@ pub struct Cell {
     pub adjacent: u8,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, serde::Serialize)]
 pub enum GameState {
     Playing,
     Won,
     Lost,
 }
 
+#[derive(serde::Serialize)]
 pub struct AppState {
     pub grid: Vec<Vec<Cell>>,
     pub width: usize,

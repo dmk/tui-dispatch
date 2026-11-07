@@ -1,0 +1,190 @@
+TUI_DEBUG_TRANSPORT_CASE=0,64,no-server DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+   Compiling tui-dispatch-debug v0.7.1 (/Users/dmk/Work/fr/rust-tui/tui-dispatch/tui-dispatch-debug)
+    Finished `bench` profile [optimized] target(s) in 1.98s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=558.11 min=462.57 max=1330.73
+owned_heap_peak=238926 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=233.40 min=194.34 max=662.11
+owned_heap_peak=238926 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=248.05 min=227.38 max=373.86
+owned_heap_peak=238926 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=0,64,reader DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=510.41 min=232.42 max=1320.31
+  snapshot_us p50=97.08 p95=220.62 p99=316.96 bytes=12910
+owned_heap_peak=296056 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.12s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=562.66 min=281.25 max=1171.23
+  snapshot_us p50=93.00 p95=193.58 p99=369.29 bytes=12910
+owned_heap_peak=296056 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=426.92 min=217.12 max=1208.98
+  snapshot_us p50=95.25 p95=238.25 p99=284.25 bytes=12910
+owned_heap_peak=296056 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=0,64,slow DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.12s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=245.12 min=190.27 max=618.98
+  snapshot_us p50=103.17 p95=239.92 p99=278.33 bytes=12910
+owned_heap_peak=295990 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=318.04 min=202.15 max=731.29
+  snapshot_us p50=91.58 p95=227.38 p99=259.08 bytes=12910
+owned_heap_peak=295878 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=227.70 min=192.06 max=415.69
+  snapshot_us p50=92.17 p95=231.17 p99=298.67 bytes=12910
+owned_heap_peak=295990 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=4096,64,no-server DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=446.29 min=361.16 max=784.83
+owned_heap_peak=800337 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.10s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=418.13 min=388.67 max=793.95
+owned_heap_peak=800337 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=512.05 min=427.41 max=1439.12
+owned_heap_peak=800337 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=4096,64,reader DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=1125.49 min=416.18 max=1438.15
+  snapshot_us p50=720.21 p95=1360.33 p99=1588.92 bytes=295534
+owned_heap_peak=2423867 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=694.01 min=403.48 max=1151.37
+  snapshot_us p50=424.42 p95=785.04 p99=982.88 bytes=295534
+owned_heap_peak=2423867 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.09s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=1229.66 min=436.04 max=2005.54
+  snapshot_us p50=500.08 p95=1183.21 p99=1586.42 bytes=295534
+owned_heap_peak=2423867 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=4096,64,slow DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=498.05 min=367.03 max=1220.21
+  snapshot_us p50=515.96 p95=914.00 p99=1083.33 bytes=295534
+owned_heap_peak=2423801 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.12s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=599.12 min=407.39 max=1095.21
+  snapshot_us p50=572.25 p95=922.71 p99=1111.92 bytes=295534
+owned_heap_peak=2423689 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=441.57 min=414.06 max=1238.28
+  snapshot_us p50=545.88 p95=952.25 p99=1121.83 bytes=295534
+owned_heap_peak=2423801 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=65536,64,no-server DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1838.54 min=1456.05 max=3285.16
+owned_heap_peak=9221458 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1789.71 min=1520.34 max=2948.24
+owned_heap_peak=9221458 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.13s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=2494.79 min=1572.75 max=3677.41
+owned_heap_peak=9221458 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=65536,64,reader DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.12s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=2048.02 min=1678.88 max=2938.32
+  snapshot_us p50=7579.92 p95=8620.83 p99=9813.42 bytes=4534894
+owned_heap_peak=34806588 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.10s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1876.62 min=1512.86 max=5748.05
+  snapshot_us p50=7901.96 p95=10161.08 p99=11753.54 bytes=4534894
+owned_heap_peak=34806588 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=2667.16 min=1474.61 max=4001.14
+  snapshot_us p50=7358.75 p95=8546.92 p99=8835.04 bytes=4534894
+owned_heap_peak=34806588 live_after_runtime_drop=1868
+TUI_DEBUG_TRANSPORT_CASE=65536,64,slow DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport_memory --all-features
+run=1
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=2090.98 min=1478.35 max=2667.97
+  snapshot_us p50=7888.42 p95=11101.12 p99=17143.83 bytes=4534894
+owned_heap_peak=34806522 live_after_runtime_drop=1868
+run=2
+    Finished `bench` profile [optimized] target(s) in 0.11s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1946.94 min=1383.14 max=3577.96
+  snapshot_us p50=8013.17 p95=10191.58 p99=11474.79 bytes=4534894
+owned_heap_peak=34806410 live_after_runtime_drop=1868
+run=3
+    Finished `bench` profile [optimized] target(s) in 0.09s
+     Running benches/debug_transport_memory.rs (target/release/deps/debug_transport_memory-717a0ed08e0abebf)
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1399.58 min=1367.35 max=2041.50
+  snapshot_us p50=8108.67 p95=9882.79 p99=12967.83 bytes=4534894
+owned_heap_peak=34806410 live_after_runtime_drop=1868

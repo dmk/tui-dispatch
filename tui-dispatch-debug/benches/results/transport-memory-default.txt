@@ -1,0 +1,595 @@
+build: DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport --no-run --message-format=json
+TUI_DEBUG_TRANSPORT_CASE=0,64,no-server /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=250.16 min=195.47 max=351.24
+        0.03 real         0.00 user         0.00 sys
+             2392064  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 317  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  38  involuntary context switches
+            31006334  instructions retired
+            11228584  cycles elapsed
+             1392952  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=261.23 min=197.75 max=301.76
+        0.03 real         0.00 user         0.00 sys
+             2375680  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 316  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  36  involuntary context switches
+            30944757  instructions retired
+            10474026  cycles elapsed
+             1376568  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=328.12 min=235.68 max=367.52
+        0.03 real         0.00 user         0.00 sys
+             2392064  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 317  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  44  involuntary context switches
+            32811716  instructions retired
+            11791952  cycles elapsed
+             1409360  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=0,64,reader /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=396.48 min=242.51 max=678.38
+  snapshot_us p50=89.96 p95=112.04 p99=120.96 bytes=12910
+        0.04 real         0.01 user         0.00 sys
+             2801664  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 343  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 462  messages sent
+                 461  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 578  involuntary context switches
+           222870166  instructions retired
+            47894042  cycles elapsed
+             1753400  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=349.77 min=238.12 max=498.54
+  snapshot_us p50=91.38 p95=108.08 p99=118.29 bytes=12910
+        0.04 real         0.01 user         0.00 sys
+             2867200  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 347  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 464  messages sent
+                 461  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 574  involuntary context switches
+           222983553  instructions retired
+            47804640  cycles elapsed
+             1835344  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=291.83 min=248.86 max=493.49
+  snapshot_us p50=105.08 p95=124.12 p99=130.79 bytes=12910
+        0.04 real         0.01 user         0.00 sys
+             2883584  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 347  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 459  messages sent
+                 457  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 572  involuntary context switches
+           221514551  instructions retired
+            48919188  cycles elapsed
+             1851728  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=0,64,slow /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=329.91 min=233.07 max=359.86
+  snapshot_us p50=88.71 p95=105.88 p99=113.92 bytes=12910
+        0.04 real         0.01 user         0.00 sys
+             2736128  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 338  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 408  messages sent
+                 406  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 560  involuntary context switches
+           199947342  instructions retired
+            42235664  cycles elapsed
+             1687864  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=233.72 min=228.84 max=251.95
+  snapshot_us p50=90.17 p95=110.33 p99=124.67 bytes=12910
+        0.04 real         0.01 user         0.00 sys
+             2736128  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 338  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 408  messages sent
+                 406  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 561  involuntary context switches
+           199995918  instructions retired
+            42708918  cycles elapsed
+             1687864  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=229.33 min=227.54 max=242.84
+  snapshot_us p50=102.00 p95=117.04 p99=119.62 bytes=12910
+        0.04 real         0.01 user         0.00 sys
+             2752512  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 339  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 408  messages sent
+                 406  messages received
+                   0  signals received
+                   0  voluntary context switches
+                 564  involuntary context switches
+           200109568  instructions retired
+            44093028  cycles elapsed
+             1704248  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=4096,64,no-server /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=541.83 min=466.64 max=606.93
+        0.03 real         0.00 user         0.00 sys
+             2998272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 354  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  36  involuntary context switches
+            38927181  instructions retired
+            10651380  cycles elapsed
+             1999160  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=559.24 min=450.03 max=639.81
+        0.03 real         0.00 user         0.00 sys
+             2981888  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 353  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  37  involuntary context switches
+            38765394  instructions retired
+            10380039  cycles elapsed
+             1982776  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=464.03 min=451.98 max=513.84
+        0.03 real         0.00 user         0.00 sys
+             2998272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 354  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  38  involuntary context switches
+            38861385  instructions retired
+            10562273  cycles elapsed
+             2015568  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=4096,64,reader /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=508.30 min=486.65 max=667.97
+  snapshot_us p50=506.92 p95=639.88 p99=654.92 bytes=295534
+        0.08 real         0.03 user         0.02 sys
+             4669440  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 456  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                4407  messages sent
+                4407  messages received
+                   0  signals received
+                   0  voluntary context switches
+                7810  involuntary context switches
+           719674600  instructions retired
+           185554708  cycles elapsed
+             3637584  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=516.93 min=409.51 max=596.03
+  snapshot_us p50=429.75 p95=464.62 p99=479.88 bytes=295534
+        0.07 real         0.03 user         0.02 sys
+             4653056  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 456  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                4424  messages sent
+                4423  messages received
+                   0  signals received
+                   0  voluntary context switches
+                7792  involuntary context switches
+           722894120  instructions retired
+           186299858  cycles elapsed
+             3637608  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=487.14 min=399.58 max=505.21
+  snapshot_us p50=430.83 p95=464.04 p99=488.25 bytes=295534
+        0.07 real         0.03 user         0.02 sys
+             4669440  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 456  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                4524  messages sent
+                4524  messages received
+                   0  signals received
+                   0  voluntary context switches
+                7804  involuntary context switches
+           735494463  instructions retired
+           193821870  cycles elapsed
+             3637584  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=4096,64,slow /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=485.84 min=365.88 max=584.47
+  snapshot_us p50=429.21 p95=465.21 p99=481.17 bytes=295534
+        0.07 real         0.02 user         0.02 sys
+             4374528  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 438  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                3943  messages sent
+                3941  messages received
+                   0  signals received
+                   0  voluntary context switches
+                7707  involuntary context switches
+           658979943  instructions retired
+           174459092  cycles elapsed
+             3342672  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=415.04 min=399.09 max=444.98
+  snapshot_us p50=430.88 p95=458.83 p99=478.83 bytes=295534
+        0.07 real         0.02 user         0.02 sys
+             4653056  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 455  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                3943  messages sent
+                3941  messages received
+                   0  signals received
+                   0  voluntary context switches
+                7705  involuntary context switches
+           659260261  instructions retired
+           174833934  cycles elapsed
+             3621200  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=476.72 min=422.52 max=525.07
+  snapshot_us p50=428.25 p95=456.88 p99=479.58 bytes=295534
+        0.07 real         0.02 user         0.02 sys
+             4669440  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 456  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                3943  messages sent
+                3941  messages received
+                   0  signals received
+                   0  voluntary context switches
+                7701  involuntary context switches
+           658976334  instructions retired
+           172768316  cycles elapsed
+             3637584  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=65536,64,no-server /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1445.31 min=1361.33 max=1531.90
+        0.03 real         0.00 user         0.00 sys
+            11468800  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 871  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  39  involuntary context switches
+            80975283  instructions retired
+            23486214  cycles elapsed
+            10486096  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1526.37 min=1434.25 max=1710.94
+        0.03 real         0.00 user         0.00 sys
+            11468800  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 871  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  37  involuntary context switches
+            81019794  instructions retired
+            23650264  cycles elapsed
+            10486096  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1592.61 min=1515.95 max=1724.12
+        0.03 real         0.00 user         0.00 sys
+            11468800  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 871  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  38  involuntary context switches
+            81012947  instructions retired
+            23754981  cycles elapsed
+            10486096  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=65536,64,reader /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1564.94 min=1446.45 max=1996.58
+  snapshot_us p50=5461.67 p95=5802.79 p99=5878.92 bytes=4534894
+        0.60 real         0.29 user         0.30 sys
+            34373632  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                2269  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               59543  messages sent
+               59541  messages received
+                   0  signals received
+                   0  voluntary context switches
+              114304  involuntary context switches
+          7548868517  instructions retired
+          2104159300  cycles elapsed
+            33374592  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1464.68 min=1357.42 max=2405.11
+  snapshot_us p50=5434.79 p95=5739.04 p99=5799.46 bytes=4534894
+        0.59 real         0.29 user         0.30 sys
+            38928384  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                2547  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               60050  messages sent
+               60049  messages received
+                   0  signals received
+                   0  voluntary context switches
+              114231  involuntary context switches
+          7604020455  instructions retired
+          2108513831  cycles elapsed
+            37962160  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1526.70 min=1377.93 max=2270.51
+  snapshot_us p50=5479.17 p95=5818.83 p99=6124.96 bytes=4534894
+        0.60 real         0.29 user         0.31 sys
+            38928384  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                2547  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               60050  messages sent
+               60049  messages received
+                   0  signals received
+                   0  voluntary context switches
+              114426  involuntary context switches
+          7607554163  instructions retired
+          2131425908  cycles elapsed
+            37945752  peak memory footprint
+TUI_DEBUG_TRANSPORT_CASE=65536,64,slow /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-fcc849fa6a5fccf8
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1594.08 min=1368.49 max=1776.04
+  snapshot_us p50=5437.67 p95=5755.83 p99=5850.83 bytes=4534894
+        0.59 real         0.27 user         0.29 sys
+            29622272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1979  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               56160  messages sent
+               56158  messages received
+                   0  signals received
+                   0  voluntary context switches
+              113173  involuntary context switches
+          7193467723  instructions retired
+          2017660631  cycles elapsed
+            28623232  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1594.89 min=1414.71 max=1734.38
+  snapshot_us p50=5454.79 p95=5723.42 p99=5794.88 bytes=4534894
+        0.59 real         0.28 user         0.29 sys
+            29802496  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1990  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               56160  messages sent
+               56158  messages received
+                   0  signals received
+                   0  voluntary context switches
+              113176  involuntary context switches
+          7193164045  instructions retired
+          2022232785  cycles elapsed
+            28803456  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1429.04 min=1381.35 max=1871.91
+  snapshot_us p50=5552.67 p95=5744.58 p99=5824.62 bytes=4534894
+        0.60 real         0.28 user         0.30 sys
+            29802496  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1990  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               56160  messages sent
+               56158  messages received
+                   0  signals received
+                   0  voluntary context switches
+              113315  involuntary context switches
+          7191518949  instructions retired
+          2039446257  cycles elapsed
+            28787048  peak memory footprint

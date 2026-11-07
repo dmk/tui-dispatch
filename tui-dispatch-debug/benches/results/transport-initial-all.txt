@@ -1,0 +1,206 @@
+build: DEVELOPER_DIR=/Library/Developer/CommandLineTools cargo bench --offline -p tui-dispatch-debug --bench debug_transport --no-run --message-format=json --all-features
+measure: /usr/bin/time -l /Users/dmk/Work/fr/rust-tui/tui-dispatch/target/release/deps/debug_transport-b0f6e55fecabd03c
+run=1
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=1 mode=disabled: dispatch_ns median=17.58 min=8.14 max=22.30
+state=0 payload=0 capacity=1 mode=no-server: dispatch_ns median=1153.81 min=1130.37 max=1223.63
+state=0 payload=0 capacity=1 mode=idle: dispatch_ns median=1164.55 min=661.62 max=1228.52
+  snapshot_us p50=26.04 p95=57.04 p99=76.58 bytes=247
+state=0 payload=0 capacity=1 mode=reader: dispatch_ns median=1199.05 min=619.63 max=1302.57
+  snapshot_us p50=33.79 p95=69.21 p99=74.92 bytes=247
+state=0 payload=0 capacity=1 mode=slow: dispatch_ns median=1167.16 min=630.05 max=1212.24
+  snapshot_us p50=41.08 p95=48.08 p99=59.12 bytes=247
+state=0 payload=0 capacity=64 mode=disabled: dispatch_ns median=17.58 min=9.44 max=20.83
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=1201.34 min=485.84 max=1257.00
+state=0 payload=0 capacity=64 mode=idle: dispatch_ns median=1218.91 min=1199.22 max=1315.43
+  snapshot_us p50=184.54 p95=394.21 p99=439.96 bytes=12910
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=919.92 min=353.19 max=1056.15
+  snapshot_us p50=163.00 p95=196.79 p99=204.25 bytes=12910
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=478.36 min=234.38 max=560.87
+  snapshot_us p50=139.92 p95=198.79 p99=212.12 bytes=12910
+state=4096 payload=256 capacity=1 mode=disabled: dispatch_ns median=97.82 min=33.69 max=100.43
+state=4096 payload=256 capacity=1 mode=no-server: dispatch_ns median=758.14 min=382.65 max=941.24
+state=4096 payload=256 capacity=1 mode=idle: dispatch_ns median=1051.76 min=887.37 max=1965.50
+  snapshot_us p50=43.29 p95=60.21 p99=67.00 bytes=8695
+state=4096 payload=256 capacity=1 mode=reader: dispatch_ns median=1569.17 min=1022.79 max=2124.35
+  snapshot_us p50=50.79 p95=107.50 p99=121.08 bytes=8695
+state=4096 payload=256 capacity=1 mode=slow: dispatch_ns median=1511.88 min=989.26 max=2076.17
+  snapshot_us p50=52.12 p95=110.33 p99=114.38 bytes=8695
+state=4096 payload=256 capacity=64 mode=disabled: dispatch_ns median=136.39 min=64.29 max=152.83
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=2189.12 min=2063.32 max=2341.96
+state=4096 payload=256 capacity=64 mode=idle: dispatch_ns median=2134.44 min=2076.82 max=2375.00
+  snapshot_us p50=560.21 p95=1103.67 p99=1360.33 bytes=295534
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=570.31 min=420.57 max=683.92
+  snapshot_us p50=431.75 p95=495.62 p99=505.79 bytes=295534
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=546.39 min=369.63 max=559.73
+  snapshot_us p50=424.92 p95=455.29 p99=471.33 bytes=295534
+state=65536 payload=4096 capacity=1 mode=disabled: dispatch_ns median=223.14 min=56.64 max=250.16
+state=65536 payload=4096 capacity=1 mode=no-server: dispatch_ns median=1379.72 min=1165.69 max=1473.47
+state=65536 payload=4096 capacity=1 mode=idle: dispatch_ns median=1618.98 min=1397.46 max=1693.20
+  snapshot_us p50=196.38 p95=226.58 p99=238.04 bytes=135415
+state=65536 payload=4096 capacity=1 mode=reader: dispatch_ns median=1476.40 min=1352.21 max=1631.68
+  snapshot_us p50=190.71 p95=219.12 p99=234.12 bytes=135415
+state=65536 payload=4096 capacity=1 mode=slow: dispatch_ns median=1455.08 min=1295.41 max=1634.44
+  snapshot_us p50=185.62 p95=208.12 p99=211.67 bytes=135415
+state=65536 payload=4096 capacity=64 mode=disabled: dispatch_ns median=222.49 min=66.89 max=236.82
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1876.62 min=1656.57 max=1989.59
+state=65536 payload=4096 capacity=64 mode=idle: dispatch_ns median=2356.12 min=1832.52 max=2459.96
+  snapshot_us p50=5370.79 p95=5747.29 p99=6486.04 bytes=4534894
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1679.36 min=1441.57 max=2528.81
+  snapshot_us p50=5363.54 p95=5697.08 p99=5822.67 bytes=4534894
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1570.31 min=1411.79 max=1711.75
+  snapshot_us p50=5354.67 p95=5666.21 p99=5722.54 bytes=4534894
+        3.25 real         1.11 user         1.04 sys
+            63520768  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                4329  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+              193904  messages sent
+              193888  messages received
+                   0  signals received
+                   0  voluntary context switches
+              378459  involuntary context switches
+         25703843220  instructions retired
+          7084286432  cycles elapsed
+            62587360  peak memory footprint
+run=2
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=1 mode=disabled: dispatch_ns median=14.49 min=3.09 max=18.55
+state=0 payload=0 capacity=1 mode=no-server: dispatch_ns median=372.23 min=193.36 max=389.98
+state=0 payload=0 capacity=1 mode=idle: dispatch_ns median=371.26 min=221.52 max=398.27
+  snapshot_us p50=12.17 p95=20.50 p99=26.00 bytes=247
+state=0 payload=0 capacity=1 mode=reader: dispatch_ns median=382.81 min=304.52 max=439.45
+  snapshot_us p50=15.33 p95=19.33 p99=28.33 bytes=247
+state=0 payload=0 capacity=1 mode=slow: dispatch_ns median=446.13 min=241.37 max=496.42
+  snapshot_us p50=10.25 p95=14.75 p99=22.46 bytes=247
+state=0 payload=0 capacity=64 mode=disabled: dispatch_ns median=16.76 min=4.23 max=25.71
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=750.33 min=584.47 max=1206.54
+state=0 payload=0 capacity=64 mode=idle: dispatch_ns median=1196.62 min=1185.71 max=1251.30
+  snapshot_us p50=187.17 p95=237.58 p99=425.29 bytes=12910
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=610.52 min=452.64 max=877.44
+  snapshot_us p50=101.67 p95=205.17 p99=217.04 bytes=12910
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=489.91 min=253.91 max=545.41
+  snapshot_us p50=141.25 p95=192.58 p99=218.25 bytes=12910
+state=4096 payload=256 capacity=1 mode=disabled: dispatch_ns median=94.73 min=33.53 max=106.93
+state=4096 payload=256 capacity=1 mode=no-server: dispatch_ns median=877.93 min=750.49 max=920.90
+state=4096 payload=256 capacity=1 mode=idle: dispatch_ns median=1065.92 min=965.01 max=1937.66
+  snapshot_us p50=49.25 p95=108.88 p99=119.96 bytes=8695
+state=4096 payload=256 capacity=1 mode=reader: dispatch_ns median=1447.92 min=895.67 max=2070.31
+  snapshot_us p50=48.46 p95=105.88 p99=115.21 bytes=8695
+state=4096 payload=256 capacity=1 mode=slow: dispatch_ns median=1907.88 min=1006.67 max=1968.43
+  snapshot_us p50=48.58 p95=93.83 p99=122.00 bytes=8695
+state=4096 payload=256 capacity=64 mode=disabled: dispatch_ns median=130.70 min=66.24 max=138.51
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=2151.37 min=2060.87 max=2388.51
+state=4096 payload=256 capacity=64 mode=idle: dispatch_ns median=2139.16 min=1331.54 max=2363.28
+  snapshot_us p50=570.50 p95=1012.67 p99=1144.88 bytes=295534
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=594.40 min=444.34 max=653.64
+  snapshot_us p50=434.71 p95=503.21 p99=511.04 bytes=295534
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=444.50 min=362.14 max=550.13
+  snapshot_us p50=426.75 p95=461.33 p99=463.83 bytes=295534
+state=65536 payload=4096 capacity=1 mode=disabled: dispatch_ns median=232.75 min=60.22 max=251.30
+state=65536 payload=4096 capacity=1 mode=no-server: dispatch_ns median=1321.94 min=1105.14 max=1483.40
+state=65536 payload=4096 capacity=1 mode=idle: dispatch_ns median=1478.68 min=1374.84 max=1740.40
+  snapshot_us p50=198.12 p95=222.46 p99=226.29 bytes=135415
+state=65536 payload=4096 capacity=1 mode=reader: dispatch_ns median=1500.81 min=1332.36 max=1691.24
+  snapshot_us p50=187.96 p95=208.21 p99=211.17 bytes=135415
+state=65536 payload=4096 capacity=1 mode=slow: dispatch_ns median=1430.83 min=1211.26 max=1522.14
+  snapshot_us p50=182.92 p95=211.71 p99=231.50 bytes=135415
+state=65536 payload=4096 capacity=64 mode=disabled: dispatch_ns median=196.78 min=66.57 max=210.29
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1804.04 min=1604.98 max=1987.14
+state=65536 payload=4096 capacity=64 mode=idle: dispatch_ns median=2135.91 min=1781.74 max=2595.21
+  snapshot_us p50=5349.50 p95=5728.58 p99=6633.42 bytes=4534894
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1680.66 min=1387.70 max=2370.45
+  snapshot_us p50=5342.58 p95=5660.17 p99=5780.04 bytes=4534894
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1633.14 min=1381.68 max=1736.65
+  snapshot_us p50=5361.42 p95=5715.46 p99=5769.42 bytes=4534894
+        2.95 real         1.09 user         1.03 sys
+            63209472  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                4307  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+              194210  messages sent
+              194196  messages received
+                   0  signals received
+                   0  voluntary context switches
+              378451  involuntary context switches
+         25716946679  instructions retired
+          7051672022  cycles elapsed
+            62259656  peak memory footprint
+run=3
+2 Tokio worker threads; 9 x 256 dispatches; 100 sequential full-snapshot round trips; one warmup
+state=0 payload=0 capacity=1 mode=disabled: dispatch_ns median=13.67 min=3.25 max=15.95
+state=0 payload=0 capacity=1 mode=no-server: dispatch_ns median=370.77 min=212.07 max=400.06
+state=0 payload=0 capacity=1 mode=idle: dispatch_ns median=254.72 min=211.59 max=383.46
+  snapshot_us p50=11.96 p95=15.92 p99=24.62 bytes=247
+state=0 payload=0 capacity=1 mode=reader: dispatch_ns median=223.63 min=215.66 max=426.76
+  snapshot_us p50=15.33 p95=18.12 p99=21.12 bytes=247
+state=0 payload=0 capacity=1 mode=slow: dispatch_ns median=446.12 min=216.31 max=494.79
+  snapshot_us p50=17.00 p95=23.21 p99=25.71 bytes=247
+state=0 payload=0 capacity=64 mode=disabled: dispatch_ns median=17.25 min=4.88 max=22.46
+state=0 payload=0 capacity=64 mode=no-server: dispatch_ns median=703.78 min=509.77 max=1214.19
+state=0 payload=0 capacity=64 mode=idle: dispatch_ns median=1197.10 min=523.11 max=1212.24
+  snapshot_us p50=186.12 p95=272.33 p99=464.25 bytes=12910
+state=0 payload=0 capacity=64 mode=reader: dispatch_ns median=660.64 min=365.72 max=915.37
+  snapshot_us p50=164.58 p95=199.83 p99=211.58 bytes=12910
+state=0 payload=0 capacity=64 mode=slow: dispatch_ns median=467.94 min=315.27 max=558.76
+  snapshot_us p50=143.88 p95=200.08 p99=204.04 bytes=12910
+state=4096 payload=256 capacity=1 mode=disabled: dispatch_ns median=31.09 min=26.70 max=113.93
+state=4096 payload=256 capacity=1 mode=no-server: dispatch_ns median=412.92 min=379.39 max=918.95
+state=4096 payload=256 capacity=1 mode=idle: dispatch_ns median=1037.27 min=851.73 max=1463.87
+  snapshot_us p50=49.71 p95=105.25 p99=119.04 bytes=8695
+state=4096 payload=256 capacity=1 mode=reader: dispatch_ns median=1466.47 min=1040.53 max=2022.79
+  snapshot_us p50=49.08 p95=89.62 p99=106.46 bytes=8695
+state=4096 payload=256 capacity=1 mode=slow: dispatch_ns median=1356.28 min=970.70 max=2082.84
+  snapshot_us p50=48.92 p95=66.00 p99=74.42 bytes=8695
+state=4096 payload=256 capacity=64 mode=disabled: dispatch_ns median=126.30 min=58.92 max=156.90
+state=4096 payload=256 capacity=64 mode=no-server: dispatch_ns median=2195.64 min=2046.39 max=2324.22
+state=4096 payload=256 capacity=64 mode=idle: dispatch_ns median=2213.38 min=913.09 max=3647.62
+  snapshot_us p50=548.38 p95=1076.12 p99=1204.46 bytes=295534
+state=4096 payload=256 capacity=64 mode=reader: dispatch_ns median=518.39 min=449.87 max=707.36
+  snapshot_us p50=429.17 p95=493.00 p99=502.50 bytes=295534
+state=4096 payload=256 capacity=64 mode=slow: dispatch_ns median=493.82 min=377.28 max=532.23
+  snapshot_us p50=424.33 p95=442.79 p99=450.83 bytes=295534
+state=65536 payload=4096 capacity=1 mode=disabled: dispatch_ns median=241.54 min=56.31 max=243.32
+state=65536 payload=4096 capacity=1 mode=no-server: dispatch_ns median=1389.16 min=1155.76 max=1663.57
+state=65536 payload=4096 capacity=1 mode=idle: dispatch_ns median=1636.39 min=1447.91 max=2233.72
+  snapshot_us p50=193.67 p95=227.42 p99=235.88 bytes=135415
+state=65536 payload=4096 capacity=1 mode=reader: dispatch_ns median=1597.98 min=1466.64 max=1755.37
+  snapshot_us p50=186.96 p95=209.42 p99=217.29 bytes=135415
+state=65536 payload=4096 capacity=1 mode=slow: dispatch_ns median=1584.14 min=1463.05 max=1749.51
+  snapshot_us p50=188.83 p95=213.04 p99=218.25 bytes=135415
+state=65536 payload=4096 capacity=64 mode=disabled: dispatch_ns median=218.10 min=82.20 max=224.77
+state=65536 payload=4096 capacity=64 mode=no-server: dispatch_ns median=1840.01 min=1590.82 max=1929.69
+state=65536 payload=4096 capacity=64 mode=idle: dispatch_ns median=2108.89 min=1778.00 max=2416.83
+  snapshot_us p50=5374.46 p95=5726.79 p99=6979.83 bytes=4534894
+state=65536 payload=4096 capacity=64 mode=reader: dispatch_ns median=1533.36 min=1396.32 max=2466.63
+  snapshot_us p50=5476.12 p95=5850.92 p99=5920.21 bytes=4534894
+state=65536 payload=4096 capacity=64 mode=slow: dispatch_ns median=1495.93 min=1376.63 max=1709.64
+  snapshot_us p50=5460.96 p95=5787.17 p99=5854.25 bytes=4534894
+        2.97 real         1.10 user         1.03 sys
+            67829760  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                4589  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+              194248  messages sent
+              194231  messages received
+                   0  signals received
+                   0  voluntary context switches
+              378910  involuntary context switches
+         25762534097  instructions retired
+          7121176263  cycles elapsed
+            66896352  peak memory footprint

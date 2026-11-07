@@ -48,6 +48,9 @@ and `records()` clones the retained history. Use a modest capacity and avoid
 copying large histories on every dispatch. No background workers or I/O run in
 the collector. The overlay's existing action logging remains independent.
 
+For a separate terminal UI, expose this collector through the
+[standalone debugger](/debugging/debugger-attach/).
+
 For custom observers, enable `tui-dispatch-core`'s `debug` feature and implement
 `observe::DispatchObserver`. This borrowed callback requires no serialization.
 Install it with `set_observer`; `clear_observer` removes it. Observer panics

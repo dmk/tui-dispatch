@@ -2,7 +2,7 @@ use tui_dispatch::prelude::*;
 
 use crate::state::Difficulty;
 
-#[derive(Action, Clone, Debug)]
+#[derive(Action, Clone, Debug, serde::Serialize)]
 pub enum Action {
     Reveal(usize, usize),
     ToggleFlag(usize, usize),

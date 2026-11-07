@@ -16,8 +16,9 @@ mod reducer;
 mod state;
 mod ui;
 
-use std::io;
+use std::{io, path::PathBuf};
 
+use clap::Parser;
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -25,22 +26,76 @@ use crossterm::terminal::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_dispatch::prelude::*;
+#[cfg(unix)]
+use tui_dispatch::{observe::DebugCollector, transport::DebugServer};
 
 use action::Action;
 use middleware::MinesweeperMiddleware;
 use reducer::reducer;
 use state::{AppState, Difficulty};
 
-fn main() -> io::Result<()> {
-    enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+#[derive(Parser)]
+#[command(about = "Minesweeper — tui-dispatch middleware showcase")]
+struct Args {
+    /// Expose a read-only debugger through this Unix socket path
+    #[arg(long)]
+    debug_socket: Option<PathBuf>,
+}
 
+struct TerminalGuard;
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, crossterm::cursor::Show);
+    }
+}
+
+fn main() -> io::Result<()> {
+    let args = Args::parse();
     let mut store = StoreWithMiddleware::new(
         AppState::new(Difficulty::Beginner),
         reducer,
         MinesweeperMiddleware,
     );
+
+    // The game keeps its synchronous loop. Only attachment starts a background
+    // Tokio worker, and binding errors happen before changing terminal modes.
+    #[cfg(unix)]
+    let debugger = if let Some(path) = args.debug_socket {
+        let collector = DebugCollector::new(serde_json::to_value(store.state())?, 64);
+        store.set_observer(collector.observer());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()?;
+        let server = runtime.block_on(DebugServer::bind(path, collector))?;
+        Some((runtime, server))
+    } else {
+        None
+    };
+    #[cfg(not(unix))]
+    if args.debug_socket.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "debugger attachment requires Unix",
+        ));
+    }
+
+    let result = run_game(&mut store);
+    #[cfg(unix)]
+    if let Some((runtime, server)) = debugger {
+        runtime.block_on(server.shutdown())?;
+    }
+    result
+}
+
+fn run_game(
+    store: &mut StoreWithMiddleware<AppState, Action, NoEffect, MinesweeperMiddleware>,
+) -> io::Result<()> {
+    enable_raw_mode()?;
+    let _guard = TerminalGuard;
+    execute!(io::stdout(), EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
 
     loop {
         terminal.draw(|frame| {
@@ -77,7 +132,5 @@ fn main() -> io::Result<()> {
         }
     }
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
 }

@@ -1,5 +1,8 @@
 # Debug observation performance
 
+For item 08's dispatch comparison, Unix socket latency, and slow-client memory
+baseline, see [Debugger attachment performance](transport.md).
+
 Roadmap item 07, measured 2026-11-02 on a Mac mini Mac16,10, Apple M4
 (4 performance + 6 efficiency cores), 16 GB RAM; macOS 26.6.2 (25G83),
 aarch64-apple-darwin. Rust 1.95.0 (`59807616e`, LLVM 22.1.2), optimized Cargo
